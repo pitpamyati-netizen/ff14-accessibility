@@ -1602,9 +1602,15 @@ public static partial class AccessibilityStrings
     public static string FaceAligned(string distance) =>
         L($"Ausgerichtet. {distance} geradeaus.", $"Aligned. {distance} straight ahead.", $"Направление взято. {distance} прямо.");
 
-    /// <summary>The key was pressed without a walk guide running.</summary>
+    /// <summary>No walk guide and no selected game target to read.</summary>
     public static string FaceNoRoute =>
-        L("Kein Weg aktiv. Erst ein Ziel wählen.", "No route active. Pick a destination first.", "Маршрут не активен. Сначала выбери цель.");
+        L("Keine Wegführung aktiv und kein Spielziel gewählt. Wähle ein Ziel oder starte die Wegführung.",
+          "No walk guide active and no game target selected. Select a target or start the walk guide.",
+          "Нет активной навигации и выбранной игровой цели. Выбери цель или включи навигацию.");
+
+    public static string TargetSameHorizontalPosition =>
+        L("an derselben horizontalen Position", "at the same horizontal position",
+          "в той же точке по горизонтали");
 
     /// <summary>Guide point and player are on the same spot - no direction to turn to.</summary>
     public static string FaceAlreadyThere =>

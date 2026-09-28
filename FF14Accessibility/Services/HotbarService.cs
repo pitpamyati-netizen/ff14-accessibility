@@ -357,9 +357,6 @@ public sealed class HotbarService
     private uint _skillDescDwellId;
     private RaptureHotbarModule.HotbarSlotType _skillDescDwellType;
     private long _skillDescDwellTick;
-    /// <summary>Numpad 5 was pressed in the entry step; the next confirm
-    /// invocation turns it into a repeat+description instead of a placement.</summary>
-    private bool _repeatEntryRequested;
     private bool _skillDescSpoken;
 
     // Carried usable items, rebuilt every time the item list is entered - the
@@ -954,13 +951,9 @@ public sealed class HotbarService
     /// "what does this one do" the moment it is asked, which is what a player
     /// who cannot see the tooltip needs.
     /// </para>
-    /// <para>
-    /// Sets <see cref="_repeatEntryRequested"/>; the actual speech runs in
-    /// <see cref="SkillMenuConfirm"/>, which is where the current entry index
-    /// and source are in scope for every list at once.
-    /// </para>
+    /// Reads immediately without changing the menu selection or the next confirm.
     /// </summary>
-    public void SkillMenuRepeatEntry() => _repeatEntryRequested = true;
+    public void SkillMenuRepeatEntry() => AnnounceEntryWithDescription();
 
     /// <summary>Speaks the current entry line again, then its description
     /// (interrupting, never the dwell). Says so plainly when the sheet has no
@@ -972,16 +965,23 @@ public sealed class HotbarService
         var (id, name, level, count, index) = _menuSource switch
         {
             AssignSource.CraftActions => CraftEntryAt(_craftIndex),
-            _ => SkillEntryAt(_skillIndex),
+            AssignSource.Skills => SkillEntryAt(_skillIndex),
+            _ => (0u, (string?)null, (byte)0, 0, 0),
         };
         if (name == null) return;
 
-        AnnounceSkillEntryForDescription(id, name, level, index, count);
-
-        var desc = ResolveActionDescription(id, SkillSlotType);
-        _tolk.SpeakInterrupt(string.IsNullOrEmpty(desc)
+        var type = SkillSlotType;
+        var location = FindSlotLocationFor(type, id);
+        var entry = AccessibilityStrings.SkillBrowseEntry(name, level, location, index, count);
+        var desc = ResolveActionDescription(id, type);
+        var description = string.IsNullOrEmpty(desc)
             ? AccessibilityStrings.SkillDescriptionMissing(name)
-            : AccessibilityStrings.ItemDescription(desc));
+            : AccessibilityStrings.ItemDescription(desc);
+
+        // One interrupting message keeps the name and description together.
+        // Cancel the pending dwell so it cannot repeat the same tooltip later.
+        ClearSkillDescDwell();
+        _tolk.SpeakInterrupt($"{entry}. {description}");
     }
 
     private void ArmSkillDescDwell(uint actionId, RaptureHotbarModule.HotbarSlotType type)
@@ -1012,15 +1012,6 @@ public sealed class HotbarService
         if (index < 0 || index >= _skills.Count) return (0, null, 0, 0, 0);
         var (id, name, level) = _skills[index];
         return (id, name, level, _skills.Count, index + 1);
-    }
-
-    /// <summary>Spoken "name, level N, position of total" for the description
-    /// gesture — the entry line without the interrupt, since the caller has
-    /// already cut off the previous announcement.</summary>
-    private void AnnounceSkillEntryForDescription(uint id, string name, byte level, int index, int count)
-    {
-        var location = FindSlotLocationFor(SkillSlotType, id);
-        _tolk.Speak(AccessibilityStrings.SkillBrowseEntry(name, level, location, index, count));
     }
 
     /// <summary>Flattened tooltip text for an assignable entry, or empty when
@@ -1151,18 +1142,6 @@ public sealed class HotbarService
 
             case SkillMenuStep.PickEntry:
                 if (_chosenBar < 0 || _chosenSlot < 0) return;
-                // Numpad 5 repeats the full entry - the same gesture as in the
-                // skill list, where it also re-reads the line and (after the
-                // dwell) the tooltip. A non-interrupting dwell line can be
-                // missed; this repeats the name AND forces the description, so
-                // a player does not have to sit still and wait for it.
-                if (_repeatEntryRequested)
-                {
-                    _repeatEntryRequested = false;
-                    AnnounceEntryWithDescription();
-                    return;
-                }
-                _repeatEntryRequested = false;
                 var placed = _menuSource switch
                 {
                     AssignSource.Items      => AssignItemToSlot(_itemIndex, _chosenBar, _chosenSlot),

@@ -451,7 +451,9 @@ navigation keys above the arrow block.
 - **Ctrl+Shift+F1** — walk to coordinates from the clipboard (e.g. copy
   "24.1 21.0", then press the key)
 - **Ctrl+Shift+F2** — copy your own map coordinates to the clipboard
-- **Numpad 5** — turn once towards where the walk guide is pointing
+- **Numpad 5** — with the walk guide active, turn once towards its next point;
+  otherwise read the selected game target's name, distance and compass direction
+  without turning the character or camera
 - **Ctrl+Shift+F6** — record a trail on/off (walk a place the navigation
   mesh does not know once by hand)
 - **N** — toggle the facing-direction announcement while turning

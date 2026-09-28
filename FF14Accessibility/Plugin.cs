@@ -211,7 +211,7 @@ public sealed partial class Plugin : IDalamudPlugin
     // 6.08.18 lokal: Chat-Absender Kontextmenü (Strg+Umschalt+BildAuf) + Numpad3-Ziel.
     // 6.08.19: Charakterauswahl — eine Ansage (Name, Job, Ort) statt Scan-Sturm.
     // 6.08.20: Mitstreiter-Taste (PR 27 Port) — Strg+Umschalt+C öffnet/vorliest.
-    private const string PluginVersion    = "6.08.62";
+    private const string PluginVersion    = "6.08.64";
     // Der Tag nennt, was diese Fassung MITBRINGT, nicht woher sie stammt: die
     // russische Schicht auf dem Stand des Autors 6.08.34 (Auftragstext im
     // Quest-Tracker des Autors, siehe package-Schritt).
@@ -1566,8 +1566,8 @@ public sealed partial class Plugin : IDalamudPlugin
     }
 
     /// <summary>
-    /// Turns the player towards the walk guide's next waypoint and takes the key
-    /// away from the game.
+    /// Turns the player towards the walk guide's next waypoint. Without a guide,
+    /// only reads the selected target. Takes the key away from the game in both cases.
     /// <para>
     /// Bare NUMPAD5 is CAMERA_FOCUS in the keybind dump. The user chose to give
     /// that up (it is purely visual) because NUMPAD5 carries the raised dot and
@@ -1578,6 +1578,8 @@ public sealed partial class Plugin : IDalamudPlugin
     /// </summary>
     private void HandleFaceWaypointKey()
     {
+        // Numpad 5 belongs to the assignment menu while it is open.
+        if (_hotbar.IsSkillMenuOpen) return;
         if (!IsJustPressed(_config.KeyFaceWaypoint)) return;
 
         _navigation.FaceGuideDirection();

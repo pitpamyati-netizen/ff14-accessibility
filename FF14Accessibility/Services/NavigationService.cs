@@ -4734,6 +4734,8 @@ public sealed class NavigationService
 
     /// <summary>
     /// Turns the player to where the walk guide is steering, once per press.
+    /// Without a walk guide, only reads the current game target's position;
+    /// neither the character nor the camera is turned in that case.
     /// Built for MANUAL walking: the guide says "24 Meter, leicht rechts", but
     /// finding that heading by ear costs time at every corner.
     /// <para>
@@ -4762,7 +4764,8 @@ public sealed class NavigationService
         var guidePoint = CurrentGuidePoint;
         if (guidePoint == null)
         {
-            _tolk.SpeakInterrupt(AccessibilityStrings.FaceNoRoute);
+            // Reading a target needs no route and must never change facing.
+            AnnounceSelectedTargetDirection(player);
             return;
         }
 
@@ -4797,6 +4800,29 @@ public sealed class NavigationService
                   $"dirH={(gameCam != null ? gameCam->DirH : float.NaN):F3}");
 
         _tolk.SpeakInterrupt(AccessibilityStrings.FaceAligned(FormatDistance(distance)));
+    }
+
+    /// <summary>Reads the current hard/soft target without tracking, routing or turning.</summary>
+    private void AnnounceSelectedTargetDirection(IGameObject player)
+    {
+        var target = _targetManager.Target ?? _targetManager.SoftTarget;
+        if (target == null)
+        {
+            _tolk.SpeakInterrupt(AccessibilityStrings.FaceNoRoute);
+            return;
+        }
+
+        var position = target.Position;
+        var distance = Vector3.Distance(player.Position, position);
+        var sameHorizontalPosition = Math.Abs(position.X - player.Position.X) < 0.01f &&
+                                     Math.Abs(position.Z - player.Position.Z) < 0.01f;
+        var direction = sameHorizontalPosition
+            ? AccessibilityStrings.TargetSameHorizontalPosition
+            : CalculateDirection(player, position);
+        var name = _enemyMarkers.SpokenPrefix(target) + _objectNames.Describe(target);
+        _tolk.SpeakInterrupt(AccessibilityStrings.TargetDirection(
+            name, FormatDistance(distance), direction + VerticalHint(player, position)));
+        _log.Info($"[Nav] Numpad5 target read: id={target.GameObjectId:X}, dist={distance:F1}, no turn");
     }
 
     /// <summary>
