@@ -9,6 +9,12 @@
 
 Наш форк: https://github.com/pitpamyati-netizen/ff14-accessibility
 
+Рабочая ветка с нашими изменениями:
+https://github.com/pitpamyati-netizen/ff14-accessibility/tree/feature/russian-accessibility-recovery
+
+Предложение изменений автору: https://github.com/derbruedi/ff14-accessibility/pull/31
+— черновик до проверки игровых сценариев.
+
 ## Где что находится
 
 - `FF14Accessibility/` — актуальный исходный код плагина.
