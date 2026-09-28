@@ -3,8 +3,11 @@
 function Say($t) { Write-Host $t }
 
 $src = Join-Path $PSScriptRoot "plugin"
+if (-not (Test-Path -LiteralPath $src)) {
+    $src = Join-Path $PSScriptRoot "artifacts\plugin"
+}
 if (-not (Test-Path $src)) {
-    Say "ОШИБКА: рядом со скриптом нет папки plugin."
+    Say "ОШИБКА: нет готовой сборки в plugin или artifacts\plugin."
     Say "Распакуй архив целиком заново и запусти install.bat из распакованной папки."
     exit 1
 }

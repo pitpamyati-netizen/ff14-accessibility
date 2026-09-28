@@ -2,6 +2,8 @@
 
 🇬🇧 English version: [README.en.md](README.en.md)
 
+🇷🇺 Русская версия и рабочая документация: [README-RU.md](README-RU.md)
+
 Ein Dalamud-Plugin, das **FINAL FANTASY XIV für blinde Spielerinnen und
 Spieler** zugänglich macht: Menüs, Dialoge, Quests, Navigation, Inventar,
 Kampf und Aktionsleisten werden per Screenreader (NVDA) vorgelesen und mit

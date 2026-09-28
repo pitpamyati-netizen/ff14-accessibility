@@ -3065,6 +3065,9 @@ public static partial class AccessibilityStrings
     /// skills). Same shape as the other list headers so the menu sounds
     /// consistent.
     /// </summary>
+    public static string CraftActionNeedsReassignment(string name) =>
+        L($"{name} (Aktion neu zuweisen)", $"{name} (reassign this action)", $"{name} (переназначьте навык)");
+
     public static string CraftActionMenuOpened(int count) =>
         L($"Handwerks-Aktionen, {count} Einträge. Nummernblock 8 und 2 blättern, 4 oder 6 wechselt die Liste, Nummernblock 5 sagt die Beschreibung, Nummernblock 0 wählt, Nummernblock Komma zurück.", $"Crafting actions, {count} entries. Numpad 8 and 2 to browse, 4 or 6 switches the list, Numpad 5 reads the description, Numpad 0 selects, Numpad decimal to go back.", $"Действия крафта, {count} записей. Numpad 8 и 2 листают, Numpad 4 и 6 меняют список, Numpad 5 читает описание, Numpad 0 выбирает, Numpad точка назад.");
     public static string SkillAssigned(string name, string slotLabel) =>

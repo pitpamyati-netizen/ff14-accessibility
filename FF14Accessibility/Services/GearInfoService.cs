@@ -265,7 +265,8 @@ public sealed class GearInfoService
         foreach (var job in _data.GetExcelSheet<ClassJob>())
         {
             if (job.RowId == 0 || AllowsJob(category, (byte)job.RowId) != true) continue;
-            var name = RussianSheetTerms.ClassJob(job.RowId);
+            var name = (Loc.IsRussian ? RussianSheetTerms.ClassJob(job.RowId) : null)
+                       ?? job.Name.ExtractText().Trim();
             if (string.IsNullOrEmpty(name)) continue;
             names.Add(name);
             if (names.Count > 3) return string.Empty;

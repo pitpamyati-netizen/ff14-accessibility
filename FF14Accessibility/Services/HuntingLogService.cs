@@ -696,13 +696,13 @@ public sealed partial class HuntingLogService
             // Russisch zuerst: der Lebensraum wird im Jagdtagebuch angesagt, und
             // das Blatt liefert hier Englisch, waehrend die Karte der Spielerin
             // den uebersetzten Namen traegt (Meldung 2026-09-14, #86-Umfeld).
-            var zone = RussianPlaceNames.PlaceName(zoneRef.RowId)
+            var zone = (Loc.IsRussian ? RussianPlaceNames.PlaceName(zoneRef.RowId) : null)
                        ?? zoneRef.ValueNullable?.Name.ExtractText().Trim() ?? string.Empty;
 
             var areaRef = i < target.PlaceNameLocation.Count ? target.PlaceNameLocation[i] : default;
             var area = areaRef.RowId == 0
                 ? string.Empty
-                : RussianPlaceNames.PlaceName(areaRef.RowId)
+                : (Loc.IsRussian ? RussianPlaceNames.PlaceName(areaRef.RowId) : null)
                   ?? areaRef.ValueNullable?.Name.ExtractText().Trim() ?? string.Empty;
 
             var mapId = _places.FindMapByPlaceName(zoneRef.RowId);

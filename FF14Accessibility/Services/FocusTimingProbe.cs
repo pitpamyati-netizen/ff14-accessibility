@@ -78,10 +78,10 @@ internal static class FocusTimingProbe
 		}
 		Count(end switch
 		{
-			WaitEnd.Agent => Phase.WarteEndeAgent, 
-			WaitEnd.ErsatzHinterher => Phase.WarteEndeErsatzHinterher, 
-			WaitEnd.ErsatzTaub => Phase.WarteEndeErsatzTaub, 
-			_ => Phase.WarteEndeWechsel, 
+			WaitEnd.Agent => Phase.WarteEndeAgent,
+			WaitEnd.ErsatzHinterher => Phase.WarteEndeErsatzHinterher,
+			WaitEnd.ErsatzTaub => Phase.WarteEndeErsatzTaub,
+			_ => Phase.WarteEndeWechsel,
 		});
 		if (startedOpen)
 		{

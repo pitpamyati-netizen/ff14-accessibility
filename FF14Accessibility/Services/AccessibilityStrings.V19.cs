@@ -77,7 +77,7 @@ public static partial class AccessibilityStrings
 
 	public static string ModsReadPartlyFailed => L("Penumbra hat geantwortet, aber den Zustand nicht aller Mods freigegeben. Eine Zahl waere geraten - sage mir Bescheid, dann sehe ich nach.", "Penumbra answered, but it did not give away the state of every mod. A number would be a guess - tell me and I will look into it.", "Penumbra ответила, но не про все моды отдала состояние. Число было бы наугад — скажи мне, и я посмотрю.");
 
-	public static string ModsNothingRemembered => L("Ich habe nichts gemerkt, was ich zurueckschalten koennte - es wurde noch nichts ausgeschaltet. Zuerst: /acc mods выкл", "I have nothing remembered to put back - nothing was switched off yet. First: /acc mods выкл", "Мне нечего возвращать — моды ещё не выключали. Сначала: /acc моды выкл");
+	public static string ModsNothingRemembered => L("Ich habe nichts gemerkt, was ich zurueckschalten koennte - es wurde noch nichts ausgeschaltet. Zuerst: /acc mods off", "I have nothing remembered to put back - nothing was switched off yet. First: /acc mods off", "Мне нечего возвращать — моды ещё не выключали. Сначала: /acc моды выкл");
 
 	public static string ModsBusy => L("Der Mod arbeitet noch an Penumbra. Ich melde mich, wenn er fertig ist.", "The mod is still working on Penumbra. I will speak up when it is done.", "Мод ещё занят в Penumbra. Скажу, когда закончит.");
 
@@ -156,13 +156,13 @@ public static partial class AccessibilityStrings
 	{
 		return kind switch
 		{
-			QuestKind.MainStory => L("Story", "story", "сюжет"), 
-			QuestKind.Job => L("Job", "job", "класс"), 
-			QuestKind.BeastTribe => L("Freundesvolk", "beast tribe", "племя"), 
-			QuestKind.Chronicle => L("Chronik", "chronicle", "хроника"), 
-			QuestKind.SideQuest => L("Nebenauftrag", "side quest", "побочное"), 
-			QuestKind.Other => L("Sonstiges", "other", "прочее"), 
-			_ => L("unbekannt", "unknown", "неизвестно"), 
+			QuestKind.MainStory => L("Story", "story", "сюжет"),
+			QuestKind.Job => L("Job", "job", "класс"),
+			QuestKind.BeastTribe => L("Freundesvolk", "beast tribe", "племя"),
+			QuestKind.Chronicle => L("Chronik", "chronicle", "хроника"),
+			QuestKind.SideQuest => L("Nebenauftrag", "side quest", "побочное"),
+			QuestKind.Other => L("Sonstiges", "other", "прочее"),
+			_ => L("unbekannt", "unknown", "неизвестно"),
 		};
 	}
 
@@ -206,12 +206,13 @@ public static partial class AccessibilityStrings
 		{
 			return count switch
 			{
-				1 => "один", 
-				2 => "двое", 
-				3 => "трое", 
-				_ => count.ToString(), 
+				1 => "один",
+				2 => "двое",
+				3 => "трое",
+				_ => count.ToString(),
 			};
 		}
+		if (Loc.IsGerman) return count == 1 ? "einem weiteren Gegner" : $"{count} weiteren Gegnern";
 		return (count == 1) ? "one more" : $"{count} more";
 	}
 
@@ -291,12 +292,12 @@ public static partial class AccessibilityStrings
 	{
 		return typeLabel switch
 		{
-			"Übergang" => PlaceKindTransition, 
-			"Ätheryt" => PlaceKindAetheryte, 
-			"Aethernet" => PlaceKindAethernet, 
-			"Ort" => PlaceKindPlace, 
-			"Markierung" => FlagName, 
-			_ => typeLabel, 
+			"Übergang" => PlaceKindTransition,
+			"Ätheryt" => PlaceKindAetheryte,
+			"Aethernet" => PlaceKindAethernet,
+			"Ort" => PlaceKindPlace,
+			"Markierung" => FlagName,
+			_ => typeLabel,
 		};
 	}
 
@@ -314,11 +315,11 @@ public static partial class AccessibilityStrings
 	{
 		return pane switch
 		{
-			0 => L("Kategorien", "Categories", "Категории"), 
-			1 => L("Stufen", "Levels", "Уровни"), 
-			2 => L("Orte", "Areas", "Места"), 
-			3 => L("Gegenstände", "Items", "Предметы"), 
-			_ => string.Empty, 
+			0 => L("Kategorien", "Categories", "Категории"),
+			1 => L("Stufen", "Levels", "Уровни"),
+			2 => L("Orte", "Areas", "Места"),
+			3 => L("Gegenstände", "Items", "Предметы"),
+			_ => string.Empty,
 		};
 	}
 
@@ -334,7 +335,7 @@ public static partial class AccessibilityStrings
 
 	public static string ModsSwitchedOff(int turnedOff, int skipped)
 	{
-		return L($"Alle Mods in Penumbra ausgeschaltet: {turnedOff}. " + "Der Mod, der dir das Spiel vorliest, liegt nicht in Penumbra und ist davon nicht betroffen. Starte das Spiel neu, dann wirkt es. Zurueck wie vorher: /acc mods вкл" + ((skipped > 0) ? $" Bei {skipped} Mod(s) war der Zustand nicht lesbar - die habe ich stehen lassen." : string.Empty), $"Switched every mod in Penumbra off: {turnedOff}. " + "The mod that reads the game to you does not live in Penumbra and is not affected by this. Restart the game for it to take effect. Back as before: /acc mods вкл" + ((skipped > 0) ? $" For {skipped} mod(s) the state was unreadable - I left those alone." : string.Empty), $"Выключила все моды в Penumbra: {turnedOff}. " + "Мод, который читает тебе игру, в Penumbra не лежит — его это не касается. Перезапусти игру, чтобы подействовало. Вернуть как было: /acc моды вкл" + ((skipped > 0) ? $" У {skipped} модов не смогла прочитать состояние — их не трогала." : string.Empty));
+		return L($"Alle Mods in Penumbra ausgeschaltet: {turnedOff}. " + "Der Mod, der dir das Spiel vorliest, liegt nicht in Penumbra und ist davon nicht betroffen. Starte das Spiel neu, dann wirkt es. Zurueck wie vorher: /acc mods on" + ((skipped > 0) ? $" Bei {skipped} Mod(s) war der Zustand nicht lesbar - die habe ich stehen lassen." : string.Empty), $"Switched every mod in Penumbra off: {turnedOff}. " + "The mod that reads the game to you does not live in Penumbra and is not affected by this. Restart the game for it to take effect. Back as before: /acc mods on" + ((skipped > 0) ? $" For {skipped} mod(s) the state was unreadable - I left those alone." : string.Empty), $"Выключила все моды в Penumbra: {turnedOff}. " + "Мод, который читает тебе игру, в Penumbra не лежит — его это не касается. Перезапусти игру, чтобы подействовало. Вернуть как было: /acc моды вкл" + ((skipped > 0) ? $" У {skipped} модов не смогла прочитать состояние — их не трогала." : string.Empty));
 	}
 
 	public static string ModsAlreadyOff(int remembered)
@@ -343,7 +344,7 @@ public static partial class AccessibilityStrings
 		{
 			return L("In Penumbra ist schon alles aus, und es gibt nichts zurueckzunehmen.", "Everything in Penumbra is already off, and there is nothing to put back.", "В Penumbra всё уже выключено, и возвращать нечего.");
 		}
-		return L($"In Penumbra ist schon alles aus. Gemerkt zum Zuruecknehmen: {remembered}. /acc mods вкл", $"Everything in Penumbra is already off. Remembered to put back: {remembered}. /acc mods вкл", $"В Penumbra всё уже выключено. Помню, что вернуть: {remembered}. /acc моды вкл");
+		return L($"In Penumbra ist schon alles aus. Gemerkt zum Zuruecknehmen: {remembered}. /acc mods on", $"Everything in Penumbra is already off. Remembered to put back: {remembered}. /acc mods on", $"В Penumbra всё уже выключено. Помню, что вернуть: {remembered}. /acc моды вкл");
 	}
 
 	public static string ModsRestored(int restored, int failed)

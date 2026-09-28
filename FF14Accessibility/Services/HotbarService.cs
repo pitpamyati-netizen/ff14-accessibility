@@ -221,7 +221,7 @@ public sealed class HotbarService
         {
             var oldCraftName = oldCraft.Name.ExtractText();
             if (!string.IsNullOrWhiteSpace(oldCraftName))
-                return $"{oldCraftName} (переназначьте навык)";
+                return AccessibilityStrings.CraftActionNeedsReassignment(oldCraftName);
         }
 
         // Craft actions must retain their own slot type so the game executes
@@ -1482,7 +1482,7 @@ public sealed class HotbarService
             return false;
         }
 
-        _log.Info($"[Hotbar] Direkt nach Set+WriteSavedSlot+LoadSavedHotbar: {DescribeSlotRaw(module, bar, slot)}");
+        _log.Info($"[Hotbar] Direkt nach Set+WriteSavedSlot: {DescribeSlotRaw(module, bar, slot)}");
         return true;
     }
 
@@ -2121,7 +2121,8 @@ public sealed class HotbarService
     /// </summary>
     private uint CraftCategoryFor(string abbreviation)
     {
-        var sheet = _data.GetExcelSheet<LuminaClassJobCategory>();
+        // EnglishAbbreviation is compared below; category names must use the same language.
+        var sheet = _data.GetExcelSheet<LuminaClassJobCategory>(Dalamud.Game.ClientLanguage.English);
         if (sheet == null) return 0;
 
         foreach (var row in sheet)

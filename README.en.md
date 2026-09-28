@@ -2,6 +2,8 @@
 
 🇩🇪 Deutsche Version: [README.md](README.md)
 
+🇷🇺 Русская версия и рабочая документация: [README-RU.md](README-RU.md)
+
 A Dalamud plugin that makes **FINAL FANTASY XIV accessible to blind
 players**: menus, dialogues, quests, navigation, inventory, combat and
 hotbars are read aloud via screen reader (NVDA) and supported with audio
