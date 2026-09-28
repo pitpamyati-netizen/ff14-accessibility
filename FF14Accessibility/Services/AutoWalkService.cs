@@ -503,6 +503,20 @@ public sealed class AutoWalkService : IDisposable
     public bool IsActive => _phase is Phase.Starting or Phase.Walking
                                    or Phase.TrailWalking or Phase.Landing;
 
+    /// <summary>Read-only destination for an explicit status request. A stopped
+    /// walk must not make an old destination look selected again.</summary>
+    public (string Name, Vector3 Position)? CurrentDestination
+    {
+        get
+        {
+            if (!IsActive || string.IsNullOrWhiteSpace(_targetName)) return null;
+            var live = _targetId != 0
+                ? _objectTable.FirstOrDefault(o => o.GameObjectId == _targetId)
+                : null;
+            return (_targetName, live?.Position ?? _ceilingDestination ?? _crossingDestination ?? _destPosition);
+        }
+    }
+
     /// <summary>
     /// Kennt die Flugbedingungen des Spiels und ruft das Reittier. NACH dem
     /// Konstruktor gesetzt, wie <see cref="Transitions"/> und <see cref="Obstacles"/>.

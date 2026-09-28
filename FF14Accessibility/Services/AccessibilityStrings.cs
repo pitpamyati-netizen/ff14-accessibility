@@ -27,12 +27,12 @@ public static partial class AccessibilityStrings
         => Loc.IsRussian ? ru ?? en : IsGerman ? de : en;
 
     /// <summary>
-    /// Wie <see cref="L"/>, fuer Texte, die als Paar in einer Tabelle liegen
-    /// (<c>CharaMakeShapeText</c>, <c>CharaMakeIconText</c>): dort gibt es kein
-    /// Russisch, und ein unuebersetzter Eintrag faellt auf Englisch zurueck -
-    /// nie auf Schweigen. Die Tabelle waechst, dieser Helfer bleibt.
+    /// Authored character descriptions keep the upstream DE/EN table. Russian
+    /// translations match the complete English text in a separate offline catalog.
+    /// A new or changed entry keeps its original wording until translated.
     /// </summary>
-    internal static string LocText(string de, string en) => L(de, en);
+    internal static string LocText(string de, string en)
+        => L(de, en, Loc.IsRussian ? RussianCharacterText.Find(en) : null);
 
     public static string TitleScreen => L("Titelbildschirm", "Title screen", "Титульный экран");
     public static string MainMenu => L("Hauptmenü", "Main menu", "Главное меню");
@@ -1602,11 +1602,11 @@ public static partial class AccessibilityStrings
     public static string FaceAligned(string distance) =>
         L($"Ausgerichtet. {distance} geradeaus.", $"Aligned. {distance} straight ahead.", $"Направление взято. {distance} прямо.");
 
-    /// <summary>No walk guide and no selected game target to read.</summary>
+    /// <summary>No guide, browser destination, game target or active walk to read.</summary>
     public static string FaceNoRoute =>
-        L("Keine Wegführung aktiv und kein Spielziel gewählt. Wähle ein Ziel oder starte die Wegführung.",
-          "No walk guide active and no game target selected. Select a target or start the walk guide.",
-          "Нет активной навигации и выбранной игровой цели. Выбери цель или включи навигацию.");
+        L("Kein Ziel gewählt. Wähle ein Objekt oder ein Ziel in der Navigationsliste.",
+          "No target selected. Select an object or a destination in the navigation list.",
+          "Цель не выбрана. Выбери объект или цель в списке навигации.");
 
     public static string TargetSameHorizontalPosition =>
         L("an derselben horizontalen Position", "at the same horizontal position",

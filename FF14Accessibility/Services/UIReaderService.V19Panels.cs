@@ -30,7 +30,7 @@ public sealed partial class UIReaderService
     private string GatheringNoteCategoryName(int index)
     {
         var sheet = _data.GetExcelSheet<Lumina.Excel.Sheets.GatheringType>();
-        return sheet.TryGetRow((uint)index, out var row) ? row.Name.ExtractText().Trim() : string.Empty;
+        return sheet.TryGetRow((uint)index, out var row) ? RussianGameText.Name(_data, row, x => x.Name).Trim() : string.Empty;
     }
 
     private unsafe void LogGatheringNoteCategoryChange(AtkUnitBase* addon)

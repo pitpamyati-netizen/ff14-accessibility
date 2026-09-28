@@ -708,7 +708,9 @@ public sealed partial class HuntingLogService
             var mapId = _places.FindMapByPlaceName(zoneRef.RowId);
             Vector3? pos = null;
             if (mapId != 0 && areaRef.RowId != 0)
-                pos = _places.FindMarkerPosition(mapId, areaRef.RowId, area);
+                // Map labels use the client's sheet language, not the spoken translation.
+                pos = _places.FindMarkerPosition(mapId, areaRef.RowId,
+                    areaRef.ValueNullable?.Name.ExtractText().Trim() ?? string.Empty);
 
             result.Add((zone, area, mapId, pos, areaRef.RowId));
         }

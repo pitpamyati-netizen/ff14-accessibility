@@ -16,6 +16,7 @@ using DetailKind = FFXIVClientStructs.FFXIV.Client.Enums.DetailKind;
 using LuminaAction = Lumina.Excel.Sheets.Action;
 using LuminaActionTransient = Lumina.Excel.Sheets.ActionTransient;
 using LuminaTrait = Lumina.Excel.Sheets.Trait;
+using LuminaCraftAction = Lumina.Excel.Sheets.CraftAction;
 using LuminaMount = Lumina.Excel.Sheets.Mount;
 using LuminaCompanion = Lumina.Excel.Sheets.Companion;
 
@@ -43,6 +44,7 @@ public sealed partial class UIReaderService : IDisposable
     private readonly IGameGui        _gameGui;
     private readonly TolkService     _tolk;
     private readonly IPluginLog      _log;
+    private readonly GameDescriptionService _descriptions;
     private readonly IObjectTable    _objectTable;
     private readonly InventoryService _inventory;
     private readonly GearInfoService _gearInfo;
@@ -519,7 +521,7 @@ public sealed partial class UIReaderService : IDisposable
             $"focused=[{string.Join(", ", focused)}]");
     }
 
-    public UIReaderService(IAddonLifecycle addonLifecycle, IGameGui gameGui, TolkService tolk, IPluginLog log, IObjectTable objectTable, InventoryService inventory, GearInfoService gearInfo, BestiaryService bestiary, HuntingLogService huntingLog, MessageHistoryService history, Configuration config, IDataManager data, TooltipService tooltips, CharaMakeReader charaMake, LootRollService lootRolls, ItemSlotService itemSlots, GatherLogService gatherLog)
+    public UIReaderService(IAddonLifecycle addonLifecycle, IGameGui gameGui, TolkService tolk, IPluginLog log, IObjectTable objectTable, InventoryService inventory, GearInfoService gearInfo, BestiaryService bestiary, HuntingLogService huntingLog, MessageHistoryService history, Configuration config, IDataManager data, TooltipService tooltips, CharaMakeReader charaMake, LootRollService lootRolls, ItemSlotService itemSlots, GatherLogService gatherLog, GameDescriptionService descriptions)
     {
         _lootRolls      = lootRolls;
         _itemSlots      = itemSlots;
@@ -529,6 +531,7 @@ public sealed partial class UIReaderService : IDisposable
         _gameGui        = gameGui;
         _tolk           = tolk;
         _log            = log;
+        _descriptions   = descriptions;
         _objectTable    = objectTable;
         _inventory      = inventory;
         _gearInfo       = gearInfo;
@@ -539,7 +542,7 @@ public sealed partial class UIReaderService : IDisposable
         _config         = config;
         _data           = data;
         _actionShape    = new ActionShapeService(data, log);
-        _aozNotebook    = new AozNotebookService(gameGui, data, log);
+        _aozNotebook    = new AozNotebookService(gameGui, data, log, descriptions);
         _xbmNotebook    = new XbmNotebookService(data, log);
         _gcRanks        = new GrandCompanyRankText(data, log);
         _dutySettings   = new ContentsFinderSettingText(log);
@@ -1959,9 +1962,9 @@ public sealed partial class UIReaderService : IDisposable
     }
 
     /// <summary>Formats one gathering item row for speech.</summary>
-    private static unsafe string DescribeGatheringItem(AtkComponentBase* comp, string name)
+    private unsafe string DescribeGatheringItem(AtkComponentBase* comp, string name)
     {
-        var parts = new List<string> { name };
+        var parts = new List<string> { _inventory.TranslateItemLabel(name) };
 
         // "St. X" (id=21). ASSUMPTION (in-game unverified, corroborated by the
         // dump: a higher value tracks a lower gather chance) that St. = Stufe,
@@ -2122,7 +2125,7 @@ public sealed partial class UIReaderService : IDisposable
     /// <summary>Formats one row of the gathering journal for speech.</summary>
     private unsafe string DescribeGatheringNoteItem(AtkComponentBase* comp, string name)
     {
-        var parts = new List<string> { name };
+        var parts = new List<string> { _inventory.TranslateItemLabel(name) };
 
         // "Lv. 1" is the client's own label, passed through as read - only the
         // abbreviation is expanded, exactly like the harvest window's "St.".
@@ -2583,7 +2586,7 @@ public sealed partial class UIReaderService : IDisposable
     {
         if (!_data.GetExcelSheet<Lumina.Excel.Sheets.GrandCompany>().TryGetRow(rowId, out var row))
             return string.Empty;
-        var raw = row.Name.ExtractText();
+        var raw = RussianGameText.Name(_data, row, x => x.Name);
         if (raw.Contains('['))
             raw = raw.Replace("[a]", string.Empty).Replace("[p]", string.Empty).Replace("[t]", string.Empty);
         return TolkService.Sanitize(raw).Trim();
@@ -3333,6 +3336,7 @@ public sealed partial class UIReaderService : IDisposable
     // dwelled on the SAME skill for ActionDescDwellSeconds (user choice
     // 2026-07-31), so quickly scanning the list never drowns in descriptions.
     private uint _actionDwellId;          // action id the dwell clock is timing (0 = none)
+    private DetailKind _actionDwellKind;  // identical ids in different sheets are different entries
     private long _actionDwellTick;        // Stopwatch timestamp the focus reached it
     private bool _actionDwellDescSpoken;  // description already queued for this dwell?
     private const double ActionDescDwellSeconds = 0.4;
@@ -4761,7 +4765,10 @@ public sealed partial class UIReaderService : IDisposable
             // (0x02..0x03, log 2026-07-16 18:21: '226, <payload>Laien-
             // Hanfbundhaube<payload>') - match on the sanitized name, the
             // same form the user hears.
-            var info = _gearInfo.DescribeByName(TolkService.Sanitize(part));
+            var sourceName = TolkService.Sanitize(part);
+            var info = _gearInfo.DescribeByName(sourceName);
+            var translatedName = _inventory.TranslateItemLabel(sourceName);
+            if (translatedName != sourceName) text = text.Replace(part, translatedName, StringComparison.Ordinal);
             if (info.Length > 0)
             {
                 _log.Info($"[Gear] Laden-Zeile '{part}': {info}");
@@ -6123,11 +6130,12 @@ public sealed partial class UIReaderService : IDisposable
             _actionDetailDwellKey = string.Empty;
             var id = action.Value.Id;
 
-            if (id != _actionDwellId)
+            if (id != _actionDwellId || action.Value.Kind != _actionDwellKind)
             {
                 // Focus just reached this skill (its name is being spoken this same
                 // frame) - start the clock, description not yet due.
                 _actionDwellId         = id;
+                _actionDwellKind       = action.Value.Kind;
                 _actionDwellTick       = System.Diagnostics.Stopwatch.GetTimestamp();
                 _actionDwellDescSpoken = false;
                 return;
@@ -6140,8 +6148,7 @@ public sealed partial class UIReaderService : IDisposable
 
             _actionDwellDescSpoken = true; // one-shot per dwell, even if desc is empty
             var desc = ActionMenuDescription(action.Value.Kind, id);
-            // Traits have no ActionTransient text — take the panel description
-            // the scanner used to spam (Log 2026-09-14, muted in HudNoiseAddons).
+            // Keep the visible panel as the fallback for unresolved descriptions.
             if (string.IsNullOrEmpty(desc) && TryReadActionDetailPanel(out _, out _, out var panelDesc))
                 desc = panelDesc;
             if (!string.IsNullOrEmpty(desc)) _tolk.Speak(desc);
@@ -6150,7 +6157,7 @@ public sealed partial class UIReaderService : IDisposable
 
         // Unbound traits: dwell on the ActionDetail panel name/description.
         _actionDwellId = 0;
-        if (!TryReadActionDetailPanel(out var panelName, out _, out var unboundDesc)
+        if (!TryReadActionDetailPanel(out var panelName, out var panelLevel, out var unboundDesc)
             || string.IsNullOrWhiteSpace(panelName))
         {
             _actionDetailDwellKey = string.Empty;
@@ -6177,6 +6184,7 @@ public sealed partial class UIReaderService : IDisposable
         if (elapsedU < ActionDescDwellSeconds) return;
 
         _actionDwellDescSpoken = true;
+        unboundDesc = FlattenDescription(_descriptions.TraitFromPanel(panelName, panelLevel, unboundDesc));
         if (!string.IsNullOrEmpty(unboundDesc)) _tolk.Speak(unboundDesc);
     }
 
@@ -6274,7 +6282,7 @@ public sealed partial class UIReaderService : IDisposable
             var name = row.Name.ExtractText().Trim();
             if (!string.Equals(name, needle, StringComparison.OrdinalIgnoreCase))
                 continue;
-            return FlattenDescription(row.Description.ExtractText());
+            return FlattenDescription(_descriptions.BuddyAction(row.RowId));
         }
 
         // Fallback: Action sheet by name → ActionTransient (same wording as skill window).
@@ -6286,7 +6294,7 @@ public sealed partial class UIReaderService : IDisposable
             if (!string.Equals(name, needle, StringComparison.OrdinalIgnoreCase))
                 continue;
             if (_data.GetExcelSheet<LuminaActionTransient>()?.TryGetRow(row.RowId, out var trans) == true)
-                return FlattenDescription(trans.Description.ExtractText());
+                return FlattenDescription(_descriptions.Action(row.RowId));
             return string.Empty;
         }
         return string.Empty;
@@ -6460,9 +6468,10 @@ public sealed partial class UIReaderService : IDisposable
         {
             _actionDetailDeferNode = 0;
             _actionDetailDeferFrames = 0;
+            var spokenName = _descriptions.TraitNameFromPanel(panelName, panelLevel);
             text = panelLevel > 0
-                ? AccessibilityStrings.NameWithLevel(panelName, panelLevel)
-                : panelName;
+                ? AccessibilityStrings.NameWithLevel(spokenName, panelLevel)
+                : spokenName;
             _log.Info($"[ActionDetail] Panel-Fallback node id={node->NodeId} -> '{text}'");
             return true;
         }
@@ -6752,7 +6761,7 @@ public sealed partial class UIReaderService : IDisposable
                 _lastBuddySkillLogged = tip;
                 _log.Info($"[Buddy] Skill via Text-Tooltip: '{tip}'");
             }
-            return tip;
+            return _descriptions.BuddyActionNameFromPanel(tip);
         }
 
         return string.Empty;
@@ -6785,7 +6794,8 @@ public sealed partial class UIReaderService : IDisposable
     /// tooltip's name+level).</summary>
     private string DescribeActionDetail(DetailKind kind, uint id) => kind switch
     {
-        DetailKind.Action or DetailKind.CraftingAction => DescribeAction(id),
+        DetailKind.Action                              => DescribeAction(id),
+        DetailKind.CraftingAction                      => DescribeCraftAction(id),
         DetailKind.Trait                               => DescribeTrait(id),
         _                                              => string.Empty,
     };
@@ -6797,7 +6807,7 @@ public sealed partial class UIReaderService : IDisposable
     private string DescribeAction(uint id)
     {
         if (!_data.GetExcelSheet<LuminaAction>().TryGetRow(id, out var row)) return string.Empty;
-        var name = row.Name.ExtractText().Trim();
+        var name = _descriptions.ActionName(id).Trim();
         if (string.IsNullOrWhiteSpace(name)) return string.Empty;
 
         var sb = new StringBuilder(name);
@@ -6812,21 +6822,28 @@ public sealed partial class UIReaderService : IDisposable
         return sb.ToString();
     }
 
-    /// <summary>The flattened tooltip description of an action, or empty for kinds
-    /// that carry none (traits, unresolved ids). Spoken separately, and only after
+    /// <summary>The flattened tooltip description from the entry's own sheet.
+    /// Spoken separately, and only after
     /// the focus dwells - see HandleActionMenuDwell.</summary>
     private string ActionMenuDescription(DetailKind kind, uint id)
+        => FlattenDescription(kind switch
+        {
+            DetailKind.Action => _descriptions.Action(id),
+            DetailKind.CraftingAction => _descriptions.CraftAction(id),
+            DetailKind.Trait => _descriptions.Trait(id),
+            _ => string.Empty,
+        });
+
+    private string DescribeCraftAction(uint id)
     {
-        if (kind is not (DetailKind.Action or DetailKind.CraftingAction)) return string.Empty;
-        if (!_data.GetExcelSheet<LuminaActionTransient>().TryGetRow(id, out var trans)) return string.Empty;
-        return FlattenDescription(trans.Description.ExtractText());
+        return _descriptions.CraftActionName(id).Trim();
     }
 
     /// <summary>"Name, Stufe X" for a trait (the Trait sheet has no description).</summary>
     private string DescribeTrait(uint id)
     {
         if (!_data.GetExcelSheet<LuminaTrait>().TryGetRow(id, out var row)) return string.Empty;
-        var name = row.Name.ExtractText().Trim();
+        var name = _descriptions.TraitName(id).Trim();
         if (string.IsNullOrWhiteSpace(name)) return string.Empty;
         return row.Level > 0 ? AccessibilityStrings.NameWithLevel(name, row.Level) : name;
     }
@@ -8170,7 +8187,7 @@ public sealed partial class UIReaderService : IDisposable
         try
         {
             File.WriteAllText(dumpFile, output, System.Text.Encoding.UTF8);
-            _tolk.SpeakInterrupt($"ConfigSystem Dump. {addon->UldManager.NodeListCount} Nodes.");
+        _tolk.SpeakInterrupt(AccessibilityStrings.SystemConfigProbeSaved(addon->UldManager.NodeListCount));
             _log.Info($"[CS-DIAG] Gespeichert: {dumpFile}");
         }
         catch (Exception ex)
@@ -13298,7 +13315,7 @@ public sealed partial class UIReaderService : IDisposable
             return true;
         }
 
-        var parts = new List<string> { name };
+        var parts = new List<string> { _inventory.TranslateItemLabel(name) };
 
         var job   = AtkText.ReadClean(addon->CurrentJobName).Trim();
         var level = AtkText.ReadClean(addon->CurrentJobLevel).Trim();
@@ -13344,7 +13361,7 @@ public sealed partial class UIReaderService : IDisposable
     /// visible selection, so a recipe change cannot mix two recipes in one read.
     /// The window's material nodes remain a fallback while game data loads.
     /// </summary>
-    private static unsafe List<string> ReadRecipeMaterials(AddonRecipeNote* addon)
+    private unsafe List<string> ReadRecipeMaterials(AddonRecipeNote* addon)
     {
         var lines = new List<string>();
         var game = FFXIVClientStructs.FFXIV.Client.Game.UI.RecipeNote.Instance();
@@ -13369,7 +13386,7 @@ public sealed partial class UIReaderService : IDisposable
                     break;
                 }
                 runtimeLines.Add(AccessibilityStrings.RecipeMaterial(
-                    matName, ing.Amount.ToString(), ing.NQCount.ToString(), ing.HQCount.ToString()));
+                    _inventory.ResolveItemName(ing.ItemId), ing.Amount.ToString(), ing.NQCount.ToString(), ing.HQCount.ToString()));
             }
             if (complete) lines.AddRange(runtimeLines);
         }
@@ -13381,7 +13398,7 @@ public sealed partial class UIReaderService : IDisposable
                 var matName = AtkText.ReadClean(ing.Name).Trim();
                 if (matName.Length == 0) continue;
                 lines.Add(AccessibilityStrings.RecipeMaterial(
-                    matName,
+                    _inventory.TranslateItemLabel(matName),
                     AtkText.Read(ing.QuantityRequiredForCraft).Trim(),
                     AtkText.Read(ing.QuantityInInventoryNq).Trim(),
                     AtkText.Read(ing.QuantityInInventoryHq).Trim()));
@@ -14075,7 +14092,7 @@ public sealed partial class UIReaderService : IDisposable
             var sheet = _data.GetExcelSheet<Lumina.Excel.Sheets.MainCommand>();
             if (sheet == null) return string.Empty;
             var row = sheet.GetRowOrDefault(rowId);
-            return row?.Name.ExtractText().Trim() ?? string.Empty;
+            return row is { } command ? RussianGameText.Name(_data, command, x => x.Name).Trim() : string.Empty;
         }
         catch (Exception ex)
         {
@@ -14932,14 +14949,18 @@ public sealed partial class UIReaderService : IDisposable
     /// <summary>Icon id -&gt; minion name, built once from the Companion sheet and
     /// cached. Note the sheet names the column <c>Singular</c>; there is no
     /// <c>Name</c> column, same as Mount.</summary>
+    private bool _companionNamesRussian;
+    private bool _mountNamesRussian;
+
     private Dictionary<uint, string> CompanionByIcon()
     {
-        if (_companionByIcon != null) return _companionByIcon;
+        if (_companionByIcon != null && _companionNamesRussian == Loc.IsRussian) return _companionByIcon;
+        _companionNamesRussian = Loc.IsRussian;
         var map = new Dictionary<uint, string>();
         foreach (var row in _data.GetExcelSheet<LuminaCompanion>())
         {
             if (row.RowId == 0 || row.Icon == 0) continue;
-            var name = row.Singular.ExtractText();
+            var name = RussianGameText.Name(_data, row, x => x.Singular);
             if (!string.IsNullOrWhiteSpace(name)) map[row.Icon] = name;
         }
         _log.Info($"[Minion] Icon-Map gebaut: {map.Count} Begleiter.");
@@ -14949,12 +14970,13 @@ public sealed partial class UIReaderService : IDisposable
     /// <summary>Icon id -&gt; mount name, built once from the Mount sheet and cached.</summary>
     private Dictionary<uint, string> MountByIcon()
     {
-        if (_mountByIcon != null) return _mountByIcon;
+        if (_mountByIcon != null && _mountNamesRussian == Loc.IsRussian) return _mountByIcon;
+        _mountNamesRussian = Loc.IsRussian;
         var map = new Dictionary<uint, string>();
         foreach (var row in _data.GetExcelSheet<LuminaMount>())
         {
             if (row.RowId == 0 || row.Icon == 0) continue;
-            var name = row.Singular.ExtractText();
+            var name = RussianGameText.Name(_data, row, x => x.Singular);
             if (!string.IsNullOrWhiteSpace(name)) map[row.Icon] = name;
         }
         _log.Info($"[Mount] Icon-Map gebaut: {map.Count} Reittiere.");

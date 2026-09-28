@@ -211,7 +211,7 @@ public sealed partial class Plugin : IDalamudPlugin
     // 6.08.18 lokal: Chat-Absender Kontextmenü (Strg+Umschalt+BildAuf) + Numpad3-Ziel.
     // 6.08.19: Charakterauswahl — eine Ansage (Name, Job, Ort) statt Scan-Sturm.
     // 6.08.20: Mitstreiter-Taste (PR 27 Port) — Strg+Umschalt+C öffnet/vorliest.
-    private const string PluginVersion    = "6.08.65";
+    private const string PluginVersion    = "6.08.70";
     // Der Tag nennt, was diese Fassung MITBRINGT, nicht woher sie stammt: die
     // russische Schicht auf dem Stand des Autors 6.08.34 (Auftragstext im
     // Quest-Tracker des Autors, siehe package-Schritt).
@@ -403,11 +403,12 @@ public sealed partial class Plugin : IDalamudPlugin
         _escape       = new EscapeRouteService(PluginInterface, Log);
         _keybinds     = new KeybindService(_tolk, Log);
         // Inventory first: the hotbar menu reads the carried items from it.
-        _inventoryReader = new InventoryService(GameInventory, DataManager, ClientState, _config, _tolk, Log);
+        var descriptions = new GameDescriptionService(DataManager, SeStringEval, Log);
+        _inventoryReader = new InventoryService(GameInventory, DataManager, ClientState, _config, _tolk, Log, descriptions);
         // Braucht nur das Item-Sheet: die Antwort kommt aus dem Detail-Agenten
         // des Spiels, den Fokus-Knoten holt er sich selbst (siehe ItemSlotService).
         _itemSlots       = new ItemSlotService(DataManager);
-        _hotbar       = new HotbarService(DataManager, ClientState, Framework, _gearInfo, _keybinds, _inventoryReader, _tolk, Log, SeStringEval);
+        _hotbar       = new HotbarService(DataManager, ClientState, Framework, _gearInfo, _keybinds, _inventoryReader, _tolk, Log, descriptions, SeStringEval);
         _lootRolls    = new LootRollService(DataManager, ClientState, GameGui, _config, _gearInfo, _tolk, Log);
         _equipment    = new EquipmentService(GameInventory, _inventoryReader, DataManager, _gearInfo, _tolk, Log);
         _questMarkers = new QuestMarkerService(ClientState, DataManager, Log);
@@ -563,7 +564,7 @@ public sealed partial class Plugin : IDalamudPlugin
         // und liefert dem Fokus-Leser an einer Stelle den Satz zur Kategorie bzw.
         // zum Waehler-Eintrag.
         _charaMake  = new CharaMakeReader(ObjectTable, DataManager, GameGui, _tolk, Log, _tooltips);
-        _uiReader   = new UIReaderService(AddonLifecycle, GameGui, _tolk, Log, ObjectTable, _inventoryReader, _gearInfo, _bestiary, _huntingLog, _history, _config, DataManager, _tooltips, _charaMake, _lootRolls, _itemSlots, _gatherLog);
+        _uiReader   = new UIReaderService(AddonLifecycle, GameGui, _tolk, Log, ObjectTable, _inventoryReader, _gearInfo, _bestiary, _huntingLog, _history, _config, DataManager, _tooltips, _charaMake, _lootRolls, _itemSlots, _gatherLog, descriptions);
         _armouryTransfer = new ArmouryTransferService(DataManager, ClientState, GameGui, _uiReader, _tolk, Log);
         _synthesis   = new SynthesisService(GameGui, _tolk, Log);
         // [Handwerker-Notizbuch] Die Frage, die das Spiel nur fuer das ausgewaehlte
@@ -643,7 +644,7 @@ public sealed partial class Plugin : IDalamudPlugin
         _toasts     = new ToastService(ToastGui, TargetManager, _tolk, _config, Log);
         _aoeWarn    = new AoeWarningService(_config, Log);
         _warnVoice  = new WarningVoiceService(_config, Log);
-        _combat     = new CombatService(ObjectTable, TargetManager, GameGui, DataManager, _tolk, _config, _history, _aoeWarn, _escape, _warnVoice, _leveEnemies, Log);
+        _combat     = new CombatService(ObjectTable, TargetManager, GameGui, DataManager, _tolk, _config, _history, _aoeWarn, _escape, _warnVoice, _leveEnemies, Log, descriptions);
         _cooldown   = new CooldownService(ClientState, DataManager, _cue, _tolk, _warnVoice, _config, Log);
         _jobGauge   = new JobGaugeService(JobGauges, ObjectTable, DataManager, _warnVoice, _tolk, _cue, _config, Log);
         _dutyActions = new DutyActionService(DataManager, _tolk, _cue, _config, Log);
@@ -1582,7 +1583,28 @@ public sealed partial class Plugin : IDalamudPlugin
         if (_hotbar.IsSkillMenuOpen) return;
         if (!IsJustPressed(_config.KeyFaceWaypoint)) return;
 
-        _navigation.FaceGuideDirection();
+        if (_navigation.IsWalkGuideActive)
+        {
+            _navigation.FaceGuideDirection();
+        }
+        else
+        {
+            // A browser selection can be a map position, not a game target.
+            // Reading it must not start a walk, retarget a monster or advance
+            // the hunt search. Use the same selection order as Numpad3.
+            switch (TryResolveMarkerDestination(out var position, out var name, out _,
+                        out var heightIsGuess, out _, forReadout: true))
+            {
+                case MarkerResolve.Resolved:
+                    _navigation.AnnounceDestinationDirection(name, position, heightIsGuess);
+                    break;
+                case MarkerResolve.None:
+                    _navigation.FaceGuideDirection();
+                    break;
+                case MarkerResolve.Failed:
+                    break; // The selected destination's specific reason was read.
+            }
+        }
 
         const int vkNumpad5 = 0x65;
         var key = (Dalamud.Game.ClientState.Keys.VirtualKey)vkNumpad5;
@@ -2842,8 +2864,13 @@ public sealed partial class Plugin : IDalamudPlugin
     /// after teleports); 2D map markers get their height from the navmesh.
     /// </summary>
     private MarkerResolve TryResolveMarkerDestination(out Vector3 position, out string name, out float stopRange,
-                                                      out bool heightIsGuess, out bool isZoneTransition)
+                                                      out bool heightIsGuess, out bool isZoneTransition,
+                                                      bool forReadout = false)
     {
+        // Speech needs a location, not a walkable surface. In particular it
+        // must still work while vnavmesh is unavailable or building its mesh.
+        Vector3? FloorPoint(Vector3 point) => forReadout ? point : _autoWalk.ResolveFloorPoint(point);
+        Vector3? ReachablePoint(Vector3 point) => forReadout ? point : _autoWalk.ResolveReachablePoint(point);
         // Vorbelegen: jeder Rueckgabepfad muss den Wert setzen, und nur der
         // Uebergangs-Zweig weiter unten setzt ihn auf true.
         isZoneTransition = false;
@@ -2874,7 +2901,7 @@ public sealed partial class Plugin : IDalamudPlugin
                     return MarkerResolve.Failed;
                 }
                 var playerY = ObjectTable.LocalPlayer?.Position.Y ?? 0f;
-                var floor   = _autoWalk.ResolveFloorPoint(hop.Position with { Y = playerY });
+                var floor   = FloorPoint(hop.Position with { Y = playerY });
                 if (floor == null)
                 {
                     _tolk.SpeakInterrupt(AccessibilityStrings.NoWalkablePointAt(hop.Name));
@@ -2892,8 +2919,8 @@ public sealed partial class Plugin : IDalamudPlugin
             // disconnected patch, then the walk ends a few metres short (log
             // 2026-09-09 20:43: "Die Gabe der Unsterblichkeit", shortfall 3,9 m
             // at stopRange 1; flight ended "Noch 3 Meter nach Norden").
-            position = _autoWalk.ResolveReachablePoint(quest.Position)
-                       ?? _autoWalk.ResolveFloorPoint(quest.Position)
+            position = ReachablePoint(quest.Position)
+                       ?? FloorPoint(quest.Position)
                        ?? quest.Position;
             name = quest.QuestName;
             heightIsGuess = true;
@@ -2940,16 +2967,17 @@ public sealed partial class Plugin : IDalamudPlugin
             // Torbauwerk, gemessen mit tools/zone-probe am 2026-08-22. Deshalb
             // bekommt die Grenzsuche vnavmeshs Erreichbarkeitspruefung mit und
             // nimmt den naechsten Punkt, den das Netz auch annimmt.
-            var borderPoint = place.IsZoneTransition
+            var borderPoint = !forReadout && place.IsZoneTransition
                 ? _zoneBorders.FindBorderPoint(place.TargetMapId, ObjectTable.LocalPlayer?.Position ?? place.Position,
                                                _autoWalk.ProbeReachable)
                 : null;
             var approach = borderPoint ?? place.Position with { Y = playerY };
 
-            var floor   = place.IsWaterSpot
+            var floor   = forReadout ? (Vector3?)approach
+                : place.IsWaterSpot
                 ? (_autoWalk.ResolveNearestBank(place.Position with { Y = playerY })
-                   ?? _autoWalk.ResolveFloorPoint(place.Position with { Y = playerY }))
-                : _autoWalk.ResolveReachablePoint(approach);
+                   ?? FloorPoint(place.Position with { Y = playerY }))
+                : ReachablePoint(approach);
             if (floor == null)
             {
                 _tolk.SpeakInterrupt(AccessibilityStrings.NoWalkablePointNear(place.Name));
@@ -2992,7 +3020,7 @@ public sealed partial class Plugin : IDalamudPlugin
                         return MarkerResolve.Failed;
                     }
                     var hopY    = ObjectTable.LocalPlayer?.Position.Y ?? 0f;
-                    var hopWalk = _autoWalk.ResolveFloorPoint(hop.Position with { Y = hopY });
+                    var hopWalk = FloorPoint(hop.Position with { Y = hopY });
                     if (hopWalk == null)
                     {
                         _tolk.SpeakInterrupt(AccessibilityStrings.NoWalkablePointAt(hop.Name));
@@ -3038,7 +3066,7 @@ public sealed partial class Plugin : IDalamudPlugin
                             return MarkerResolve.Failed;
                         }
                         var hopY    = ObjectTable.LocalPlayer?.Position.Y ?? 0f;
-                        var hopWalk = _autoWalk.ResolveFloorPoint(hop.Position with { Y = hopY });
+                        var hopWalk = FloorPoint(hop.Position with { Y = hopY });
                         if (hopWalk == null)
                         {
                             _tolk.SpeakInterrupt(AccessibilityStrings.NoWalkablePointAt(hop.Name));
@@ -3074,13 +3102,13 @@ public sealed partial class Plugin : IDalamudPlugin
             var live = _xbmSources.FindNearestLive(beast.Name);
             if (live != null)
             {
-                var accepted = _navigation.TargetFromBrowser(live);
+                var accepted = !forReadout && _navigation.TargetFromBrowser(live);
                 Log.Info($"[XbmZiel] Lebendes '{beast.Name}' in " +
                          $"{Vector3.Distance(ObjectTable.LocalPlayer?.Position ?? live.Position, live.Position):F1} m, " +
                          $"id={live.GameObjectId:X}, anvisiert={accepted}");
                 if (accepted) return MarkerResolve.None;
 
-                position = _autoWalk.ResolveFloorPoint(live.Position) ?? live.Position;
+                position = FloorPoint(live.Position) ?? live.Position;
                 name = beast.Name;
                 stopRange = AutoWalkService.StopRange;
                 return MarkerResolve.Resolved;
@@ -3096,7 +3124,7 @@ public sealed partial class Plugin : IDalamudPlugin
                     return MarkerResolve.Failed;
                 }
                 var hopY    = ObjectTable.LocalPlayer?.Position.Y ?? 0f;
-                var hopWalk = _autoWalk.ResolveFloorPoint(hop.Position with { Y = hopY });
+                var hopWalk = FloorPoint(hop.Position with { Y = hopY });
                 if (hopWalk == null)
                 {
                     _tolk.SpeakInterrupt(AccessibilityStrings.NoWalkablePointAt(hop.Name));
@@ -3112,7 +3140,7 @@ public sealed partial class Plugin : IDalamudPlugin
             if (beast.MapId != 0 && beast.MapId == ClientState.MapId)
             {
                 var playerPos = ObjectTable.LocalPlayer?.Position ?? Vector3.Zero;
-                var searchPart = _navigation.NextHuntSearchPart(playerPos);
+                var searchPart = _navigation.NextHuntSearchPart(playerPos, advance: !forReadout);
                 var area = searchPart?.Position ?? beast.Position;
                 if (area is not { } areaPos)
                 {
@@ -3129,7 +3157,7 @@ public sealed partial class Plugin : IDalamudPlugin
 
                 var areaY    = ObjectTable.LocalPlayer?.Position.Y ?? 0f;
                 var areaSeed = searchPart != null ? areaPos : areaPos with { Y = areaY };
-                var areaWalk = _autoWalk.ResolveFloorPoint(areaSeed);
+                var areaWalk = FloorPoint(areaSeed);
                 if (areaWalk == null)
                 {
                     _tolk.SpeakInterrupt(AccessibilityStrings.NoWalkablePointNear(
@@ -3169,7 +3197,7 @@ public sealed partial class Plugin : IDalamudPlugin
             var live = _huntingLog.FindNearestLive(hunt.MonsterName);
             if (live != null)
             {
-                var accepted = _navigation.TargetFromBrowser(live);
+                var accepted = !forReadout && _navigation.TargetFromBrowser(live);
                 Log.Info($"[Jagd] Lebendes '{hunt.MonsterName}' in " +
                          $"{Vector3.Distance(ObjectTable.LocalPlayer?.Position ?? live.Position, live.Position):F1} m, " +
                          $"id={live.GameObjectId:X}, anvisiert={accepted}");
@@ -3178,12 +3206,12 @@ public sealed partial class Plugin : IDalamudPlugin
                 // Game refused the target (quest-locked mobs do): walk to the
                 // position it was last seen at instead of falling back to the
                 // area marker, which would be much further off.
-                position = _autoWalk.ResolveFloorPoint(live.Position) ?? live.Position;
+                position = FloorPoint(live.Position) ?? live.Position;
                 name = hunt.MonsterName;
                 stopRange = AutoWalkService.StopRange;
                 return MarkerResolve.Resolved;
             }
-            _huntingLog.LogNearbyBattleNpcs(hunt.MonsterName);
+            if (!forReadout) _huntingLog.LogNearbyBattleNpcs(hunt.MonsterName);
 
             if (hunt.MapId != 0 && hunt.MapId != ClientState.MapId)
             {
@@ -3194,7 +3222,7 @@ public sealed partial class Plugin : IDalamudPlugin
                     return MarkerResolve.Failed;
                 }
                 var hopY    = ObjectTable.LocalPlayer?.Position.Y ?? 0f;
-                var hopWalk = _autoWalk.ResolveFloorPoint(hop.Position with { Y = hopY });
+                var hopWalk = FloorPoint(hop.Position with { Y = hopY });
                 if (hopWalk == null)
                 {
                     _tolk.SpeakInterrupt(AccessibilityStrings.NoWalkablePointAt(hop.Name));
@@ -3216,7 +3244,7 @@ public sealed partial class Plugin : IDalamudPlugin
             // naechsten, sobald der Spieler am aktuellen war. Siehe
             // AreaRangeService und NavigationService.NextHuntSearchPart.
             var playerPos = ObjectTable.LocalPlayer?.Position ?? Vector3.Zero;
-            var searchPart = _navigation.NextHuntSearchPart(playerPos);
+            var searchPart = _navigation.NextHuntSearchPart(playerPos, advance: !forReadout);
 
             // 40 of the 647 habitats are dungeon areas the map never marks, and
             // for some of those the layout has no named range either. Say so
@@ -3234,7 +3262,7 @@ public sealed partial class Plugin : IDalamudPlugin
             // unterzuschieben waere dort also schlechter als das, was die Datei
             // sagt - deshalb nur beim Marker.
             var areaSeed = searchPart != null ? areaPos : areaPos with { Y = areaY };
-            var areaWalk = _autoWalk.ResolveFloorPoint(areaSeed);
+            var areaWalk = FloorPoint(areaSeed);
             if (areaWalk == null)
             {
                 _tolk.SpeakInterrupt(AccessibilityStrings.NoWalkablePointNear(hunt.AreaName));
@@ -3246,7 +3274,7 @@ public sealed partial class Plugin : IDalamudPlugin
             // centre of the area, not the monster.
             var areaLabel = searchPart is { Name.Length: > 0 } ? searchPart.Value.Name : hunt.AreaName;
             name = areaLabel.Length > 0 ? $"{hunt.MonsterName}, {areaLabel}" : hunt.MonsterName;
-            heightIsGuess = true;
+            heightIsGuess = searchPart == null;
             stopRange = _config.AutoWalkPlaceStopRange;
             if (searchPart is { } sp)
                 Log.Info($"[Jagd] Suchpunkt {sp.Index}/{sp.Count} '{sp.Name}' " +
@@ -3271,7 +3299,7 @@ public sealed partial class Plugin : IDalamudPlugin
                     return MarkerResolve.Failed;
                 }
                 var hopY    = ObjectTable.LocalPlayer?.Position.Y ?? 0f;
-                var hopWalk = _autoWalk.ResolveFloorPoint(hop.Position with { Y = hopY });
+                var hopWalk = FloorPoint(hop.Position with { Y = hopY });
                 if (hopWalk == null)
                 {
                     _tolk.SpeakInterrupt(AccessibilityStrings.NoWalkablePointAt(hop.Name));
@@ -3288,12 +3316,12 @@ public sealed partial class Plugin : IDalamudPlugin
             // Hoehe ist also nicht geraten (anders als bei jedem Kartenmarker).
             // ResolveFloorPoint bleibt trotzdem davor - es setzt den Punkt auf die
             // begehbare Flaeche, falls die Sheet-Stelle knapp daneben liegt.
-            position = _autoWalk.ResolveFloorPoint(duty.Position) ?? duty.Position;
+            position = FloorPoint(duty.Position) ?? duty.Position;
             name = duty.Name;
             // Interaktionsreichweite wie bei einem Objekt: der Spieler will die
             // Tuer benutzen, nicht in ihrer Naehe stehenbleiben.
             stopRange = AutoWalkService.StopRange;
-            Log.Info($"[Inhalte] Laufe zu '{duty.Name}' in Zone {duty.TerritoryTypeId} auf {position}.");
+            if (!forReadout) Log.Info($"[Inhalte] Laufe zu '{duty.Name}' in Zone {duty.TerritoryTypeId} auf {position}.");
             return MarkerResolve.Resolved;
         }
 
@@ -3307,7 +3335,7 @@ public sealed partial class Plugin : IDalamudPlugin
             // bei Kartenmarkern geraten. ResolveFloorPoint bleibt trotzdem davor,
             // weil ein aufgezeichneter Punkt in der Luft stehen kann, wenn die
             // Aufnahme im Sprung lag - und dann faende der Lauf nichts.
-            position = _autoWalk.ResolveFloorPoint(dungeonStep.Position) ?? dungeonStep.Position;
+            position = FloorPoint(dungeonStep.Position) ?? dungeonStep.Position;
             var kindWord = AccessibilityStrings.DungeonStepKindWord(dungeonStep.Kind);
             name = dungeonStep.Name.Length > 0 ? dungeonStep.Name
                  : kindWord.Length > 0        ? kindWord
@@ -3320,7 +3348,7 @@ public sealed partial class Plugin : IDalamudPlugin
                 ? _config.AutoWalkPlaceStopRange
                 : AutoWalkService.StopRange;
 
-            Log.Info($"[Dungeon] Laufe zu Station {dungeonStep.Number} " +
+            if (!forReadout) Log.Info($"[Dungeon] Laufe zu Station {dungeonStep.Number} " +
                      $"({dungeonStep.Kind}) auf {position}.");
             return MarkerResolve.Resolved;
         }
@@ -3339,7 +3367,7 @@ public sealed partial class Plugin : IDalamudPlugin
             // fallback for an object that has since despawned.
             var live = ObjectTable.FirstOrDefault(o => o.GameObjectId == obj.ObjectId);
             var raw  = live?.Position ?? obj.Position;
-            position = _autoWalk.ResolveFloorPoint(raw) ?? raw;
+            position = FloorPoint(raw) ?? raw;
             // The browser already stored a RESOLVED name (gathering node type,
             // sheet name, or the honest "Objekt ohne Namen"), so this only has
             // to guard against a pick made before that resolution existed.
@@ -3349,7 +3377,7 @@ public sealed partial class Plugin : IDalamudPlugin
             // Interaction range, same as the auto-walk to a game target: the
             // player has to end up close enough to actually use the object.
             stopRange = AutoWalkService.StopRange;
-            Log.Info($"[Nav] Objekt-Auswahl '{name}' (id={obj.ObjectId:X}) nicht anvisiert - " +
+            if (!forReadout) Log.Info($"[Nav] Objekt-Auswahl '{name}' (id={obj.ObjectId:X}) nicht anvisiert - " +
                      $"laufe zur Position {position} (Objekt {(live != null ? "da" : "weg")}).");
             return MarkerResolve.Resolved;
         }

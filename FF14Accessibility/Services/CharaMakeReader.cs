@@ -1156,7 +1156,8 @@ public sealed unsafe class CharaMakeReader
         foreach (var row in _data.GetExcelSheet<CharaMakeClassEquip>())
         {
             if ((row.Weapon & ModelMask) != weapon) continue;
-            name = row.Class.ValueNullable?.Name.ExtractText() ?? string.Empty;
+            name = row.Class.ValueNullable is { } job
+                ? RussianGameText.Name(_data, job, x => x.Name) : string.Empty;
             break;
         }
 

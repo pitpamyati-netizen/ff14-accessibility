@@ -41,7 +41,8 @@ public sealed class HotbarService
     private readonly InventoryService _inventory;
     private readonly TolkService _tolk;
     private readonly IPluginLog _log;
-    // Optional: only the DEBUG sheet probe needs it. Null is handled there.
+    private readonly GameDescriptionService _descriptions;
+    // Optional evaluator used by the diagnostic sheet probe.
     private readonly Dalamud.Plugin.Services.ISeStringEvaluator? _eval;
     private readonly CrossHotbarChangeTracker _crossHotbarChanges = new();
     private int? _unexpectedCrossHotbarId;
@@ -85,7 +86,7 @@ public sealed class HotbarService
 
     public HotbarService(IDataManager data, IClientState clientState, IFramework framework,
                          GearInfoService gearInfo, KeybindService keybinds, InventoryService inventory,
-                         TolkService tolk, IPluginLog log,
+                         TolkService tolk, IPluginLog log, GameDescriptionService descriptions,
                          Dalamud.Plugin.Services.ISeStringEvaluator? eval = null)
     {
         _data = data;
@@ -96,6 +97,7 @@ public sealed class HotbarService
         _inventory = inventory;
         _tolk = tolk;
         _log = log;
+        _descriptions = descriptions;
         _eval = eval;
     }
     /// <summary>UI "Hotbar 1" is module index 0; its 12 keys are 1-9, 0, 11, 12.</summary>
@@ -209,7 +211,7 @@ public sealed class HotbarService
         if (type == RaptureHotbarModule.HotbarSlotType.Action &&
             _data.GetExcelSheet<LuminaAction>().TryGetRow(id, out var action))
         {
-            var actionName = action.Name.ExtractText();
+            var actionName = _descriptions.ActionName(action.RowId);
             if (!string.IsNullOrWhiteSpace(actionName))
                 return actionName;
         }
@@ -219,7 +221,7 @@ public sealed class HotbarService
         if (type == RaptureHotbarModule.HotbarSlotType.Action &&
             _data.GetExcelSheet<LuminaCraftAction>().TryGetRow(id, out var oldCraft))
         {
-            var oldCraftName = oldCraft.Name.ExtractText();
+            var oldCraftName = _descriptions.CraftActionName(oldCraft.RowId);
             if (!string.IsNullOrWhiteSpace(oldCraftName))
                 return AccessibilityStrings.CraftActionNeedsReassignment(oldCraftName);
         }
@@ -229,7 +231,7 @@ public sealed class HotbarService
         if (type == RaptureHotbarModule.HotbarSlotType.CraftAction &&
             _data.GetExcelSheet<LuminaCraftAction>().TryGetRow(id, out var craft))
         {
-            var craftName = craft.Name.ExtractText();
+            var craftName = _descriptions.CraftActionName(craft.RowId);
             if (!string.IsNullOrWhiteSpace(craftName))
                 return craftName;
         }
@@ -239,7 +241,7 @@ public sealed class HotbarService
         if (type == RaptureHotbarModule.HotbarSlotType.EventItem &&
             _data.GetExcelSheet<LuminaEventItem>().TryGetRow(id, out var eventItem))
         {
-            var eventItemName = eventItem.Name.ExtractText();
+            var eventItemName = _descriptions.EventItemName(id);
             if (!string.IsNullOrWhiteSpace(eventItemName))
                 return eventItemName;
         }
@@ -249,7 +251,7 @@ public sealed class HotbarService
         if (type == RaptureHotbarModule.HotbarSlotType.GeneralAction &&
             _data.GetExcelSheet<LuminaGeneralAction>().TryGetRow(id, out var general))
         {
-            var generalName = general.Name.ExtractText();
+            var generalName = _descriptions.GeneralActionName(general.RowId);
             if (!string.IsNullOrWhiteSpace(generalName))
                 return generalName;
         }
@@ -257,7 +259,7 @@ public sealed class HotbarService
         if (type == RaptureHotbarModule.HotbarSlotType.Mount &&
             _data.GetExcelSheet<LuminaMount>().TryGetRow(id, out var mount))
         {
-            var mountName = mount.Singular.ExtractText();   // Mount has no Name column
+            var mountName = _descriptions.MountName(id);   // Mount has no Name column
             if (!string.IsNullOrWhiteSpace(mountName))
                 return mountName;
         }
@@ -265,13 +267,44 @@ public sealed class HotbarService
         if (type == RaptureHotbarModule.HotbarSlotType.BuddyAction &&
             _data.GetExcelSheet<LuminaBuddyAction>().TryGetRow(id, out var buddy))
         {
-            var buddyName = buddy.Name.ExtractText();
+            var buddyName = _descriptions.BuddyActionName(buddy.RowId);
             if (!string.IsNullOrWhiteSpace(buddyName))
                 return buddyName;
         }
 
+        if (type == RaptureHotbarModule.HotbarSlotType.Item)
+        {
+            // Resolve the game's HQ/collectible encoding; preserve the command id itself.
+            var itemName = _descriptions.ItemName(Dalamud.Utility.ItemUtil.GetBaseId(id).ItemId);
+            if (!string.IsNullOrWhiteSpace(itemName)) return itemName;
+        }
+        if (type == RaptureHotbarModule.HotbarSlotType.Companion)
+        {
+            var companionName = _descriptions.CompanionName(id);
+            if (!string.IsNullOrWhiteSpace(companionName)) return companionName;
+        }
+        if (type == RaptureHotbarModule.HotbarSlotType.PetAction)
+        {
+            var petName = _descriptions.PetActionName(id);
+            if (!string.IsNullOrWhiteSpace(petName)) return petName;
+        }
+        if (type == RaptureHotbarModule.HotbarSlotType.Emote)
+        {
+            var emoteName = _descriptions.EmoteName(id);
+            if (!string.IsNullOrWhiteSpace(emoteName)) return emoteName;
+        }
+        if (type == RaptureHotbarModule.HotbarSlotType.MainCommand &&
+            _data.GetExcelSheet<Lumina.Excel.Sheets.MainCommand>().TryGetRow(id, out var command))
+            return RussianGameText.Name(_data, command, x => x.Name);
+        if (type == RaptureHotbarModule.HotbarSlotType.ClassJob &&
+            _data.GetExcelSheet<Lumina.Excel.Sheets.ClassJob>().TryGetRow(id, out var job))
+            return RussianGameText.Name(_data, job, x => x.Name);
+        if (type == RaptureHotbarModule.HotbarSlotType.Recipe &&
+            _data.GetExcelSheet<Lumina.Excel.Sheets.Recipe>().TryGetRow(id, out var recipe))
+            return _inventory.ResolveItemName(recipe.ItemResult.RowId);
+
         // PopUpHelp is the game's own display text (name plus keybind hint);
-        // use it for items, macros, emotes and anything not in the Action sheet.
+        // use it for macros and other types without a supported name sheet.
         var cleaned = CleanUpHelp(popUpHelp);
         if (!string.IsNullOrWhiteSpace(cleaned))
             return cleaned;
@@ -1002,7 +1035,8 @@ public sealed class HotbarService
     private (uint Id, string? Name, byte Level, int Count, int Index) CraftEntryAt(int index)
     {
         if (index < 0 || index >= _craftSkills.Count) return (0, null, 0, 0, 0);
-        var (id, name, level, _) = _craftSkills[index];
+        var (id, name, level, type) = _craftSkills[index];
+        name = ResolveName(type, id, name);
         return (id, name, level, _craftSkills.Count, index + 1);
     }
 
@@ -1011,6 +1045,7 @@ public sealed class HotbarService
     {
         if (index < 0 || index >= _skills.Count) return (0, null, 0, 0, 0);
         var (id, name, level) = _skills[index];
+        name = ResolveName(RaptureHotbarModule.HotbarSlotType.Action, id, name);
         return (id, name, level, _skills.Count, index + 1);
     }
 
@@ -1027,18 +1062,9 @@ public sealed class HotbarService
     /// </para>
     /// </summary>
     private string ResolveActionDescription(uint actionId, RaptureHotbarModule.HotbarSlotType type)
-    {
-        if (type == RaptureHotbarModule.HotbarSlotType.CraftAction)
-        {
-            if (!_data.GetExcelSheet<LuminaCraftAction>().TryGetRow(actionId, out var craft))
-                return string.Empty;
-            return FlattenDescription(craft.Description.ExtractText());
-        }
-
-        if (!_data.GetExcelSheet<LuminaActionTransient>().TryGetRow(actionId, out var trans))
-            return string.Empty;
-        return FlattenDescription(trans.Description.ExtractText());
-    }
+        => FlattenDescription(type == RaptureHotbarModule.HotbarSlotType.CraftAction
+            ? _descriptions.CraftAction(actionId)
+            : _descriptions.Action(actionId));
 
     /// <summary>Collapses line breaks and runs of spaces for spoken output.</summary>
     private static string FlattenDescription(string s)
@@ -1208,6 +1234,9 @@ public sealed class HotbarService
     {
         if (index < 0 || index >= list.Count) return;
         var (id, name, level) = list[index];
+        // Lists retain game names and their original order. Resolve speech now,
+        // so changing language while the menu is open cannot leave cached Russian.
+        name = ResolveName(SkillSlotType, id, name);
         var location = FindSlotLocationFor(SkillSlotType, id);
         Say(AccessibilityStrings.SkillBrowseEntry(name, level, location, index + 1, list.Count), interrupt);
         ArmSkillDescDwell(id, SkillSlotType);
@@ -1217,6 +1246,7 @@ public sealed class HotbarService
     {
         if (index < 0 || index >= _craftSkills.Count) return;
         var (id, name, level, type) = _craftSkills[index];
+        name = ResolveName(type, id, name);
         var location = FindSlotLocationFor(type, id);
         Say(AccessibilityStrings.SkillBrowseEntry(name, level, location, index + 1, _craftSkills.Count), interrupt);
         ArmSkillDescDwell(id, type);
@@ -1230,7 +1260,7 @@ public sealed class HotbarService
         var item = _items[_itemIndex];
         var location = FindSlotLocationFor(RaptureHotbarModule.HotbarSlotType.Item, item.ItemId);
         Say(AccessibilityStrings.ItemBrowseEntry(
-            item.Name, item.Quantity, item.IsHq, location, _itemIndex + 1, _items.Count), interrupt);
+            _descriptions.ItemName(item.BaseItemId), item.Quantity, item.IsHq, location, _itemIndex + 1, _items.Count), interrupt);
     }
 
     /// <summary>Announces the current quest item: name, how many are left, its
@@ -1242,7 +1272,7 @@ public sealed class HotbarService
         var item = _questItems[_questItemIndex];
         var location = FindSlotLocationFor(RaptureHotbarModule.HotbarSlotType.EventItem, item.ItemId);
         Say(AccessibilityStrings.QuestItemBrowseEntry(
-            item.Name, item.Quantity, item.CastTime, location, _questItemIndex + 1, _questItems.Count), interrupt);
+            _descriptions.EventItemName(item.ItemId), item.Quantity, item.CastTime, location, _questItemIndex + 1, _questItems.Count), interrupt);
     }
 
     /// <summary>Announces the current general action: name, where it already
@@ -1250,6 +1280,7 @@ public sealed class HotbarService
     private void AnnounceGeneralAction(bool interrupt = true)
     {
         var (id, name) = _generalActions[_generalActionIndex];
+        name = ResolveName(RaptureHotbarModule.HotbarSlotType.GeneralAction, id, name);
         var location = FindSlotLocationFor(RaptureHotbarModule.HotbarSlotType.GeneralAction, id);
         Say(AccessibilityStrings.PlainBrowseEntry(
             name, location, _generalActionIndex + 1, _generalActions.Count), interrupt);
@@ -1260,6 +1291,7 @@ public sealed class HotbarService
     private void AnnounceMount(bool interrupt = true)
     {
         var (id, name) = _mounts[_mountIndex];
+        name = ResolveName(RaptureHotbarModule.HotbarSlotType.Mount, id, name);
         var location = FindSlotLocationFor(RaptureHotbarModule.HotbarSlotType.Mount, id);
         Say(AccessibilityStrings.PlainBrowseEntry(
             name, location, _mountIndex + 1, _mounts.Count), interrupt);
@@ -1269,6 +1301,7 @@ public sealed class HotbarService
     private void AnnounceBuddyAction(bool interrupt = true)
     {
         var (id, name) = _buddyActions[_buddyActionIndex];
+        name = ResolveName(RaptureHotbarModule.HotbarSlotType.BuddyAction, id, name);
         var location = FindSlotLocationFor(RaptureHotbarModule.HotbarSlotType.BuddyAction, id);
         Say(AccessibilityStrings.PlainBrowseEntry(
             name, location, _buddyActionIndex + 1, _buddyActions.Count), interrupt);
@@ -1361,6 +1394,7 @@ public sealed class HotbarService
         }
 
         var (id, name, _) = _skills[skillIndex];
+        name = ResolveName(RaptureHotbarModule.HotbarSlotType.Action, id, name);
 
         _log.Info($"[Hotbar] Belegen: {SlotLabel(bar, slot)} (Leiste {bar + 1} Slot {slot}) <- action {id} '{name}'. " +
                   $"Vorher: {DescribeSlotRaw(module, bar, slot)}, LeisteGeteilt={module->IsHotbarShared((uint)bar)}");
@@ -1497,11 +1531,11 @@ public sealed class HotbarService
                   $"'{item.Name}' (Basis {item.BaseItemId}, hq={item.IsHq}, Anzahl {item.Quantity}). " +
                   $"Vorher: {DescribeSlotRaw(module, bar, slot)}");
 
-        if (!PlaceOnSlot(module, bar, slot, RaptureHotbarModule.HotbarSlotType.Item, item.ItemId, item.Name))
+        if (!PlaceOnSlot(module, bar, slot, RaptureHotbarModule.HotbarSlotType.Item, item.ItemId, _descriptions.ItemName(item.BaseItemId)))
             return false;
 
         _framework.RunOnTick(
-            () => VerifyAssignment(bar, slot, item.ItemId, item.Name, RaptureHotbarModule.HotbarSlotType.Item),
+            () => VerifyAssignment(bar, slot, item.ItemId, _descriptions.ItemName(item.BaseItemId), RaptureHotbarModule.HotbarSlotType.Item),
             delayTicks: 2);
         return true;
     }
@@ -1543,11 +1577,11 @@ public sealed class HotbarService
                   $"'{item.Name}' (Anzahl {item.Quantity}, Wirkzeit {item.CastTime}s). " +
                   $"Vorher: {DescribeSlotRaw(module, bar, slot)}");
 
-        if (!PlaceOnSlot(module, bar, slot, RaptureHotbarModule.HotbarSlotType.EventItem, item.ItemId, item.Name))
+        if (!PlaceOnSlot(module, bar, slot, RaptureHotbarModule.HotbarSlotType.EventItem, item.ItemId, _descriptions.EventItemName(item.ItemId)))
             return false;
 
         _framework.RunOnTick(
-            () => VerifyAssignment(bar, slot, item.ItemId, item.Name, RaptureHotbarModule.HotbarSlotType.EventItem),
+            () => VerifyAssignment(bar, slot, item.ItemId, _descriptions.EventItemName(item.ItemId), RaptureHotbarModule.HotbarSlotType.EventItem),
             delayTicks: 2);
         return true;
     }
@@ -1580,6 +1614,7 @@ public sealed class HotbarService
         }
 
         var (id, name) = entries[index];
+        name = ResolveName(type, id, name);
         _log.Info($"[Hotbar] Belegen: {SlotLabel(bar, slot)} (Leiste {bar + 1} Slot {slot}) <- {type} {id} " +
                   $"'{name}'. Vorher: {DescribeSlotRaw(module, bar, slot)}");
 
@@ -2076,6 +2111,7 @@ public sealed class HotbarService
         }
 
         var (id, name, _, type) = _craftSkills[index];
+        name = ResolveName(type, id, name);
 
         _log.Info($"[Hotbar] Belegen (Handwerk): {SlotLabel(bar, slot)} <- action {id} '{name}'. " +
                   $"Vorher: {DescribeSlotRaw(module, bar, slot)}, LeisteGeteilt={module->IsHotbarShared((uint)bar)}");

@@ -56,3 +56,5 @@ _local_mahjong/
 *.log
 *.bak
 *.trx
+__pycache__/
+*.pyc

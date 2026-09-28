@@ -995,12 +995,13 @@ public sealed class NavigationService
     /// der Spieler am aktuellen Teilstueck war - so fuehrt wiederholtes Numpad3
     /// durch das Gebiet, statt immer wieder an dieselbe Stelle.
     /// </summary>
-    public (Vector3 Position, string Name, int Index, int Count)? NextHuntSearchPart(Vector3 playerPosition)
+    public (Vector3 Position, string Name, int Index, int Count)? NextHuntSearchPart(Vector3 playerPosition,
+                                                                                 bool advance = true)
     {
         var search = _huntSearch;
         if (search == null || search.Parts.Count == 0) return null;
 
-        if (search.Index < search.Parts.Count
+        if (advance && search.Index < search.Parts.Count
             && Distance2D(playerPosition, search.Parts[search.Index].Centre) <= HuntPartReached)
         {
             search.Index++;
@@ -1010,10 +1011,11 @@ public sealed class NavigationService
         // Alles abgefahren: von vorn. Ein Monster kann in der Zwischenzeit an
         // einer Stelle stehen, an der eben keines stand - Stillstand waere hier
         // die schlechteste Auskunft.
-        if (search.Index >= search.Parts.Count) search.Index = 0;
+        var index = search.Index < search.Parts.Count ? search.Index : 0;
+        if (advance) search.Index = index;
 
-        var part = search.Parts[search.Index];
-        return (part.Centre, part.SpotName, search.Index + 1, search.Parts.Count);
+        var part = search.Parts[index];
+        return (part.Centre, part.SpotName, index + 1, search.Parts.Count);
     }
 
     /// <summary>
@@ -3652,7 +3654,7 @@ public sealed class NavigationService
         var player = _objectTable.LocalPlayer;
         if (player == null)
         {
-            _tolk.SpeakInterrupt("Objekt-Sonde: kein Spieler.");
+            _tolk.SpeakInterrupt(AccessibilityStrings.ObjectProbeNoPlayer);
             return;
         }
 
@@ -3679,7 +3681,7 @@ public sealed class NavigationService
                 $"pos={o.Position} id={o.GameObjectId:X}");
         }
 
-        _tolk.SpeakInterrupt($"Objekt-Sonde: {near.Count} Objekte im Log.");
+        _tolk.SpeakInterrupt(AccessibilityStrings.ObjectProbeSaved(near.Count));
 
         DumpHousingPlot();
         DumpMapMarkers();
@@ -3794,7 +3796,7 @@ public sealed class NavigationService
             _log.Info($"[MarkerProbe] Ort '{p.Name}' ({p.TypeLabel}) " +
                       $"welt=({p.Position.X:F1}|{p.Position.Z:F1})");
 
-        _tolk.SpeakInterrupt($"Marker-Sonde: {eventCount} Event, {miniCount} Minimap, {places.Count} Orte im Log.");
+        _tolk.SpeakInterrupt(AccessibilityStrings.MarkerProbeSaved(eventCount, miniCount, places.Count));
     }
 
     // ── Sammelpunkte (Minenarbeiter / Gärtner) ──────────────────────
@@ -3808,6 +3810,7 @@ public sealed class NavigationService
     // The type name is READ, never derived from an id we made up: GatheringType
     // has no class column, so any "0 = miner" table would be our invention.
     private readonly Dictionary<uint, (string Type, int Level)> _gatheringCache = [];
+    private bool _gatheringNamesRussian;
 
     /// <summary>
     /// Type and required level of a gathering node, or null when the id is not
@@ -3815,6 +3818,11 @@ public sealed class NavigationService
     /// </summary>
     private (string Type, int Level)? GetGatheringInfo(uint dataId)
     {
+        if (_gatheringNamesRussian != Loc.IsRussian)
+        {
+            _gatheringCache.Clear();
+            _gatheringNamesRussian = Loc.IsRussian;
+        }
         if (_gatheringCache.TryGetValue(dataId, out var hit))
             return hit.Type.Length == 0 ? null : hit;
 
@@ -3832,7 +3840,8 @@ public sealed class NavigationService
             return null;
         }
 
-        var typeName = baseRow.Value.GatheringType.ValueNullable?.Name.ExtractText() ?? string.Empty;
+        var typeName = baseRow.Value.GatheringType.ValueNullable is { } gatherType
+            ? RussianGameText.Name(_data, gatherType, x => x.Name) : string.Empty;
         var level    = baseRow.Value.GatheringLevel;
         var info     = (Type: typeName, Level: (int)level);
         _gatheringCache[dataId] = info;
@@ -4765,7 +4774,7 @@ public sealed class NavigationService
         if (guidePoint == null)
         {
             // Reading a target needs no route and must never change facing.
-            AnnounceSelectedTargetDirection(player);
+            AnnounceSelectedTargetDirection();
             return;
         }
 
@@ -4803,26 +4812,45 @@ public sealed class NavigationService
     }
 
     /// <summary>Reads the current hard/soft target without tracking, routing or turning.</summary>
-    private void AnnounceSelectedTargetDirection(IGameObject player)
+    private void AnnounceSelectedTargetDirection()
     {
         var target = _targetManager.Target ?? _targetManager.SoftTarget;
         if (target == null)
         {
+            // Coordinate walks can have neither a browser pick nor a game
+            // target. Report their destination while the walk is active.
+            if (AutoWalk?.CurrentDestination is { } destination)
+            {
+                AnnounceDestinationDirection(destination.Name, destination.Position);
+                return;
+            }
+            _log.Info("[Nav] Numpad5: no guide, browser destination, game target or active walk");
             _tolk.SpeakInterrupt(AccessibilityStrings.FaceNoRoute);
             return;
         }
 
-        var position = target.Position;
-        var distance = Vector3.Distance(player.Position, position);
+        var name = _enemyMarkers.SpokenPrefix(target) + _objectNames.Describe(target);
+        AnnounceDestinationDirection(name, target.Position);
+        _log.Info($"[Nav] Numpad5 game target: id={target.GameObjectId:X}, no turn");
+    }
+
+    /// <summary>Reads a destination without moving, targeting or starting navigation.
+    /// Map markers have no reliable altitude, so read their horizontal distance only.</summary>
+    public void AnnounceDestinationDirection(string name, Vector3 position, bool heightIsGuess = false)
+    {
+        var player = _objectTable.LocalPlayer;
+        if (player == null) return;
+        var distance = heightIsGuess
+            ? Distance2D(player.Position, position)
+            : Vector3.Distance(player.Position, position);
         var sameHorizontalPosition = Math.Abs(position.X - player.Position.X) < 0.01f &&
                                      Math.Abs(position.Z - player.Position.Z) < 0.01f;
         var direction = sameHorizontalPosition
             ? AccessibilityStrings.TargetSameHorizontalPosition
             : CalculateDirection(player, position);
-        var name = _enemyMarkers.SpokenPrefix(target) + _objectNames.Describe(target);
         _tolk.SpeakInterrupt(AccessibilityStrings.TargetDirection(
-            name, FormatDistance(distance), direction + VerticalHint(player, position)));
-        _log.Info($"[Nav] Numpad5 target read: id={target.GameObjectId:X}, dist={distance:F1}, no turn");
+            name, FormatDistance(distance), direction + (heightIsGuess ? "" : VerticalHint(player, position))));
+        _log.Info($"[Nav] Numpad5 destination read: '{name}', dist={distance:F1}, heightIsGuess={heightIsGuess}, no turn");
     }
 
     /// <summary>

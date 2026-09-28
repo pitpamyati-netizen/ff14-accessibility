@@ -11,10 +11,12 @@ namespace FF14Accessibility.Services;
 public sealed class StatusEffectReader
 {
 	private readonly IPluginLog _log;
+	private readonly GameDescriptionService _descriptions;
 
-	public StatusEffectReader(IPluginLog log)
+	public StatusEffectReader(IPluginLog log, GameDescriptionService descriptions)
 	{
 		_log = log;
+		_descriptions = descriptions;
 	}
 
 	public List<string> Rows(IBattleChara chara, string logTag, bool withDescription)
@@ -48,7 +50,7 @@ public sealed class StatusEffectReader
 			{
 				valueOrDefault = valueNullable.GetValueOrDefault();
 				val = valueOrDefault.Name;
-				obj = val.ExtractText().Trim();
+				obj = _descriptions.StatusName(status.StatusId).Trim();
 			}
 			if (obj == null)
 			{
@@ -75,7 +77,7 @@ public sealed class StatusEffectReader
 				{
 					valueOrDefault = valueNullable.GetValueOrDefault();
 					val = valueOrDefault.Description;
-					obj2 = val.ExtractText();
+					obj2 = _descriptions.Status(status.StatusId);
 				}
 				if (obj2 == null)
 				{

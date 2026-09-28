@@ -28,6 +28,7 @@ public sealed class InventoryService
     private readonly Configuration _config;
     private readonly TolkService _tolk;
     private readonly IPluginLog _log;
+    private readonly GameDescriptionService _descriptions;
 
     // The four 35-slot pages that make up the normal carried inventory.
     private static readonly GameInventoryType[] BagPages =
@@ -37,7 +38,7 @@ public sealed class InventoryService
     };
 
     public InventoryService(IGameInventory inventory, IDataManager data, IClientState clientState,
-                            Configuration config, TolkService tolk, IPluginLog log)
+                            Configuration config, TolkService tolk, IPluginLog log, GameDescriptionService descriptions)
     {
         _inventory = inventory;
         _data = data;
@@ -45,6 +46,7 @@ public sealed class InventoryService
         _config = config;
         _tolk = tolk;
         _log = log;
+        _descriptions = descriptions;
     }
 
     /// <summary>
@@ -559,7 +561,7 @@ public sealed class InventoryService
         if (!_data.GetExcelSheet<LuminaEventItem>().TryGetRow(itemId, out var row)) return false;
         if (row.Action.RowId == 0) return false;
 
-        name = row.Name.ExtractText();
+        name = RussianGameText.Name(_data, row, x => x.Name);
         castTime = row.CastTime;
         return !string.IsNullOrWhiteSpace(name);
     }
@@ -628,7 +630,7 @@ public sealed class InventoryService
             if (item.IsEmpty || item.ItemId == 0) continue;
             if (_data.GetExcelSheet<LuminaEventItem>().TryGetRow(item.ItemId, out var row))
             {
-                var name = row.Name.ExtractText();
+                var name = RussianGameText.Name(_data, row, x => x.Name);
                 if (!string.IsNullOrWhiteSpace(name)) map[row.Icon] = (name, 0);
             }
         }
@@ -643,13 +645,14 @@ public sealed class InventoryService
             if (item.IsEmpty || item.ItemId == 0) continue;
             if (_data.GetExcelSheet<LuminaItem>().TryGetRow(item.BaseItemId, out var row))
             {
-                var name = row.Name.ExtractText();
+                var name = RussianGameText.Name(_data, row, x => x.Name);
                 if (!string.IsNullOrWhiteSpace(name)) map[row.Icon] = (name, item.BaseItemId);
             }
         }
     }
 
     private Dictionary<uint, (string Name, uint ItemId)>? _iconSheetCache;
+    private bool _iconSheetRussian;
 
     /// <summary>
     /// Resolves an item icon id to a name for the focus auto-announce. Prefers
@@ -667,7 +670,11 @@ public sealed class InventoryService
 
         if (BuildOwnedIconMap().TryGetValue(iconId, out var owned)) return owned;
 
-        _iconSheetCache ??= BuildIconSheetCache();
+        if (_iconSheetCache == null || _iconSheetRussian != Loc.IsRussian)
+        {
+            _iconSheetCache = BuildIconSheetCache();
+            _iconSheetRussian = Loc.IsRussian;
+        }
         return _iconSheetCache.TryGetValue(iconId, out var sheet) ? sheet : (string.Empty, 0);
     }
 
@@ -685,6 +692,14 @@ public sealed class InventoryService
         if (string.IsNullOrWhiteSpace(name)) return 0;
         _itemNames ??= BuildItemNameCache();
         return _itemNames.TryGetValue(name.Trim().ToLowerInvariant(), out var id) ? id : 0;
+    }
+
+    /// <summary>Translate a known item label after the UI lookup, never its search key.</summary>
+    public string TranslateItemLabel(string name)
+    {
+        if (!Loc.IsRussian) return name;
+        var id = ResolveItemIdByName(name);
+        return id == 0 ? name : ResolveItemName(id);
     }
 
     private Dictionary<string, uint> BuildItemNameCache()
@@ -706,17 +721,9 @@ public sealed class InventoryService
 
     /// <summary>The tooltip description of an Item sheet row, or "" when there is
     /// none (itemId 0, key items, or a row without a description). Raw sheet text -
-    /// the caller flattens line breaks for speech.</summary>
-    public string ResolveItemDescription(uint itemId)
-    {
-        if (itemId == 0) return string.Empty;
-        if (_data.GetExcelSheet<LuminaItem>().TryGetRow(itemId, out var row))
-        {
-            var desc = row.Description.ExtractText();
-            if (!string.IsNullOrWhiteSpace(desc)) return desc;
-        }
-        return string.Empty;
-    }
+    /// the caller flattens line breaks for speech. Russian descriptions use the
+    /// version-checked offline catalog; other languages keep the game text.</summary>
+    public string ResolveItemDescription(uint itemId) => _descriptions.Item(itemId);
 
     private Dictionary<uint, (string Name, uint ItemId)> BuildIconSheetCache()
     {
@@ -724,13 +731,13 @@ public sealed class InventoryService
         foreach (var row in _data.GetExcelSheet<LuminaItem>())
         {
             if (row.Icon == 0) continue;
-            var name = row.Name.ExtractText();
+            var name = RussianGameText.Name(_data, row, x => x.Name);
             if (!string.IsNullOrWhiteSpace(name)) map[row.Icon] = (name, row.RowId);
         }
         foreach (var row in _data.GetExcelSheet<LuminaEventItem>())
         {
             if (row.Icon == 0) continue;
-            var name = row.Name.ExtractText();
+            var name = RussianGameText.Name(_data, row, x => x.Name);
             if (!string.IsNullOrWhiteSpace(name)) map.TryAdd(row.Icon, (name, 0));
         }
         _log.Info($"[Inventory] Icon-Sheet-Cache gebaut: {map.Count} Einträge.");
@@ -745,7 +752,7 @@ public sealed class InventoryService
     {
         if (_data.GetExcelSheet<LuminaItem>().TryGetRow(baseItemId, out var row))
         {
-            var name = row.Name.ExtractText();
+            var name = RussianGameText.Name(_data, row, x => x.Name);
             if (!string.IsNullOrWhiteSpace(name)) return name;
         }
         return AccessibilityStrings.ItemFallback(baseItemId);
@@ -755,7 +762,7 @@ public sealed class InventoryService
     {
         if (_data.GetExcelSheet<LuminaEventItem>().TryGetRow(id, out var row))
         {
-            var name = row.Name.ExtractText();
+            var name = RussianGameText.Name(_data, row, x => x.Name);
             if (!string.IsNullOrWhiteSpace(name)) return name;
         }
         return AccessibilityStrings.KeyItemFallback(id);

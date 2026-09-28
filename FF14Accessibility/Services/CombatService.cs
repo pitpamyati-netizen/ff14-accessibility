@@ -118,7 +118,8 @@ public sealed partial class CombatService
         EscapeRouteService escape,
         WarningVoiceService warnVoice,
         LevequestEnemyService leveEnemies,
-        IPluginLog log)
+        IPluginLog log,
+        GameDescriptionService descriptions)
     {
         _objectTable   = objectTable;
         _targetManager = targetManager;
@@ -132,7 +133,7 @@ public sealed partial class CombatService
         _warnVoice     = warnVoice;
         _leveEnemies   = leveEnemies;
         _log           = log;
-        _statusEffects = new StatusEffectReader(log);
+        _statusEffects = new StatusEffectReader(log, descriptions);
         _actionShape   = new ActionShapeService(data, log);
     }
 
@@ -424,7 +425,7 @@ public sealed partial class CombatService
     {
         if (_data.GetExcelSheet<LuminaAction>().TryGetRow(actionId, out var action))
         {
-            var name = action.Name.ExtractText();
+            var name = RussianGameText.Name(_data, action, x => x.Name);
             if (!string.IsNullOrWhiteSpace(name)) return name;
         }
         return AccessibilityStrings.AnAbility;

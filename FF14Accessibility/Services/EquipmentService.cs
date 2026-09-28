@@ -173,7 +173,7 @@ public sealed class EquipmentService
     {
         if (_data.GetExcelSheet<LuminaItem>().TryGetRow(baseItemId, out var row))
         {
-            var name = row.Name.ExtractText();
+            var name = RussianGameText.Name(_data, row, x => x.Name);
             if (!string.IsNullOrWhiteSpace(name)) return name;
         }
         return AccessibilityStrings.ItemFallback(baseItemId);

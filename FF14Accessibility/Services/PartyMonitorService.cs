@@ -631,7 +631,7 @@ public sealed class PartyMonitorService : IDisposable
             var name = slot.Name;
             if (_data.GetExcelSheet<ClassJob>().TryGetRow(slot.JobId, out var job))
             {
-                var jobName = job.Name.ExtractText();
+                var jobName = RussianGameText.Name(_data, job, x => x.Name);
                 if (!string.IsNullOrWhiteSpace(jobName)) name = $"{jobName} {name}";
             }
 

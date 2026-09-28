@@ -299,9 +299,7 @@ public static partial class AccessibilityStrings
 
     /// <summary>Garuda-Event Warp: Off / Manual / Auto (duty Territory 834 only).</summary>
     public static string OptNocturneWarpMode =>
-        IsGerman
-            ? "Переход на событие Гаруды"
-            : "Garuda event Warp";
+        L("Teleport beim Garuda-Ereignis", "Garuda event Warp", "Переход на событие Гаруды");
 
     /// <summary>Spoken value for <see cref="NocturneWarpMode"/>.</summary>
     public static string NocturneWarpModeName(NocturneWarpMode mode) => mode switch

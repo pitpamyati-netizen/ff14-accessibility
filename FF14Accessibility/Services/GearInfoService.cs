@@ -149,9 +149,9 @@ public sealed class GearInfoService
 
             // Russisch zuerst, wie bei den Jobnamen: BaseParam kommt hier
             // englisch ("Strength"), das Spiel zeigt "Сила".
-            var name = Loc.IsRussian && RussianSheetTerms.BaseParam(param.RowId) is { } russianParam
-                ? russianParam
-                : param.ValueNullable?.Name.ExtractText().Trim() ?? string.Empty;
+            var name = param.ValueNullable is { } parameter
+                ? RussianGameText.Name(_data, parameter, x => x.Name).Trim()
+                : string.Empty;
             if (name.Length == 0) continue; // unnamed attribute: stay silent rather than say "Attribut 12"
             parts.Add(AccessibilityStrings.AttributeValue(name, value));
         }
@@ -192,12 +192,12 @@ public sealed class GearInfoService
         // Auch die Gattung kommt aus einem Blatt und ist hier englisch; im
         // Spiel steht die uebersetzte ("Arznei"/"Лекарство"). Unbekannte Id ->
         // Blattname, nie stumm.
-        var category = Loc.IsRussian && RussianSheetTerms.ItemUICategory(row.ItemUICategory.RowId) is { } russianCategory
-            ? russianCategory
-            : row.ItemUICategory.ValueNullable?.Name.ExtractText().Trim() ?? string.Empty;
+        var category = row.ItemUICategory.ValueNullable is { } categoryRow
+            ? RussianGameText.Name(_data, categoryRow, x => x.Name).Trim()
+            : string.Empty;
         // Some items ARE their category ("Leder" in category "Leder") - saying
         // the same word twice in a row sounds like a stutter, so it is dropped.
-        var itemName = row.Name.ExtractText().Trim();
+        var itemName = RussianGameText.Name(_data, row, x => x.Name).Trim();
         if (category.Length > 0 && !category.Equals(itemName, StringComparison.OrdinalIgnoreCase))
             parts.Add(category);
 

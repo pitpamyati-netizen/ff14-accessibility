@@ -1,0 +1,18 @@
+{
+  "Item": {
+    "6945": {
+      "source": "When sung, invokes the hand of Halone, turning back time and resetting any PvP actions learned.",
+      "translation": "При исполнении призывает длань Халоне, поворачивая время вспять и сбрасывая все изученные действия PvP."
+    }
+  },
+  "CraftAction": {
+    "100005": {"source": "Restores item durability by 60.", "translation": "Восстанавливает прочность предмета на 60."},
+    "100019": {"source": "Restores item durability by 60.", "translation": "Восстанавливает прочность предмета на 60."},
+    "100035": {"source": "Restores item durability by 60.", "translation": "Восстанавливает прочность предмета на 60."},
+    "100049": {"source": "Restores item durability by 60.", "translation": "Восстанавливает прочность предмета на 60."},
+    "100065": {"source": "Restores item durability by 60.", "translation": "Восстанавливает прочность предмета на 60."},
+    "100079": {"source": "Restores item durability by 60.", "translation": "Восстанавливает прочность предмета на 60."},
+    "100094": {"source": "Restores item durability by 60.", "translation": "Восстанавливает прочность предмета на 60."},
+    "100110": {"source": "Restores item durability by 60.", "translation": "Восстанавливает прочность предмета на 60."}
+  }
+}

@@ -89,6 +89,8 @@ public sealed unsafe class AozNotebookService
     private readonly IGameGui    _gameGui;
     private readonly IDataManager _data;
     private readonly IPluginLog  _log;
+    private readonly GameDescriptionService _descriptions;
+    private bool _cachedRussian;
 
     private Dictionary<uint, AozSpell>? _byActionId;
     private Dictionary<byte, AozSpell>? _byNumber;
@@ -97,11 +99,12 @@ public sealed unsafe class AozNotebookService
     // und nicht zweimal pro Frame (siehe TryDescribeSpellTile).
     private byte _lastLoggedTile;
 
-    public AozNotebookService(IGameGui gameGui, IDataManager data, IPluginLog log)
+    public AozNotebookService(IGameGui gameGui, IDataManager data, IPluginLog log, GameDescriptionService descriptions)
     {
         _gameGui = gameGui;
         _data    = data;
         _log     = log;
+        _descriptions = descriptions;
     }
 
     /// <summary>Ob das Zauberbuch gerade offen und sichtbar ist.</summary>
@@ -432,7 +435,8 @@ public sealed unsafe class AozNotebookService
     /// </summary>
     private void BuildCache()
     {
-        if (_byActionId != null) return;
+        if (_byActionId != null && _cachedRussian == Loc.IsRussian) return;
+        _cachedRussian = Loc.IsRussian;
 
         var byAction = new Dictionary<uint, AozSpell>();
         var byNumber = new Dictionary<byte, AozSpell>();
@@ -452,13 +456,13 @@ public sealed unsafe class AozNotebookService
             var actionId = row.Action.RowId;
             if (actionId == 0) continue;
 
-            var name = row.Action.ValueNullable?.Name.ExtractText() ?? string.Empty;
+            var name = _descriptions.ActionName(actionId);
             if (string.IsNullOrWhiteSpace(name)) continue;
 
             var t = transients.GetRowOrDefault(row.RowId);
             var number      = t?.Number ?? 0;
-            var stats       = SpeakableStats(t?.Stats.ExtractText() ?? string.Empty, row.Rank);
-            var description = Tidy(t?.Description.ExtractText() ?? string.Empty);
+            var stats       = SpeakableStats(_descriptions.AozStats(row.RowId), row.Rank);
+            var description = Tidy(_descriptions.AozDescription(row.RowId));
 
             var spell = new AozSpell(row.RowId, actionId, number, row.Rank, name.Trim(), stats, description);
             byAction[actionId] = spell;

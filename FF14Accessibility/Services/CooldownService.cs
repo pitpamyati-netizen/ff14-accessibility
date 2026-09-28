@@ -271,7 +271,7 @@ public sealed class CooldownService
     {
         if (_data.GetExcelSheet<LuminaAction>().TryGetRow(id, out var row))
         {
-            var n = row.Name.ExtractText();
+            var n = RussianGameText.Name(_data, row, x => x.Name);
             if (!string.IsNullOrWhiteSpace(n)) return n;
         }
         return string.Empty;

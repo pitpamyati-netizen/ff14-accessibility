@@ -646,9 +646,7 @@ public sealed class QuestMarkerService
         if (emote != 0)
         {
             var name = _data.GetExcelSheet<LuminaEmote>().TryGetRow(emote, out var row)
-                ? Loc.IsRussian && RussianSheetTerms.Emote(row.RowId) is { } russianEmote
-                    ? russianEmote
-                    : row.Name.ExtractText()
+                ? RussianGameText.Name(_data, row, x => x.Name)
                 : string.Empty;
             return AccessibilityStrings.QuestUnlocksEmote(name);
         }
@@ -657,9 +655,7 @@ public sealed class QuestMarkerService
         if (action != 0)
         {
             var name = _data.GetExcelSheet<LuminaAction>().TryGetRow(action, out var row)
-                ? Loc.IsRussian && RussianSheetTerms.Action(row.RowId) is { } russianAction
-                    ? russianAction
-                    : row.Name.ExtractText()
+                ? RussianGameText.Name(_data, row, x => x.Name)
                 : string.Empty;
             return AccessibilityStrings.QuestUnlocksAction(name);
         }
@@ -668,9 +664,7 @@ public sealed class QuestMarkerService
         if (general != 0)
         {
             var name = _data.GetExcelSheet<LuminaGeneralAction>().TryGetRow(general, out var row)
-                ? Loc.IsRussian && RussianSheetTerms.GeneralAction(row.RowId) is { } russianGeneral
-                    ? russianGeneral
-                    : row.Name.ExtractText()
+                ? RussianGameText.Name(_data, row, x => x.Name)
                 : string.Empty;
             return AccessibilityStrings.QuestUnlocksAction(name);
         }

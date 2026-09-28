@@ -130,8 +130,16 @@ public sealed class RecipeCraftService
             makeable++;
             if (hqOnly) needHq++;
             if (names.Count < MaxSpokenNames)
-                names.Add(AccessibilityStrings.RecipeBagEntry(entry.ItemName.ToString(),
-                                                              IsFirstCraft(entry.RecipeId), hqOnly));
+            {
+                var name = entry.ItemName.ToString();
+                // Confirm the visible result before using a sheet name: the
+                // notebook can change while its recipe array is being rebuilt.
+                if (sheet.TryGetRow(entry.RecipeId, out var recipe)
+                    && recipe.ItemResult.ValueNullable is { } result
+                    && string.Equals(result.Name.ExtractText().Trim(), name.Trim(), StringComparison.OrdinalIgnoreCase))
+                    name = RussianGameText.Name(_data, result, x => x.Name);
+                names.Add(AccessibilityStrings.RecipeBagEntry(name, IsFirstCraft(entry.RecipeId), hqOnly));
+            }
         }
 
         if (listed == 0) return AccessibilityStrings.RecipeBagNoLog;
