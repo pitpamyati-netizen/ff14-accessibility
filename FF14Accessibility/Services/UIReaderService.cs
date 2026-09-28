@@ -334,10 +334,6 @@ public sealed partial class UIReaderService : IDisposable
         // Quest windows: muted in the generic path, read by the dedicated
         // OnQuestWindowUpdate handler instead (canvas text, correct timing).
         "JournalDetail", "JournalAccept", "JournalResult",
-        // _CastBar id=7 = eigener Zauber-Countdown ("00.63"..."00.02"), feuerte
-        // jeden Frame beim Teleportieren (Log 2026-07-11 19:52). Eigene Casts
-        // spaeter sauber via LocalPlayer.IsCasting ansagen, nicht per Text-Scan.
-        "_CastBar",
         // _CharaSelectReturn traegt nur den "Beenden"-Knopf; beim Neuaufbau der
         // Lobby-Fenster (Login-Dialog auf/zu) meldete der Fokus-Leser ihn jedes
         // Mal ungefragt (Log 2026-07-13 00:58). Gezielte Navigation dorthin sagt
@@ -393,7 +389,20 @@ public sealed partial class UIReaderService : IDisposable
     // die CombatService bereits sinnvoll aufbereitet ansagt (HP-Schwellen,
     // Cast-Ansagen) - reine Duplikate ohne eigenen Wert.
     private static readonly HashSet<string> StatusBarSpamAddons = ["_StatusCustom0"];
-    private static readonly HashSet<string> FlyTextSpamAddons   = ["_FlyText"];
+    // _PopUpText is a separate source: the local log records this scanner
+    // speaking '+ Rampart', '+ Raptor Form' and, after the chat fix, '+ Jog'.
+    private static readonly HashSet<string> FlyTextSpamAddons = ["_FlyText", "_PopUpText"];
+
+    // Cast bars must never bypass CombatService's caster/target checks through
+    // generic UI speech. The 6.08.64 log still has CastBarEnemy saying
+    // 'Interrupted!' via OnAnyAddonUpdate, independently of the chat filters.
+    // _CastBar also carries the player's per-frame teleport countdown.
+    private static readonly HashSet<string> CastHudAddons =
+        ["_CastBar", "CastBarEnemy", "_TargetInfoCastBar"];
+
+    private bool IsSuppressedCombatHud(string name) =>
+        CastHudAddons.Contains(name)
+        || (_config.SuppressFlyTextSpam && FlyTextSpamAddons.Contains(name));
 
     /// <summary>
     /// Wie HudNoiseAddons, aber fuer per Configuration.cs abschaltbare
@@ -403,7 +412,7 @@ public sealed partial class UIReaderService : IDisposable
     private bool IsSuppressedAddon(string name) =>
         HudNoiseAddons.Contains(name)
         || (_config.SuppressStatusBarSpam && StatusBarSpamAddons.Contains(name))
-        || (_config.SuppressFlyTextSpam && FlyTextSpamAddons.Contains(name));
+        || IsSuppressedCombatHud(name);
 
     // Listenlose Addons, bei denen wir per PostUpdate den Fokus tracken
     private static readonly HashSet<string> FocusTrackAddons =
@@ -3438,6 +3447,20 @@ public sealed partial class UIReaderService : IDisposable
         {
             _lastFocusedNodePtr  = 0;
             _lastFocusedNodeText   = string.Empty;
+            _lastFocusedNodeStable = string.Empty;
+            _lastFocusedItemName = string.Empty;
+            return;
+        }
+
+        // This reader runs independently of addon setup/update/event handlers.
+        // Apply the same combat-HUD rule before resolving text or tooltips, so
+        // moving focus onto a cast bar cannot reintroduce the announcements.
+        // Do not use the whole HudNoiseAddons set: it also contains quest and
+        // character windows whose deliberate keyboard focus is read here.
+        if (IsSuppressedCombatHud(FindAddonNameForNode(node)))
+        {
+            _lastFocusedNodePtr = 0;
+            _lastFocusedNodeText = string.Empty;
             _lastFocusedNodeStable = string.Empty;
             _lastFocusedItemName = string.Empty;
             return;
