@@ -1591,6 +1591,10 @@ public sealed class OptionsMenu
             Toggle(AccessibilityStrings.OptTargetHp,      () => _config.AnnounceTargetHp,      v => _config.AnnounceTargetHp = v),
             Toggle(AccessibilityStrings.OptEnemyMarkers,  () => _config.EnemyMarkersEnabled,  v => _config.EnemyMarkersEnabled = v),
             Toggle(AccessibilityStrings.OptEnemyCast,     () => _config.AnnounceEnemyCast,     v => _config.AnnounceEnemyCast = v),
+            Toggle(AccessibilityStrings.OptAttacker,      () => _config.AnnounceAttacker,      v => _config.AnnounceAttacker = v),
+            Toggle(AccessibilityStrings.OptStrongerEnemy, () => _config.WarnStrongerEnemies,  v => _config.WarnStrongerEnemies = v),
+            Toggle(AccessibilityStrings.OptQuestObjective, () => _config.AnnounceQuestObjectiveChanges,
+                v => _config.AnnounceQuestObjectiveChanges = v),
             NocturneWarpModeEntry(),
             // Feine HP-Stufen im Freibrief: gehoert hier hin, weil es auf einem
             // Toetungs-Auftrag ein paar Ansagen mehr sind und der Spieler das

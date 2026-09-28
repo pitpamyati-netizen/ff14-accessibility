@@ -61,6 +61,19 @@ public sealed class PlacesService
     private static float PixelToWorld(float pixel, ushort sizeFactor, short offset)
         => (pixel - 1024f) * 100f / sizeFactor - offset;
 
+    /// <summary>The name to speak for a PlaceName row: Russian when the row is
+    /// translated, otherwise the sheet name.
+    ///
+    /// Die Blaetter liefern in dieser Installation ENGLISCH - das Rusik
+    /// uebersetzt nur, was gezeichnet wird. Ohne diesen Rueckweg hoert die
+    /// Spielerin "Eastern Thanalan", waehrend auf ihrer Karte "Восточный
+    /// Таналан" steht. Die Zeilen-Id kennt keine Sprache, der Name schon.
+    /// Ohne Uebersetzung bleibt es beim Blattnamen, nie bei Schweigen.</summary>
+    private static string PlaceNameText(uint rowId, string? sheetName)
+        => Loc.IsRussian && rowId != 0 && RussianPlaceNames.PlaceName(rowId) is { } russian
+            ? russian
+            : sheetName?.Trim() ?? string.Empty;
+
     /// <summary>Inverse of <see cref="PixelToWorld"/>: world coordinate back to
     /// map pixel (0..2048). Solving world = (pixel-1024)*100/scale - offset for
     /// pixel gives pixel = (world+offset)*scale/100 + 1024.</summary>
@@ -224,7 +237,11 @@ public sealed class PlacesService
             var isTransition = false;
             var targetMapId = 0u;
 
-            var subtext = m.PlaceNameSubtext.ValueNullable?.Name.ExtractText() ?? string.Empty;
+            // Russisch zuerst: das Blatt liefert in dieser Installation Englisch,
+            // die Karte der Spielerin traegt den uebersetzten Namen (dieselbe
+            // Ursache wie bei Monstern und Quests). Ohne Uebersetzung bleibt es
+            // beim Blattnamen.
+            var subtext = PlaceNameText(m.PlaceNameSubtext.RowId, m.PlaceNameSubtext.ValueNullable?.Name.ExtractText());
 
             switch (m.DataType)
             {
@@ -234,7 +251,7 @@ public sealed class PlacesService
                     if (m.DataKey.TryGetValue<Map>(out var targetMap))
                     {
                         targetMapId = targetMap.RowId;
-                        name = targetMap.PlaceName.ValueNullable?.Name.ExtractText() ?? string.Empty;
+                        name = PlaceNameText(targetMap.PlaceName.RowId, targetMap.PlaceName.ValueNullable?.Name.ExtractText());
                     }
                     if (string.IsNullOrWhiteSpace(name)) name = subtext;
                     if (string.IsNullOrWhiteSpace(name)) continue;
@@ -245,7 +262,7 @@ public sealed class PlacesService
 
                 case 3: // Ätheryt (DataKey = Aetheryte-Zeile)
                     name = m.DataKey.TryGetValue<Aetheryte>(out var aetheryte)
-                        ? aetheryte.PlaceName.ValueNullable?.Name.ExtractText() ?? string.Empty
+                        ? PlaceNameText(aetheryte.PlaceName.RowId, aetheryte.PlaceName.ValueNullable?.Name.ExtractText())
                         : string.Empty;
                     if (string.IsNullOrWhiteSpace(name)) name = subtext;
                     if (string.IsNullOrWhiteSpace(name)) name = AccessibilityStrings.AetheryteFallbackName;
@@ -254,7 +271,7 @@ public sealed class PlacesService
 
                 case 4: // Aethernet-Scherbe (DataKey = PlaceName)
                     name = m.DataKey.TryGetValue<PlaceName>(out var placeName)
-                        ? placeName.Name.ExtractText()
+                        ? PlaceNameText(placeName.RowId, placeName.Name.ExtractText())
                         : subtext;
                     if (string.IsNullOrWhiteSpace(name)) continue;
                     type = "Aethernet";

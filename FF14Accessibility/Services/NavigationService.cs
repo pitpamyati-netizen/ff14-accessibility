@@ -1047,6 +1047,13 @@ public sealed class NavigationService
                 return Distance2D(sortFrom, a.Centre).CompareTo(Distance2D(sortFrom, b.Centre));
             });
         }
+        var spawns = _huntingLog.GetSpawnPoints(target.MonsterName, target.TerritoryId, playerPosition);
+        if (spawns.Count > 0 && !parts.Any(p => Distance2D(p.Centre, spawns[0]) <= HuntPartReached))
+        {
+            var spawn = spawns[0];
+            parts.Add(new AreaPart(spawn, target.AreaName, 0f));
+            parts.Sort((a, b) => Distance2D(sortFrom, a.Centre).CompareTo(Distance2D(sortFrom, b.Centre)));
+        }
         if (parts.Count == 0) return;
 
         _huntSearch = new HuntSearch
@@ -1791,9 +1798,8 @@ public sealed class NavigationService
             ? $" {dest.Detail}."
             : string.Empty;
 
-        // The kind of quest is flagged so a blind player can tell story, job and
-        // beast tribe quests apart from side quests (a sighted player sees a
-        // distinct marker). Side quests stay unprefixed - see QuestKind.
+        // Speak every known kind, including side quests, so the marker conveys
+        // the journal category that a sighted player can see.
         var story = AccessibilityStrings.QuestKindPrefix(dest.Kind);
 
         // The list is level-ordered, so the level has to be audible - otherwise
@@ -2389,7 +2395,7 @@ public sealed class NavigationService
         // Standing at it? Then take it as the game target too, so it can be used.
         var targeted = TryTargetMarkerObject(place);
 
-        var text = $"{place.Name}, {place.TypeLabel}, " +
+        var text = $"{place.Name}, {AccessibilityStrings.PlaceKindLabel(place.TypeLabel)}, " +
                    $"{FormatDistance(Distance2D(player.Position, place.Position))}, " +
                    $"{CalculateDirection(player, place.Position)}, " +
                    $"{AccessibilityStrings.Counter(_cycleIndex + 1, count)}." +

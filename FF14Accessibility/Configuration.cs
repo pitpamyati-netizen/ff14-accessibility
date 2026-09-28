@@ -48,12 +48,14 @@ public sealed class Configuration : IPluginConfiguration
     public string KeyTargetStatus = "Entf";             // NUR die HP des anvisierten Ziels (Spielerwunsch 2026-08-31). Bare Entf, weil der Keybind-Dump Entf gar nicht belegt - dieselbe Feststellung, die schon Strg+Entf traegt. Im Kampf will man die Gegner-HP OHNE die eigene HP/MP-Litanei davor, deshalb eine eigene Taste statt eines Anhangs an KeyCombatStatus.
     public string KeySpStatus     = "Strg+Ende";        // SP-Stand (Sammelpunkte, engl. GP) ansagen - der Vorrat, den Sammler fuer Sammel-Fertigkeiten verbrauchen. Strg+Ende ist im Keybind-Dump CAMERA_SAVE (Kamera-Preset speichern) - rein visuell, fuer blindes Spiel folgenlos (wie die akzeptierte Kamera-Zoom-Ueberschneidung der Bild-Tasten). Plugin schluckt die Taste nicht.
     public string KeyStatusEffects = "Strg+Umschalt+Entf"; // Wirkungen auf dem Spieler ansagen (was liegt gerade auf mir). Eine Modifier-Stufe ueber dem Kampfstatus Strg+Entf, weil es dieselbe Frage ist - erst "wie stehe ich da", dann "was wirkt auf mir". Strg+Umschalt+Entf ist im Keybind-Dump weder vom Spiel noch vom Plugin belegt (Entf = Ziel-HP, Strg+Entf = Kampfstatus, Strg+Umschalt+Einfg = Ausruestungsvergleich).
+    public string KeyPlayerMenu = "Numpad0"; // Kontextmenue des anvisierten Spielers
     public string KeyToggleHeading = "N";               // Himmelsrichtungs-Ansage beim Drehen an/aus. Bare N ist die einzige freie Buchstaben-Taste im Spiel (in V5.31 fuer neue Features freigeraeumt, Keybind-Dump).
     public string KeyDumpUI       = "Strg+F5";          // Node-Tree des aktuellen Addons auf Desktop speichern
     public string KeyWhereAmI     = "Strg+F2";          // Aktives Fenster ansagen + sichtbare Fenster ins Log
     public string KeyReadHotbar   = "Strg+F9";          // Aktionsleiste 1 vorlesen (was liegt auf Taste 1-0)
     public string KeyReadInventory = "Strg+F3";         // Inventar vorlesen (Tasche + Schlüsselgegenstände)
     public string KeyReadGil       = "Umschalt+F3";     // Nur den Gil-Stand ansagen (Umschalt+F1..F12 laut Keybind-Dump frei)
+    public string KeyMoveToArmoury = "Alt+F3";          // Alle Ausrüstungsteile aus dem Inventar in die Arsenaltruhe legen
     public string KeyLevelExp      = "Strg+L";          // Stufe + fehlende EXP ansagen (L=Level; bare L ist im Spiel Linkshell)
     public string KeyRestedStatus  = "Umschalt+L";      // Ruhebereich + Erholungsbonus ansagen (neben der Stufe auf L; Umschalt+L steht nicht in der Belegt-Liste des Keybind-Dumps)
     // Rang des Begleit-Chocobos - die dritte Belegung der L-Familie (Strg+L eigene
@@ -248,6 +250,7 @@ public sealed class Configuration : IPluginConfiguration
         KeyTargetStatus = defaults.KeyTargetStatus;
         KeySpStatus     = defaults.KeySpStatus;
         KeyStatusEffects = defaults.KeyStatusEffects;
+        KeyPlayerMenu = defaults.KeyPlayerMenu;
         KeyToggleHeading = defaults.KeyToggleHeading;
         KeyToggleAoeWarning = defaults.KeyToggleAoeWarning;
         KeyDumpUI       = defaults.KeyDumpUI;
@@ -255,6 +258,7 @@ public sealed class Configuration : IPluginConfiguration
         KeyReadHotbar   = defaults.KeyReadHotbar;
         KeyReadInventory = defaults.KeyReadInventory;
         KeyReadGil       = defaults.KeyReadGil;
+        KeyMoveToArmoury = defaults.KeyMoveToArmoury;
         KeyLevelExp      = defaults.KeyLevelExp;
         KeyRestedStatus  = defaults.KeyRestedStatus;
         KeyChocoboRank   = defaults.KeyChocoboRank;
@@ -581,9 +585,9 @@ public sealed class Configuration : IPluginConfiguration
     // in sechs Sekunden). Abschaltbar, weil es auf einem Toetungs-Freibrief ein paar
     // Ansagen mehr sind.
     public bool FineTargetHpDuringLeve = true;
-    // Plugin-Gegner-Cast-Warnung (CombatService) UND Kampflog-Aktionszeilen
-    // (XivChatType.Action = 43, Mitkaempfer/Gegner/"Du wirkst …"). Aus = beides stumm;
-    // Schaden/Heilung/Buffs im Kampflog bleiben. Ein Schalter fuer beide Quellen.
+    // Warnungen vor relevanten Gegner-Casts. Aktionszeilen des Kampflogs werden
+    // unabhaengig davon nicht vorgelesen: sie enthalten auch die Casts anderer
+    // Spieler und bleiben nur im lesbaren Chatverlauf erhalten.
     public bool AnnounceEnemyCast = true;
     // Sonderaktionsleiste eines Auftrags. STANDARD AN, anders als die Flaechenwarnung:
     // hier wird nichts berechnet und nichts behauptet - die Leiste ist da oder nicht,
@@ -606,6 +610,13 @@ public sealed class Configuration : IPluginConfiguration
     // aufgezwungen werden. Opt-in per KeyToggleAoeWarning; spaeterer Release dreht den
     // Standard auf AN, sobald bestaetigt.
     public bool AnnounceAoeWarning = false;
+    public bool AnnounceAttacker = true;
+    public bool WarnStrongerEnemies = true;
+    public bool AnnounceQuestObjectiveChanges = true;
+
+    // Welche Penumbra-Mods vor /acc mods aus eingeschaltet waren.
+    public bool ModsSwitchMemoryValid;
+    public List<string> ModsSwitchMemory = new();
     public float AoeWarnVolume = 0.5f;          // 0 = stumm, 1 = volle Lautstärke
 
     // Klang der Warnung (User-Wunsch 2026-08-21: "der ist nervig"). Vier Stimmen

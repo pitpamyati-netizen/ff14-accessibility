@@ -14,7 +14,7 @@ using FFXIVClientStructs.FFXIV.Client.UI;
 
 namespace FF14Accessibility;
 
-public sealed class Plugin : IDalamudPlugin
+public sealed partial class Plugin : IDalamudPlugin
 {
     [PluginService] private IDalamudPluginInterface PluginInterface { get; init; } = null!;
     [PluginService] private ICommandManager         CommandManager  { get; init; } = null!;
@@ -65,6 +65,7 @@ public sealed class Plugin : IDalamudPlugin
     private readonly NocturneWarpService _nocturneWarp;
     private readonly HotbarService      _hotbar;
     private readonly InventoryService   _inventoryReader;
+    private readonly ArmouryTransferService _armouryTransfer;
     // Sagt, welcher Gegenstand WIRKLICH im Platz unter dem Cursor liegt -
     // ueber Behaelter und Platznummer statt ueber das Symbol.
     private readonly ItemSlotService    _itemSlots;
@@ -74,6 +75,9 @@ public sealed class Plugin : IDalamudPlugin
     // [Ausruestungs-Vergleich] Sagt das Vergleichsfenster des Spiels an.
     private readonly ItemCompareService _itemCompare;
     private readonly QuestMarkerService _questMarkers;
+    private readonly QuestObjectiveAnnouncer _questObjectives;
+    private readonly PenumbraIpc _penumbra;
+    private readonly ModSwitchService _mods;
     private readonly PlacesService      _places;
     private readonly FishingService     _fishing;
     private readonly FateService        _fates;
@@ -207,8 +211,11 @@ public sealed class Plugin : IDalamudPlugin
     // 6.08.18 lokal: Chat-Absender Kontextmenü (Strg+Umschalt+BildAuf) + Numpad3-Ziel.
     // 6.08.19: Charakterauswahl — eine Ansage (Name, Job, Ort) statt Scan-Sturm.
     // 6.08.20: Mitstreiter-Taste (PR 27 Port) — Strg+Umschalt+C öffnet/vorliest.
-    private const string PluginVersion    = "6.08.34";
-    private const string PluginVersionTag = "Quest Accept";
+    private const string PluginVersion    = "6.08.61";
+    // Der Tag nennt, was diese Fassung MITBRINGT, nicht woher sie stammt: die
+    // russische Schicht auf dem Stand des Autors 6.08.34 (Auftragstext im
+    // Quest-Tracker des Autors, siehe package-Schritt).
+    private const string PluginVersionTag = "Исправлен перенос экипировки через Alt+F3";
 
     public Plugin()
     {
@@ -374,6 +381,12 @@ public sealed class Plugin : IDalamudPlugin
         Loc.Mode = _config.Language;
 
         TolkNative.Initialize(PluginInterface.AssemblyLocation.DirectoryName!);
+        // Das Dalamud-Log ist eine wachsende Datei (heute 4,7 MB im eigenen
+        // Testlauf) und wird als Ringpuffer gehalten: die Zeile, die ein
+        // Spieler braucht, kann zwischen zwei Starts herausgerollt sein. Fuer
+        // Meldungen wie "Skill-Liste gebaut" wird deshalb ein eigenes, kleines
+        // Log im Plugin-Ordner gefuehrt, neben dem Plugin selbst.
+        PluginFileLog.Open(PluginInterface.AssemblyLocation.DirectoryName!, PluginVersion);
         _tolk       = new TolkService(Log);
         // Cue VOR Beacon: der Peil-Ton braucht ihn fuer den Einrast-Ton, der
         // erklaert, warum er beim richtigen Stand schweigt.
@@ -394,10 +407,17 @@ public sealed class Plugin : IDalamudPlugin
         // Braucht nur das Item-Sheet: die Antwort kommt aus dem Detail-Agenten
         // des Spiels, den Fokus-Knoten holt er sich selbst (siehe ItemSlotService).
         _itemSlots       = new ItemSlotService(DataManager);
-        _hotbar       = new HotbarService(DataManager, ClientState, Framework, _gearInfo, _keybinds, _inventoryReader, _tolk, Log);
+        _hotbar       = new HotbarService(DataManager, ClientState, Framework, _gearInfo, _keybinds, _inventoryReader, _tolk, Log, SeStringEval);
         _lootRolls    = new LootRollService(DataManager, ClientState, GameGui, _config, _gearInfo, _tolk, Log);
         _equipment    = new EquipmentService(GameInventory, _inventoryReader, DataManager, _gearInfo, _tolk, Log);
         _questMarkers = new QuestMarkerService(ClientState, DataManager, Log);
+        _questObjectives = new QuestObjectiveAnnouncer(AddonLifecycle, _questMarkers, _tolk, Log)
+        {
+            IsEnabled = () => _config.AnnounceQuestObjectiveChanges,
+            Suppress = () => !ClientState.IsLoggedIn || _textInputActive || _menu?.IsOpen == true,
+        };
+        _penumbra = new PenumbraIpc(PluginInterface, Log);
+        _mods = new ModSwitchService(_penumbra, _config, Log);
         _places       = new PlacesService(DataManager, ClientState, Log);
         _fishing      = new FishingService(ObjectTable, ClientState, DataManager, _places, _tolk, _config, PluginInterface, Log);
         _fates        = new FateService(ClientState);
@@ -544,6 +564,7 @@ public sealed class Plugin : IDalamudPlugin
         // zum Waehler-Eintrag.
         _charaMake  = new CharaMakeReader(ObjectTable, DataManager, GameGui, _tolk, Log, _tooltips);
         _uiReader   = new UIReaderService(AddonLifecycle, GameGui, _tolk, Log, ObjectTable, _inventoryReader, _gearInfo, _bestiary, _huntingLog, _history, _config, DataManager, _tooltips, _charaMake, _lootRolls, _itemSlots, _gatherLog);
+        _armouryTransfer = new ArmouryTransferService(DataManager, ClientState, GameGui, _uiReader, _tolk, Log);
         _synthesis   = new SynthesisService(GameGui, _tolk, Log);
         // [Handwerker-Notizbuch] Die Frage, die das Spiel nur fuer das ausgewaehlte
         // Rezept beantwortet: was ist mit dem Beutelinhalt jetzt herstellbar. Der
@@ -909,10 +930,46 @@ public sealed class Plugin : IDalamudPlugin
         // /acc set  â†’ Aktuelles Spielziel verfolgen
         // /acc near â†’ Objekte in der Nähe
         // /acc stop â†’ Sprache stoppen
+        // /acc diag â†’ Diagnosedatei auf den Desktop (Fehlerbericht)
         CommandManager.AddHandler("/acc", new CommandInfo(OnCommand)
         {
-            HelpMessage = "FF14 Accessibility: nav, set, near, keys, stop, help"
+            HelpMessage = "FF14 Accessibility: nav, set, near, mods, fps, perform, spawn, keys, diag, stop, help"
         });
+    }
+
+    /// <summary>
+    /// Writes the skill menu's current contents plus the plugin's own log to a
+    /// single file on the desktop.
+    /// <para>
+    /// Why a named command instead of only the hidden log: a report from a blind
+    /// player has to be one action, not a walk through install folders. The user
+    /// types <c>/acc diag</c>, hears the path, and attaches that file.
+    /// </para>
+    /// </summary>
+    private void WriteDiagnosticsFile()
+    {
+        _tolk.SpeakInterrupt(AccessibilityStrings.DiagnoseRunning);
+
+        // Log only, as it was: the actual skill list is written by the Hotbar
+        // service into the same file, so the report carries both halves.
+        var entries = _hotbar.WriteSkillDiagnostics();
+
+        var path = PluginFileLog.CopyToDesktop("FF14Accessibility-Diagnose.txt");
+        if (path == null)
+        {
+            _tolk.SpeakInterrupt(AccessibilityStrings.DiagnoseFailed);
+            return;
+        }
+
+        // The class name, not the internal job id: a blind player comparing our
+        // number against what the game calls their class cannot be asked to
+        // translate "11" into "Goldsmith" (build 6.08.39 logged exactly that).
+        var className = ObjectTable.LocalPlayer is { } me
+            ? PlayerInfo.JobName(DataManager, me)
+            : string.Empty;
+        if (className.Length == 0) className = _hotbar.SkillCount.ToString();
+
+        _tolk.SpeakInterrupt(AccessibilityStrings.DiagnoseSaved(className, path, entries));
     }
 
     private void OnCommand(string command, string args)
@@ -956,6 +1013,17 @@ public sealed class Plugin : IDalamudPlugin
             return;
         }
 
+        if (TryHandleModsCommand(trimmed)) return;
+
+        if (trimmed.StartsWith("spawn", StringComparison.OrdinalIgnoreCase))
+        {
+            var lines = _huntingLog.DumpSpawnProbe();
+            _tolk.SpeakInterrupt(lines > 0
+                ? AccessibilityStrings.SpawnProbeResult(lines)
+                : AccessibilityStrings.SpawnProbeFailed);
+            return;
+        }
+
         switch (trimmed.ToLower())
         {
             case "nav":
@@ -986,6 +1054,26 @@ public sealed class Plugin : IDalamudPlugin
             case "keys":
                 _keybinds.DumpKeybinds(GetPluginKeys());
                 break;
+            case "fps": case "кадры": case "кадров":
+            case "bilder": case "frames": case "bildrate":
+                AnnounceFrameRate();
+                break;
+            case "auftritt": case "perform": case "выступление": case "выступлен":
+                _uiReader.DumpPerformanceDetail();
+                break;
+            case "spur": case "речь": case "запись":
+            case "sprache": case "spurtrace":
+                ToggleSpeechTrace();
+                break;
+            // Russian aliases: the whole interface is Russian, so a blind player
+            // should not have to switch keyboard layout mid-report (she asked
+            // for exactly this on 2026-09-26).
+            case "diag":
+            case "diagnose":
+            case "диаг":
+            case "диагностика":
+                WriteDiagnosticsFile();
+                break;
             case "fish":
                 _fishing.AnnounceSpotsInCurrentZone();
                 break;
@@ -1003,6 +1091,10 @@ public sealed class Plugin : IDalamudPlugin
                 _tolk.SpeakInterrupt(_gatherLog.Probe());
                 break;
 #endif
+            // Die Handwerks-Probe hat bewusst KEINEN eigenen Befehl: sie laeuft
+            // in /acc diag mit. Ein DEBUG-gegateter Befehl existiert in der
+            // Release-Auslieferung nicht - 6.08.48 hat genau das getan und der
+            // Spieler bekam "Unbekannter Befehl" (siehe ProbeCraftDescriptions).
             case "gathergo":
                 GatherWalkToNearest();
                 break;
@@ -1011,6 +1103,13 @@ public sealed class Plugin : IDalamudPlugin
                 break;
             case "crossbar":
                 _hotbar.ToggleSkillMenu(controllerMode: true);
+                break;
+            // The same skill menu without the bar picker: for keyboard hotbars
+            // the game already knows the key, so choosing a bar first is a step
+            // that leads nowhere (her report 2026-09-26).
+            case "skills":
+            case "умения":
+                _hotbar.OpenSkillMenuDirect();
                 break;
             case "crossread":
                 _hotbar.ReadCrossHotbar();
@@ -1199,7 +1298,9 @@ public sealed class Plugin : IDalamudPlugin
         PluginInterface.SavePluginConfig(_config);
 
         // Name the resolved language; "auto" also reports which one Windows picked.
-        var languageName = Loc.IsGerman ? AccessibilityStrings.LanguageGerman : AccessibilityStrings.LanguageEnglish;
+        var languageName = Loc.IsRussian ? AccessibilityStrings.LanguageRussian
+                         : Loc.IsGerman ? AccessibilityStrings.LanguageGerman
+                         : AccessibilityStrings.LanguageEnglish;
         _tolk.SpeakInterrupt(mode.Value == LanguageMode.Auto
             ? AccessibilityStrings.LanguageAuto(languageName)
             : AccessibilityStrings.LanguageSet(languageName));
@@ -1232,6 +1333,7 @@ public sealed class Plugin : IDalamudPlugin
             ("Ziel-HP",        _config.KeyTargetStatus),
             ("SP-Stand",       _config.KeySpStatus),
             ("Wirkungen",      _config.KeyStatusEffects),
+            ("Spielermenue",   _config.KeyPlayerMenu),
             ("Himmelsrichtung an/aus", _config.KeyToggleHeading),
             ("Flächenwarnung an/aus", _config.KeyToggleAoeWarning),
             ("Peil-Ton an/aus", _config.KeyToggleBeacon),
@@ -1245,6 +1347,7 @@ public sealed class Plugin : IDalamudPlugin
             ("Aktionsleiste",  _config.KeyReadHotbar),
             ("Inventar",       _config.KeyReadInventory),
             ("Gil",            _config.KeyReadGil),
+            ("Alle Ausrüstungsteile in Arsenaltruhe legen", _config.KeyMoveToArmoury),
             ("Stufe",          _config.KeyLevelExp),
             ("Erholungsbonus", _config.KeyRestedStatus),
             ("Chocobo-Rang",   _config.KeyChocoboRank),
@@ -1429,7 +1532,7 @@ public sealed class Plugin : IDalamudPlugin
     // been picked; they are game-bound too (turn left/right), so they join the
     // swallow list - the menu ignores them in the key step, but the game must
     // not see them there either.
-    private static readonly int[] SkillMenuVks = { 0x68, 0x62, 0x60, 0x6E, 0x64, 0x66 };
+    private static readonly int[] SkillMenuVks = { 0x68, 0x62, 0x60, 0x6E, 0x64, 0x66, 0x65 };
 
     /// <summary>
     /// While the modal assignment menu is open (key first, then what goes on
@@ -1450,6 +1553,7 @@ public sealed class Plugin : IDalamudPlugin
         else if (IsJustPressed("Numpad4"))     _hotbar.SkillMenuSwitchSource(-1);
         else if (IsJustPressed("Numpad6"))     _hotbar.SkillMenuSwitchSource(+1);
         else if (IsJustPressed("Numpad0"))     _hotbar.SkillMenuConfirm();
+        else if (IsJustPressed("Numpad5"))     _hotbar.SkillMenuRepeatEntry();
         else if (IsJustPressed("NumpadKomma")) _hotbar.SkillMenuBack();
 
         // Swallow the keys from the game for as long as the menu is open.
@@ -1649,34 +1753,60 @@ public sealed class Plugin : IDalamudPlugin
     }
 
     /// <summary>
-    /// Mitstreiter window key: closed → open via the game's <c>/companion</c>
-    /// text command; open → re-read the existing Buddy summary. Neither
-    /// IGameGui nor ClientStructs expose an Open for AddonBuddy (PR 27 /
-    /// game-api Mitstreiter); the Character-window button is mouse-only.
-    /// The spoken "opening" line is intentional — a failed command must not
-    /// look like a silent mod.
+    /// Mitstreiter window key: closed → open through the game's main command;
+    /// open → re-read the existing Buddy summary. ICommandManager only dispatches
+    /// plugin commands, so ProcessCommand("/companion") never reached the game.
     /// </summary>
-    private void ToggleCompanionWindow()
+    private unsafe void ToggleCompanionWindow()
     {
         if (_uiReader.IsCompanionWindowOpen)
         {
+            _companionOpenPending = false;
             _uiReader.AnnounceCompanionWindow();
             return;
         }
 
-        _tolk.Speak(AccessibilityStrings.CompanionOpening);
         try
         {
-            if (!CommandManager.ProcessCommand("/companion"))
+            var ui = UIModule.Instance();
+            if (ui == null)
             {
-                Log.Warning("[Buddy] /companion ProcessCommand false");
-                _tolk.Speak(AccessibilityStrings.CompanionWindowEmpty);
+                Log.Warning("[Buddy] UIModule.Instance() ist null");
+                _tolk.SpeakInterrupt(AccessibilityStrings.CompanionOpenFailed);
+                return;
             }
+            // MainCommand sheet row 42 is Companion. Execute the same game action
+            // as the main menu, without routing a text command through Dalamud.
+            ui->ExecuteMainCommand(42);
+            _companionOpenPending = true;
+            _companionOpenUntil = DateTime.UtcNow.AddSeconds(2);
+            Log.Info("[Buddy] ExecuteMainCommand(42) angefordert");
+            _tolk.Speak(AccessibilityStrings.CompanionOpening);
         }
         catch (Exception ex)
         {
-            Log.Warning($"[Buddy] /companion fehlgeschlagen: {ex.Message}");
-            _tolk.Speak(AccessibilityStrings.CompanionWindowEmpty);
+            _companionOpenPending = false;
+            Log.Warning($"[Buddy] Hauptkommando fehlgeschlagen: {ex.Message}");
+            _tolk.SpeakInterrupt(AccessibilityStrings.CompanionOpenFailed);
+        }
+    }
+
+    private bool _companionOpenPending;
+    private DateTime _companionOpenUntil;
+
+    private void CheckCompanionWindowOpen()
+    {
+        if (!_companionOpenPending) return;
+        if (_uiReader.IsCompanionWindowOpen)
+        {
+            _companionOpenPending = false;
+            Log.Info("[Buddy] Fenster nach Hauptkommando sichtbar");
+        }
+        else if (DateTime.UtcNow >= _companionOpenUntil)
+        {
+            _companionOpenPending = false;
+            Log.Warning("[Buddy] Fenster nach Hauptkommando nicht sichtbar");
+            _tolk.SpeakInterrupt(AccessibilityStrings.CompanionOpenFailed);
         }
     }
 
@@ -2175,6 +2305,7 @@ public sealed class Plugin : IDalamudPlugin
 
     private void OnFrameworkUpdate(IFramework framework)
     {
+        FocusTimingProbe.MarkFrame();
         // Window focus first: every mod tone / SAPI channel gates on this.
         GameWindowFocus.Update(Log);
         if (GameWindowFocus.JustBecameInactive)
@@ -2205,6 +2336,10 @@ public sealed class Plugin : IDalamudPlugin
         // Skill-Belegen: Beschreibung nach dem Namen (Dwell), solange die
         // Skill-Liste offen ist — sonst sofort wieder raus.
         _hotbar.UpdateSkillDescDwell();
+        _uiReader.UpdatePlayerMenuProbe();
+        CheckCompanionWindowOpen();
+        _uiReader.YesNoPressTick();
+        _uiReader.YesNoHoldTick();
 
         // Sample the text-input state once for this frame. Log only on change so
         // the in-game test can confirm it flips exactly when the chat opens/closes.
@@ -2361,6 +2496,7 @@ public sealed class Plugin : IDalamudPlugin
             if (!_uiReader.TryAnnounceHandOver()) _inventoryReader.ReadInventory();
         }
         if (IsJustPressed(_config.KeyReadGil))       _inventoryReader.AnnounceGil();
+        if (IsJustPressed(_config.KeyMoveToArmoury)) _armouryTransfer.Start();
         if (IsJustPressed(_config.KeyLevelExp))      _combat.AnnounceLevelExp();
         if (IsJustPressed(_config.KeyRestedStatus))  _combat.AnnounceRestedStatus();
         if (IsJustPressed(_config.KeyChocoboRank))   _combat.AnnounceChocoboRank();
@@ -2415,7 +2551,13 @@ public sealed class Plugin : IDalamudPlugin
         }
         if (IsJustPressed(_config.KeyEquipBest))     _equipment.EquipRecommended();
         if (IsJustPressed(_config.KeyRandomLook))    _uiReader.PressRandomAppearance();
-        if (IsJustPressed(_config.KeySkillMenu))     _hotbar.ToggleSkillMenu(IsControllerMode());
+        if (IsJustPressed(_config.KeySkillMenu))
+        {
+            if (_hotbar.IsSkillMenuOpen) _hotbar.CloseSkillMenu();
+            else if (IsControllerMode()) _hotbar.ToggleSkillMenu(controllerMode: true);
+            else _hotbar.OpenSkillMenuDirect();
+        }
+        HandlePlayerMenuKey();
         // ContextMenu: nur Auswahl setzen, Numpad0 NICHT schlucken (Spiel-OK).
         PrepareContextMenuForGameOk();
         // [Job-Anzeige] Zustand auf Nachfrage, ohne auf eine Flanke zu warten.
@@ -2529,6 +2671,7 @@ public sealed class Plugin : IDalamudPlugin
         // action) - the loot channel only says they arrived, not that they do
         // something. Throttles itself to once a second.
         _inventoryReader.Update();
+        _armouryTransfer.Update();
         // Announces party loot rolls the moment they open. Reads the game's own
         // Loot state, so it works no matter what the NeedGreed window is doing.
         _lootRolls.Update();
@@ -2571,7 +2714,12 @@ public sealed class Plugin : IDalamudPlugin
             || KeyState[(Dalamud.Game.ClientState.Keys.VirtualKey)0x68]  // Numpad8
             || KeyState[(Dalamud.Game.ClientState.Keys.VirtualKey)0x62]  // Numpad2
             || KeyState[(Dalamud.Game.ClientState.Keys.VirtualKey)0x64]  // Numpad4
-            || KeyState[(Dalamud.Game.ClientState.Keys.VirtualKey)0x66]; // Numpad6
+            || KeyState[(Dalamud.Game.ClientState.Keys.VirtualKey)0x66]  // Numpad6
+            || (IsControllerMode() && (
+                GamepadState.Raw(GamepadButtons.DpadUp) > 0
+                || GamepadState.Raw(GamepadButtons.DpadDown) > 0
+                || GamepadState.Raw(GamepadButtons.DpadLeft) > 0
+                || GamepadState.Raw(GamepadButtons.DpadRight) > 0));
         _uiReader.UpdateGlobalFocus(navKeyHeld);
         // Ergebnis der HQ-Uebernahme (Einfg) nachlesen: gesprochen wird erst,
         // wenn das Fenster die Aenderung zeigt - oder wenn sie ausbleibt.
@@ -2580,6 +2728,7 @@ public sealed class Plugin : IDalamudPlugin
         // Spielzeile "There are no items to display" ansagen, sobald sie
         // erscheint (vorher war eine leere Liste einfach Stille).
         _uiReader.GatheringNoteTick();
+        _uiReader.PerformanceModeTick();
 
 #if DEBUG
         // Debug-only auto-probe: logs focused config-menu elements while a
@@ -2665,8 +2814,11 @@ public sealed class Plugin : IDalamudPlugin
         }
 
         // Controller D-Pad Links/Rechts: SelectYesno Jaâ†”Nein
-        if (GamepadState.Pressed(GamepadButtons.DpadLeft)  > 0) _uiReader.NavigateGamepad(-1);
-        if (GamepadState.Pressed(GamepadButtons.DpadRight) > 0) _uiReader.NavigateGamepad(+1);
+        if (IsControllerMode())
+        {
+            if (GamepadState.Pressed(GamepadButtons.DpadLeft)  > 0) _uiReader.NavigateGamepad(-1);
+            if (GamepadState.Pressed(GamepadButtons.DpadRight) > 0) _uiReader.NavigateGamepad(+1);
+        }
     }
 
     private enum MarkerResolve
@@ -3346,6 +3498,7 @@ public sealed class Plugin : IDalamudPlugin
 
     public void Dispose()
     {
+        _questObjectives.Dispose();
         Framework.Update -= OnFrameworkUpdate;
         ClientState.Login -= OnLogin;
         CommandManager.RemoveHandler("/acc");
@@ -3371,4 +3524,3 @@ public sealed class Plugin : IDalamudPlugin
         _tolk.Dispose();
     }
 }
-

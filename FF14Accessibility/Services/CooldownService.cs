@@ -62,6 +62,11 @@ public sealed class CooldownService
     // the build-specific GCD recast-group id.
     private const float GcdRecastCeiling = 3.0f;
 
+    // Alles ab dieser Id ist eine Zeile aus dem CraftAction-Sheet und damit
+    // keine Action im Sinne des ActionManager (kleinste: 100001 Basic
+    // Synthesis). Siehe die Erklaerung in EvaluateAction.
+    private const uint CraftActionIdFloor = 100000;
+
     // StandardHotbars = Hotbars[0..9]; 16 slots exist per bar (UI uses 12).
     private const int StandardBarCount = 10;
     private const int SlotsPerBar      = 16;
@@ -193,6 +198,28 @@ public sealed class CooldownService
 
     private unsafe void EvaluateAction(ActionManager* am, uint id, uint level)
     {
+        // ABSTURZ-SCHUTZ (2026-09-26, Nutzer-Report): eine Handwerksaktion auf
+        // der Leiste legte Dalamud mit einer Zugriffsverletzung (C0000005) in
+        // Client::Game::ActionManager.GetMaxCharges+0x23 um. Der Crash-Stack war
+        // CooldownService.Update -> EvaluateAction -> GetMaxCharges, also genau
+        // diese Zeile, und zwar im laufenden Bild-Takt, nicht beim Belegen.
+        //
+        // Ursache: der Hotbar-Slot einer Handwerksaktion traegt die Zeilen-Id aus
+        // dem CraftAction-Sheet (100001 Basic Synthesis … 100371 Tricks of the
+        // Trade auf Stufe 19), NICHT die Id einer Action-Zeile. GetMaxCharges ist
+        // eine statische Bindung direkt in den Client (ohne thisPtr, also auch
+        // ohne Instanz-Null-Check) und indiziert intern die Action-Liste des
+        // Spielers; eine Id, die dort nicht existiert, laeuft aus dem Gatter und
+        // reisst den Prozess mit. ActionName() unten liefert fuer so eine Id
+        // laengst einen leeren String - dieselbe Pruefung, nur frueher.
+        //
+        // Die Mod kennzeichnet Handwerksaktionen nirgends als solche; der
+        // Id-Bereich ist das einzige Signal, das der Slot hergibt. Handwerks-
+        // aktionen brauchen hier nichts: sie haben keine Ladungen, und ein
+        // GCD-Ausschluss ueber GcdRecastCeiling filtert sie ohnehin heraus
+        // (Basis-Synthese 2,5 s).
+        if (id >= CraftActionIdFloor) return;
+
         var maxCharges = ActionManager.GetMaxCharges(id, level);
         if (maxCharges < 1) maxCharges = 1;
         var charges = am->GetCurrentCharges(id);

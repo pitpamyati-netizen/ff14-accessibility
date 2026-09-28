@@ -9,6 +9,10 @@ using FFXIVClientStructs.FFXIV.Client.UI.Misc;
 using LuminaAction = Lumina.Excel.Sheets.Action;
 using LuminaActionTransient = Lumina.Excel.Sheets.ActionTransient;
 using LuminaBuddyAction = Lumina.Excel.Sheets.BuddyAction;
+using LuminaClassJobCategory = Lumina.Excel.Sheets.ClassJobCategory;
+using LuminaCraftAction = Lumina.Excel.Sheets.CraftAction;
+using Lumina.Excel;
+using Lumina.Text.ReadOnly;
 using LuminaEventItem = Lumina.Excel.Sheets.EventItem;
 using LuminaGeneralAction = Lumina.Excel.Sheets.GeneralAction;
 using LuminaMount = Lumina.Excel.Sheets.Mount;
@@ -37,6 +41,8 @@ public sealed class HotbarService
     private readonly InventoryService _inventory;
     private readonly TolkService _tolk;
     private readonly IPluginLog _log;
+    // Optional: only the DEBUG sheet probe needs it. Null is handled there.
+    private readonly Dalamud.Plugin.Services.ISeStringEvaluator? _eval;
     private readonly CrossHotbarChangeTracker _crossHotbarChanges = new();
     private int? _unexpectedCrossHotbarId;
     private int? _activeCrossBar;
@@ -74,12 +80,13 @@ public sealed class HotbarService
         var number = _crossHotbarChanges.Update(announceChanges ? _activeCrossBar : null);
         if (number == null) return;
         _log.Info($"[CrossHotbar] Active set changed: module ID={id}, set={number.Value}");
-        _tolk.SpeakInterrupt(AccessibilityStrings.HotbarPrefix(number.Value).Trim());
+        _tolk.SpeakInterrupt(AccessibilityStrings.CrossBarName(number.Value));
     }
 
     public HotbarService(IDataManager data, IClientState clientState, IFramework framework,
                          GearInfoService gearInfo, KeybindService keybinds, InventoryService inventory,
-                         TolkService tolk, IPluginLog log)
+                         TolkService tolk, IPluginLog log,
+                         Dalamud.Plugin.Services.ISeStringEvaluator? eval = null)
     {
         _data = data;
         _clientState = clientState;
@@ -89,8 +96,8 @@ public sealed class HotbarService
         _inventory = inventory;
         _tolk = tolk;
         _log = log;
+        _eval = eval;
     }
-
     /// <summary>UI "Hotbar 1" is module index 0; its 12 keys are 1-9, 0, 11, 12.</summary>
     private const int MainHotbarIndex = 0;
     private const int SlotsToRead = 12;
@@ -193,8 +200,9 @@ public sealed class HotbarService
 
     /// <summary>
     /// Human-readable name for a slot. Combat actions resolve through the
-    /// Lumina Action sheet (deterministic); everything else falls back to the
-    /// game's own display string (PopUpHelp), then to a type+id label.
+    /// Lumina Action sheet; crafting actions have their own slot type and
+    /// CraftAction sheet. Everything else falls back to the game's own
+    /// display string (PopUpHelp), then to a type+id label.
     /// </summary>
     private string ResolveName(RaptureHotbarModule.HotbarSlotType type, uint id, string popUpHelp)
     {
@@ -204,6 +212,26 @@ public sealed class HotbarService
             var actionName = action.Name.ExtractText();
             if (!string.IsNullOrWhiteSpace(actionName))
                 return actionName;
+        }
+
+        // Earlier builds wrote craft row ids as combat actions. Keep their name
+        // readable while making clear that those old bindings need replacing.
+        if (type == RaptureHotbarModule.HotbarSlotType.Action &&
+            _data.GetExcelSheet<LuminaCraftAction>().TryGetRow(id, out var oldCraft))
+        {
+            var oldCraftName = oldCraft.Name.ExtractText();
+            if (!string.IsNullOrWhiteSpace(oldCraftName))
+                return $"{oldCraftName} (переназначьте навык)";
+        }
+
+        // Craft actions must retain their own slot type so the game executes
+        // them as crafting actions, not as combat actions with a craft row id.
+        if (type == RaptureHotbarModule.HotbarSlotType.CraftAction &&
+            _data.GetExcelSheet<LuminaCraftAction>().TryGetRow(id, out var craft))
+        {
+            var craftName = craft.Name.ExtractText();
+            if (!string.IsNullOrWhiteSpace(craftName))
+                return craftName;
         }
 
         // Quest items index the EventItem sheet, not Action - resolve them the
@@ -290,26 +318,35 @@ public sealed class HotbarService
     private enum SkillMenuStep { Closed, PickBar, PickSlot, PickEntry }
     private SkillMenuStep _menuStep = SkillMenuStep.Closed;
     private int _barChoice;
+    private bool _keyboardDirect;
     private uint _menuJob;
 
     /// <summary>Which list the menu is browsing once a key has been picked.
     /// Numpad 4/6 steps through the sources (user choice 2026-08-06; quest
     /// items, general actions and mounts added 2026-08-09); the chosen key is
     /// the same target for all of them.</summary>
-    private enum AssignSource { Skills, Items, QuestItems, GeneralActions, Mounts, BuddyActions }
+    private enum AssignSource { Skills, CraftActions, Items, QuestItems, GeneralActions, Mounts, BuddyActions }
     private AssignSource _menuSource = AssignSource.Skills;
 
     /// <summary>The order Numpad 4/6 steps through, and the order the fallback
     /// in <see cref="EnterFirstUsableSource"/> tries. Static so stepping does
-    /// not allocate on every keypress.</summary>
+    /// not allocate on every keypress. Craft actions sit directly behind the
+    /// battle skills so a crafter reaches them with one keypress (user request
+    /// 2026-09-26: her own craft tab, separate from the battle list).</summary>
     private static readonly AssignSource[] SourceOrder =
     {
-        AssignSource.Skills, AssignSource.Items, AssignSource.QuestItems,
+        AssignSource.Skills, AssignSource.CraftActions, AssignSource.Items, AssignSource.QuestItems,
         AssignSource.GeneralActions, AssignSource.Mounts, AssignSource.BuddyActions,
     };
 
     private readonly List<(uint Id, string Name, byte Level)> _skills = new();
     private int _skillIndex = -1;
+
+    /// <summary>All assignable actions of the current crafting class. The game
+    /// splits them between CraftAction and Action; keep the actual hotbar slot type
+    /// with each row so both kinds can be shown in one craft list.</summary>
+    private readonly List<(uint Id, string Name, byte Level, RaptureHotbarModule.HotbarSlotType Type)> _craftSkills = new();
+    private int _craftIndex = -1;
 
     // Description dwell for the skill assign list (same idea as ActionMenu in
     // UIReaderService): name+level is spoken interrupting on browse; the long
@@ -318,7 +355,11 @@ public sealed class HotbarService
     // in tooltip text.
     private const double SkillDescDwellSeconds = 0.4;
     private uint _skillDescDwellId;
+    private RaptureHotbarModule.HotbarSlotType _skillDescDwellType;
     private long _skillDescDwellTick;
+    /// <summary>Numpad 5 was pressed in the entry step; the next confirm
+    /// invocation turns it into a repeat+description instead of a placement.</summary>
+    private bool _repeatEntryRequested;
     private bool _skillDescSpoken;
 
     // Carried usable items, rebuilt every time the item list is entered - the
@@ -400,6 +441,7 @@ public sealed class HotbarService
         _barChoice = controllerMode
             ? (_activeCrossBar is int active ? active - CrossHotbarLayout.FirstBar : 0)
             : CrossHotbarLayout.SetCount;
+        _keyboardDirect = false;
         var player = PlayerState.Instance();
         _menuJob = player == null ? 0u : player->CurrentClassJobId;
         _chosenBar = _chosenSlot = -1;
@@ -410,6 +452,50 @@ public sealed class HotbarService
         _menuStep = SkillMenuStep.PickBar;
         _tolk.SpeakInterrupt(AccessibilityStrings.BarPickerOpened);
         AnnounceBarChoice(interrupt: false);
+    }
+
+    /// <summary>
+    /// Opens the keyboard key list directly, without the crossbar picker.
+    /// <para>
+    /// A target key still has to be chosen before browsing its assignable entries.
+    /// /acc crossbar opens the separate controller set picker.
+    /// </para>
+    /// </summary>
+    public unsafe void OpenSkillMenuDirect()
+    {
+        if (_menuStep != SkillMenuStep.Closed) CloseSkillMenu();
+        if (!_clientState.IsLoggedIn)
+        {
+            _tolk.SpeakInterrupt(AccessibilityStrings.NotLoggedIn);
+            return;
+        }
+        if (RaptureHotbarModule.Instance() == null)
+        {
+            _tolk.SpeakInterrupt(AccessibilityStrings.HotbarUnavailable);
+            return;
+        }
+        var player = PlayerState.Instance();
+        if (player == null)
+        {
+            _tolk.SpeakInterrupt(AccessibilityStrings.PlayerDataNotReady);
+            return;
+        }
+
+        _barChoice = CrossHotbarLayout.SetCount;
+        _menuJob = player->CurrentClassJobId;
+        _menuSource = AssignSource.Skills;
+        _chosenBar = _chosenSlot = -1;
+        BuildTargetList();
+        if (_targets.Count == 0)
+        {
+            _tolk.SpeakInterrupt(AccessibilityStrings.SkillMenuNoTargets);
+            return;
+        }
+        _targetIndex = 0;
+        _keyboardDirect = true;
+        _menuStep = SkillMenuStep.PickSlot;
+        _tolk.SpeakInterrupt(AccessibilityStrings.SkillMenuSlotsOpened(_targets.Count));
+        AnnounceTarget(interrupt: false);
     }
 
     private unsafe void AnnounceBarChoice(bool interrupt = true)
@@ -453,6 +539,7 @@ public sealed class HotbarService
     {
         if (_menuStep == SkillMenuStep.PickSlot)
         {
+            if (_keyboardDirect) return;
             _barChoice = CrossHotbarLayout.MoveChoice(_barChoice, direction);
             OpenChosenBar();
             return;
@@ -487,11 +574,23 @@ public sealed class HotbarService
         switch (source)
         {
             case AssignSource.Skills:
+                // On crafting classes all assignable actions, including the few
+                // Action-sheet buffs, live together in the craft source below.
+                if (CrafterAbbreviations.Contains(_gearInfo.EnglishAbbreviation((byte)_menuJob),
+                                                  StringComparer.OrdinalIgnoreCase)) return false;
                 if (!BuildSkillList()) return false;
                 _menuSource = AssignSource.Skills;
                 if (_skillIndex < 0 || _skillIndex >= _skills.Count) _skillIndex = 0;
                 Say(AccessibilityStrings.SkillMenuOpened(_skills.Count), interrupt);
                 AnnounceSkill(interrupt: false);
+                return true;
+
+            case AssignSource.CraftActions:
+                if (!BuildCraftActionList()) return false;
+                _menuSource = AssignSource.CraftActions;
+                if (_craftIndex < 0 || _craftIndex >= _craftSkills.Count) _craftIndex = 0;
+                Say(AccessibilityStrings.CraftActionMenuOpened(_craftSkills.Count), interrupt);
+                AnnounceCraftEntry(_craftIndex, interrupt: false);
                 return true;
 
             case AssignSource.Items:
@@ -573,7 +672,88 @@ public sealed class HotbarService
     /// <summary>Skill list for the source stepper: builds it and reports whether
     /// it has entries. Keeps the spoken diagnosis of <see cref="EnsureSkillList"/>
     /// for the real failure cases (not logged in, player data not ready).</summary>
+    /// <summary>How many skills the last built skill list holds.</summary>
+    internal int SkillCount => _skills.Count;
+
+    /// <summary>
+    /// Rebuilds the skill list for the current job and writes it, with the
+    /// filter counters, into the plugin's own log. Returns how many skills
+    /// survived, or 0 when the player state is not readable yet.
+    /// <para>
+    /// Called by <c>/acc diag</c>: the point is to capture the list at the
+    /// moment the player asks, not whenever a menu was last opened.
+    /// </para>
+    /// </summary>
+    internal int WriteSkillDiagnostics()
+    {
+        // Der Handwerks-Probe laeuft hier mit, nicht hinter einem eigenen Befehl:
+        // ein Befehl im #if DEBUG-Block hat den Spieler schon einmal ins Leere
+        // geschickt (build 6.08.48, "Unbekannter Befehl"). /acc diag ist nicht
+        // gegated und schreibt in dieselbe Datei, die der Spieler schon kennt.
+        ProbeCraftDescriptions();
+
+        if (!EnsureSkillList()) return _skills.Count;
+        return _skills.Count;
+    }
+
     private bool BuildSkillList() => EnsureSkillList() && _skills.Count > 0;
+
+    /// <summary>
+    /// Probe, run from <c>/acc diag</c>: records the same complete crafting list
+    /// that Ctrl+Numpad0 offers, including each entry's source and description.
+    /// <para>
+    /// Deliberately NOT behind <c>#if DEBUG</c> and deliberately not a command
+    /// of its own: delivered zips are Release builds, so a DEBUG-gated command
+    /// does not exist for the player - 6.08.48 shipped one and the player was
+    /// told to run it. It is reachable only as part of <c>diag</c>.
+    /// </para>
+    /// </summary>
+    internal unsafe string ProbeCraftDescriptions()
+    {
+        if (!_clientState.IsLoggedIn) return "Nicht eingeloggt (not logged in)";
+
+        var player = PlayerState.Instance();
+        if (player == null) return "Spielerdaten noch nicht lesbar (player state not readable)";
+
+        var abbreviation = _gearInfo.EnglishAbbreviation((byte)player->CurrentClassJobId);
+        var previousIndex = _craftIndex;
+        var browsingCraft = _menuStep == SkillMenuStep.PickEntry && _menuSource == AssignSource.CraftActions;
+        if (!BuildCraftActionList()) return "Keine Handwerksaktionen für den aktuellen Beruf.";
+        if (browsingCraft) _craftIndex = Math.Clamp(previousIndex, 0, _craftSkills.Count - 1);
+
+        PluginFileLog.Write($"[CraftProbe] Beruf {abbreviation}, Stufe {player->CurrentLevel}, " +
+                            $"Einträge {_craftSkills.Count}, Probe {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+        var withText = 0;
+        foreach (var (id, name, level, type) in _craftSkills)
+        {
+            var description = ResolveActionDescription(id, type);
+            if (!string.IsNullOrWhiteSpace(description)) withText++;
+            var evaluated = type == RaptureHotbarModule.HotbarSlotType.CraftAction &&
+                            _data.GetExcelSheet<LuminaCraftAction>().TryGetRow(id, out var craft)
+                ? ReadEvaluated(craft.Description)
+                : string.Empty;
+            PluginFileLog.Write($"[CraftProbe] {id} \"{name}\" Stufe {level}, Typ {type}, " +
+                                $"Beschreibung len={description.Length} \"{Shorten(description)}\", " +
+                                $"ausgewertet \"{Shorten(evaluated)}\"");
+        }
+
+        var summary = $"Fertig: {_craftSkills.Count} Handwerksaktionen geprueft, {withText} mit Text.";
+        PluginFileLog.Write($"[CraftProbe] {summary}");
+        return summary;
+    }
+
+    private string ReadEvaluated(ReadOnlySeString value)
+    {
+        try { return _eval?.Evaluate(value).ExtractText() ?? value.ExtractText(); }
+        catch (Exception ex)
+        {
+            _log.Warning($"[CraftProbe] SeString-Auswertung fehlgeschlagen: {ex.Message}");
+            return value.ExtractText();
+        }
+    }
+
+    private static string Shorten(string s) =>
+        s.Length <= 90 ? s : s[..90] + "...";
 
     /// <summary>
     /// Rebuilds the general actions - the things the game itself lists under
@@ -719,6 +899,7 @@ public sealed class HotbarService
     public void CloseSkillMenu()
     {
         _menuStep = SkillMenuStep.Closed;
+        _keyboardDirect = false;
         _chosenBar = _chosenSlot = -1;
         ClearSkillDescDwell();
         _tolk.SpeakInterrupt(AccessibilityStrings.SkillMenuClosed);
@@ -736,7 +917,8 @@ public sealed class HotbarService
         {
             // Key list: dwell id was armed in AnnounceTarget for Action slots.
         }
-        else if (_menuStep != SkillMenuStep.PickEntry || _menuSource != AssignSource.Skills)
+        else if (_menuStep != SkillMenuStep.PickEntry ||
+                 (_menuSource != AssignSource.Skills && _menuSource != AssignSource.CraftActions))
         {
             ClearSkillDescDwell();
             return;
@@ -748,7 +930,7 @@ public sealed class HotbarService
         if (elapsed < SkillDescDwellSeconds) return;
 
         _skillDescSpoken = true;
-        var desc = ResolveActionDescription(_skillDescDwellId);
+        var desc = ResolveActionDescription(_skillDescDwellId, _skillDescDwellType);
         if (string.IsNullOrEmpty(desc)) return;
         // Non-interrupting: follows "Taste 1, Ruin, 1 von 36" / skill browse line.
         _tolk.Speak(AccessibilityStrings.ItemDescription(desc));
@@ -757,19 +939,111 @@ public sealed class HotbarService
     private void ClearSkillDescDwell()
     {
         _skillDescDwellId = 0;
+        _skillDescDwellType = RaptureHotbarModule.HotbarSlotType.Empty;
         _skillDescSpoken = false;
     }
 
-    private void ArmSkillDescDwell(uint actionId)
+    /// <summary>
+    /// Numpad 5 in the entry step: repeat the current entry and append its
+    /// description, interrupting.
+    /// <para>
+    /// Why a key and not just the dwell: the dwell line is spoken
+    /// non-interrupting, so any other announcement (a level-up, a chat line,
+    /// the player pressing a browse key) drops it silently, and a description
+    /// that arrives unasked is easy to miss. The key answers the question
+    /// "what does this one do" the moment it is asked, which is what a player
+    /// who cannot see the tooltip needs.
+    /// </para>
+    /// <para>
+    /// Sets <see cref="_repeatEntryRequested"/>; the actual speech runs in
+    /// <see cref="SkillMenuConfirm"/>, which is where the current entry index
+    /// and source are in scope for every list at once.
+    /// </para>
+    /// </summary>
+    public void SkillMenuRepeatEntry() => _repeatEntryRequested = true;
+
+    /// <summary>Speaks the current entry line again, then its description
+    /// (interrupting, never the dwell). Says so plainly when the sheet has no
+    /// text, so the silence is never mistaken for a stuck menu.</summary>
+    private void AnnounceEntryWithDescription()
+    {
+        if (_menuStep != SkillMenuStep.PickEntry) return;
+
+        var (id, name, level, count, index) = _menuSource switch
+        {
+            AssignSource.CraftActions => CraftEntryAt(_craftIndex),
+            _ => SkillEntryAt(_skillIndex),
+        };
+        if (name == null) return;
+
+        AnnounceSkillEntryForDescription(id, name, level, index, count);
+
+        var desc = ResolveActionDescription(id, SkillSlotType);
+        _tolk.SpeakInterrupt(string.IsNullOrEmpty(desc)
+            ? AccessibilityStrings.SkillDescriptionMissing(name)
+            : AccessibilityStrings.ItemDescription(desc));
+    }
+
+    private void ArmSkillDescDwell(uint actionId, RaptureHotbarModule.HotbarSlotType type)
     {
         _skillDescDwellId = actionId;
+        _skillDescDwellType = type;
         _skillDescDwellTick = Stopwatch.GetTimestamp();
         _skillDescSpoken = false;
     }
 
-    /// <summary>Flattened ActionTransient tooltip text, or empty when missing.</summary>
-    private string ResolveActionDescription(uint actionId)
+    private RaptureHotbarModule.HotbarSlotType SkillSlotType =>
+        _menuSource == AssignSource.CraftActions && _craftIndex >= 0 && _craftIndex < _craftSkills.Count
+            ? _craftSkills[_craftIndex].Type
+            : RaptureHotbarModule.HotbarSlotType.Action;
+
+    /// <summary>The craft entry at <paramref name="index"/> in the shape the
+    /// shared description announcer needs, or all-null when out of range.</summary>
+    private (uint Id, string? Name, byte Level, int Count, int Index) CraftEntryAt(int index)
     {
+        if (index < 0 || index >= _craftSkills.Count) return (0, null, 0, 0, 0);
+        var (id, name, level, _) = _craftSkills[index];
+        return (id, name, level, _craftSkills.Count, index + 1);
+    }
+
+    /// <summary>Same for the battle skill list.</summary>
+    private (uint Id, string? Name, byte Level, int Count, int Index) SkillEntryAt(int index)
+    {
+        if (index < 0 || index >= _skills.Count) return (0, null, 0, 0, 0);
+        var (id, name, level) = _skills[index];
+        return (id, name, level, _skills.Count, index + 1);
+    }
+
+    /// <summary>Spoken "name, level N, position of total" for the description
+    /// gesture — the entry line without the interrupt, since the caller has
+    /// already cut off the previous announcement.</summary>
+    private void AnnounceSkillEntryForDescription(uint id, string name, byte level, int index, int count)
+    {
+        var location = FindSlotLocationFor(SkillSlotType, id);
+        _tolk.Speak(AccessibilityStrings.SkillBrowseEntry(name, level, location, index, count));
+    }
+
+    /// <summary>Flattened tooltip text for an assignable entry, or empty when
+    /// the sheet carries none.
+    /// <para>
+    /// Battle skills and craft actions use different slot types and sheets, so
+    /// a craft id must never be looked up in <c>ActionTransient</c>. Craft actions live in
+    /// <c>CraftAction</c> only — reading ActionTransient there is why the craft
+    /// list stayed silent on every entry (reported 2026-09-26: «у тебя нету
+    /// описаний этих умений вообще»). Goldmasters' actions do carry real text in
+    /// that sheet (Basic Synthesis "Increases progress. Efficiency: 120% …"), so
+    /// the lookup is worth doing rather than special-casing.
+    /// </para>
+    /// </summary>
+    private string ResolveActionDescription(uint actionId, RaptureHotbarModule.HotbarSlotType type)
+    {
+        if (type == RaptureHotbarModule.HotbarSlotType.CraftAction)
+        {
+            if (!_data.GetExcelSheet<LuminaCraftAction>().TryGetRow(actionId, out var craft))
+                return string.Empty;
+            return FlattenDescription(craft.Description.ExtractText());
+        }
+
         if (!_data.GetExcelSheet<LuminaActionTransient>().TryGetRow(actionId, out var trans))
             return string.Empty;
         return FlattenDescription(trans.Description.ExtractText());
@@ -824,6 +1098,11 @@ public sealed class HotbarService
                 _itemIndex = ((_itemIndex + direction) % _items.Count + _items.Count) % _items.Count;
                 AnnounceItem();
                 break;
+            case SkillMenuStep.PickEntry when _menuSource == AssignSource.CraftActions:
+                if (_craftSkills.Count == 0) return;
+                _craftIndex = ((_craftIndex + direction) % _craftSkills.Count + _craftSkills.Count) % _craftSkills.Count;
+                AnnounceCraftEntry(_craftIndex);
+                break;
             case SkillMenuStep.PickEntry:
                 if (_skills.Count == 0) return;
                 _skillIndex = ((_skillIndex + direction) % _skills.Count + _skills.Count) % _skills.Count;
@@ -872,6 +1151,18 @@ public sealed class HotbarService
 
             case SkillMenuStep.PickEntry:
                 if (_chosenBar < 0 || _chosenSlot < 0) return;
+                // Numpad 5 repeats the full entry - the same gesture as in the
+                // skill list, where it also re-reads the line and (after the
+                // dwell) the tooltip. A non-interrupting dwell line can be
+                // missed; this repeats the name AND forces the description, so
+                // a player does not have to sit still and wait for it.
+                if (_repeatEntryRequested)
+                {
+                    _repeatEntryRequested = false;
+                    AnnounceEntryWithDescription();
+                    return;
+                }
+                _repeatEntryRequested = false;
                 var placed = _menuSource switch
                 {
                     AssignSource.Items      => AssignItemToSlot(_itemIndex, _chosenBar, _chosenSlot),
@@ -882,6 +1173,7 @@ public sealed class HotbarService
                         _chosenBar, _chosenSlot, RaptureHotbarModule.HotbarSlotType.Mount),
                     AssignSource.BuddyActions => AssignEntryToSlot(_buddyActions, _buddyActionIndex,
                         _chosenBar, _chosenSlot, RaptureHotbarModule.HotbarSlotType.BuddyAction),
+                    AssignSource.CraftActions => AssignCraftActionToSlot(_craftIndex, _chosenBar, _chosenSlot),
                     _                       => AssignSkillToSlot(_skillIndex, _chosenBar, _chosenSlot),
                 };
 
@@ -910,6 +1202,7 @@ public sealed class HotbarService
         }
         else if (_menuStep == SkillMenuStep.PickSlot)
         {
+            if (_keyboardDirect) { CloseSkillMenu(); return; }
             ClearSkillDescDwell();
             _menuStep = SkillMenuStep.PickBar;
             _tolk.SpeakInterrupt(AccessibilityStrings.BarPickerOpened);
@@ -926,10 +1219,28 @@ public sealed class HotbarService
     /// the tooltip follows non-interrupting after a short pause.</summary>
     private void AnnounceSkill(bool interrupt = true)
     {
-        var (id, name, level) = _skills[_skillIndex];
-        var location = FindSlotLocationFor(RaptureHotbarModule.HotbarSlotType.Action, id);
-        Say(AccessibilityStrings.SkillBrowseEntry(name, level, location, _skillIndex + 1, _skills.Count), interrupt);
-        ArmSkillDescDwell(id);
+        AnnounceSkillEntry(_skills, _skillIndex, interrupt);
+    }
+
+    /// <summary>Shared browse announcement for the battle list and the craft
+    /// list: both carry (id, name, level), while each uses its own slot type.
+    /// The entry line, location lookup and description dwell share one path.</summary>
+    private void AnnounceSkillEntry(List<(uint Id, string Name, byte Level)> list, int index, bool interrupt = true)
+    {
+        if (index < 0 || index >= list.Count) return;
+        var (id, name, level) = list[index];
+        var location = FindSlotLocationFor(SkillSlotType, id);
+        Say(AccessibilityStrings.SkillBrowseEntry(name, level, location, index + 1, list.Count), interrupt);
+        ArmSkillDescDwell(id, SkillSlotType);
+    }
+
+    private void AnnounceCraftEntry(int index, bool interrupt = true)
+    {
+        if (index < 0 || index >= _craftSkills.Count) return;
+        var (id, name, level, type) = _craftSkills[index];
+        var location = FindSlotLocationFor(type, id);
+        Say(AccessibilityStrings.SkillBrowseEntry(name, level, location, index + 1, _craftSkills.Count), interrupt);
+        ArmSkillDescDwell(id, type);
     }
 
     /// <summary>Announces the current item: name, stack size, where it already
@@ -998,8 +1309,9 @@ public sealed class HotbarService
 
         var module = RaptureHotbarModule.Instance();
         var s = module == null ? null : module->GetSlotById((uint)bar, (uint)slot);
-        if (s != null && s->CommandType == RaptureHotbarModule.HotbarSlotType.Action)
-            ArmSkillDescDwell(s->CommandId);
+        if (s != null && s->CommandType is RaptureHotbarModule.HotbarSlotType.Action or
+            RaptureHotbarModule.HotbarSlotType.CraftAction)
+            ArmSkillDescDwell(s->CommandId, s->CommandType);
         else
             ClearSkillDescDwell();
     }
@@ -1139,10 +1451,29 @@ public sealed class HotbarService
                 return false;
             }
 
+            // Gegenprobe zur gespeicherten Zelle: HotbarSlot.Set fasst nur die
+            // lebende Zelle an (ClientStructs-Doku zu Set: "will only affect the
+            // current working hotbar slot"), WriteSavedSlot schreibt die
+            // gespeicherte. Beide Seiten muessen die neue Belegung tragen - der
+            // Spieler hat nur die lebende gesehen (Rueckmeldung "назначено").
+            _log.Info($"[Hotbar] VOR Set: lebend {DescribeSlotRaw(module, bar, slot)} | " +
+                      $"gespeichert {DescribeSavedSlotRaw(module, ps->CurrentClassJobId, bar, slot)}");
+
             live->Set(type, id);
             module->WriteSavedSlot(ps->CurrentClassJobId, (uint)bar, (uint)slot, live,
                 ignoreSharedHotbars: false, isPvpSlot: false);
-            module->LoadSavedHotbar(ps->CurrentClassJobId, (uint)bar);
+
+            _log.Info($"[Hotbar] NACH WriteSavedSlot: lebend {DescribeSlotRaw(module, bar, slot)} | " +
+                      $"gespeichert {DescribeSavedSlotRaw(module, ps->CurrentClassJobId, bar, slot)}");
+            // LoadSavedHotbar liest die GESPEICHERTE Seite in die lebende Leiste
+            // zurueck. Wird sie direkt nach dem Schreiben aufgerufen, ueberschreibt
+            // sie die eben gesetzte Aenderung wieder - gemessen im Probelauf
+            // 2026-09-26: direkt nach dem Aufruf steht die Zelle leer/unveraendert,
+            // waehrend die lebende Zelle unmittelbar vorher stimmte. Ohne den
+            // Aufruf bleibt die Belegung nur bis zum naechsten Betreten des
+            // Gebiets/Job-Wechsel sichtbar - die andere Haelfte desselben Problems.
+            // Nicht hier geraten: wird zusammen mit der Bar-Nummer entschieden.
+            // module->LoadSavedHotbar(ps->CurrentClassJobId, (uint)bar);
         }
         catch (Exception ex)
         {
@@ -1470,6 +1801,14 @@ public sealed class HotbarService
             _tolk.Speak(AccessibilityStrings.SkillMenuBackAtSlots(_targets.Count));
     }
 
+    // MERKE (offen, 2026-09-26): Der Verdacht steht, dass die Bar-Nummer hier
+    // nicht die Modul-Bar ist. SlotLabel rechnet "Leiste 2" als Modul-Index 1;
+    // die Spiel-Tastenbelegung heisst aber HOTBAR_2_* fuer die zweite Leiste.
+    // Wenn die Wahl aus dem Menue (SlotKey-Namen "Strg+3" = HOTBAR_2_3) um eins
+    // verschoben in GetSlotById landet, schreibt die Belegung in die falsche
+    // Leiste - die Anzeige waere dann ein anderer Slot als der beschriebene.
+    // Nicht geraten: der naechste Diag-Lauf mit Handwerks-Probe entscheidet es.
+
     /// <summary>Raw slot state for the probe log: command type/id plus the
     /// apparent (display-adjusted) action id.</summary>
     private unsafe string DescribeSlotRaw(RaptureHotbarModule* module, int bar, int slot)
@@ -1479,6 +1818,33 @@ public sealed class HotbarService
             ? "Slot null"
             : $"type={s->CommandType} id={s->CommandId} apparent={s->ApparentActionId}";
     }
+
+    /// <summary>
+    /// The SAVED side of the same cell, read back through <c>SavedHotbars</c>
+    /// directly (no load, no side effects). <c>DescribeSlotRaw</c> only ever
+    /// shows the live bar; the player reported the placement as accepted while
+    /// the action stayed dead any time the bar is reloaded, so the live bar
+    /// alone cannot tell a failed save from a failed read-back (2026-09-26).
+    /// <para>
+    /// Indexing follows the ClientStructs doc on <c>_savedHotbars</c>: index 0
+    /// is the shared PvE hotbar, otherwise the ClassJob id. A group holds ten
+    /// normal hotbars of twelve slots - the same 12 the UI draws, which is also
+    /// why slot 12 (index 11) is the last one the mod writes.
+    /// </para>
+    /// </summary>
+    private unsafe string DescribeSavedSlotRaw(RaptureHotbarModule* module, uint jobId, int bar, int slot)
+    {
+        if (slot is < 0 or >= 12 || !_savedHotbarsShapeKnown)
+            return "unbekannt";
+        var group = module->SavedHotbars[(int)jobId];
+        var entry = group.Hotbars[bar].Slots[slot];
+        return $"type={entry.CommandType} id={entry.CommandId}";
+    }
+
+    // Guards the hand-offset indexing above until a probe run has shown it to be
+    // right; a wrong guess here would read foreign memory. Deliberately false
+    // until measured.
+    private bool _savedHotbarsShapeKnown;
 
     /// <summary>All locations of this action or item on standard and cross bars,
     /// or null when not placed. Cross locations include the trigger and button.</summary>
@@ -1536,20 +1902,41 @@ public sealed class HotbarService
 
         var skippedLocked = 0;
         var skippedNotPlayer = 0;
+        var skippedUnknownJob = 0;
+        // Why the skill list can come out short is not answerable from the
+        // outside: several filters drop rows, and a blind player only hears the
+        // resulting count. The per-reason counters are therefore written to the
+        // plugin's own log too, so a bug report can carry the reason instead of
+        // the symptom (report 2026-09-26: two craft skills visible where the
+        // game offers more).
+        var skippedLevel = 0;
+        var skippedIsPvP = 0;
+        var skippedNoName = 0;
+        var skippedNoCategory = 0;
+        var skippedJobForeign = 0;
         foreach (var row in _data.GetExcelSheet<LuminaAction>())
         {
-            if (row.RowId == 0 || row.IsPvP) continue;
+            if (row.RowId == 0) continue;
+            if (row.IsPvP) { skippedIsPvP++; continue; }
             // ClassJobLevel 0 = not a learned-by-level player action (system rows).
-            if (row.ClassJobLevel == 0 || row.ClassJobLevel > level) continue;
-            if (row.ClassJobCategory.RowId == 0 || row.ClassJobCategory.ValueNullable is not { } cat) continue;
-            if (_gearInfo.AllowsJob(cat, jobId) != true) continue;
+            if (row.ClassJobLevel == 0 || row.ClassJobLevel > level) { skippedLevel++; continue; }
+            if (row.ClassJobCategory.RowId == 0 || row.ClassJobCategory.ValueNullable is not { } cat) { skippedNoCategory++; continue; }
+            // AllowsJob returns null when the boolean column behind the
+            // ClassJobCategory row could not be resolved (ResolveJobColumn
+            // logs it). For a craft class that null was read as "carries the
+            // job" and the skill list silently emptied (report 2026-09-26:
+            // no crafter skill assignable). Only a definite mismatch may
+            // filter here - and only when the category names a different job.
+            var jobAllowed = _gearInfo.AllowsJob(cat, jobId);
+            if (jobAllowed == false && _gearInfo.NamesOnlyOtherJobs(cat, jobId)) { skippedJobForeign++; continue; }
+            if (jobAllowed == null) skippedUnknownJob++;
             // Without this the list carried internal non-player rows that pass
             // the job filter (five 'Ausweichen' + 'Perfekter Hieb', log
             // 2026-07-17 12:01) - IsPlayerAction marks the real skill entries.
             if (!row.IsPlayerAction) { skippedNotPlayer++; continue; }
 
             var name = row.Name.ExtractText();
-            if (string.IsNullOrWhiteSpace(name)) continue;
+            if (string.IsNullOrWhiteSpace(name)) { skippedNoName++; continue; }
 
             // UnlockLink 0 = no quest gate; otherwise ask the game.
             var unlock = row.UnlockLink.RowId;
@@ -1562,9 +1949,21 @@ public sealed class HotbarService
             _skills.Add((row.RowId, name, row.ClassJobLevel));
         }
 
+        // Craft actions deliberately NOT added here: they live in their own
+        // CraftAction sheet (verified 2026-09-26 - "Basic Synthesis" is 100001,
+        // the Action sheet has no such row at all) and the player wants them on
+        // a tab of their own rather than mixed into her battle skills
+        // (2026-09-26). See BuildCraftActionList.
         _skills.Sort((a, b) => a.Level != b.Level ? a.Level.CompareTo(b.Level) : a.Id.CompareTo(b.Id));
-        _log.Info($"[Hotbar] Skill-Liste gebaut: Job {jobId}, Stufe {level}, {_skills.Count} Skills, " +
-                  $"{skippedLocked} noch nicht freigeschaltet, {skippedNotPlayer} Nicht-Spieler-Actions gefiltert.");
+        var report = $"[Hotbar] Skill-Liste gebaut: Job {jobId}, Stufe {level}, {_skills.Count} Skills | " +
+                     $"PvP {skippedIsPvP}, Stufe {skippedLevel}, ohne Kategorie {skippedNoCategory}, " +
+                     $"unerlaubter Job {skippedJobForeign}, ohne Namen {skippedNoName}, " +
+                     $"Nicht-Spieler-Action {skippedNotPlayer}, noch nicht freigeschaltet {skippedLocked}, " +
+                     $"durchgelassen ohne aufloesbare Job-Spalte {skippedUnknownJob}.";
+        _log.Info(report);
+        PluginFileLog.Write(report);
+        foreach (var (id, name, lvl) in _skills)
+            PluginFileLog.Write($"[Hotbar]   Stufe {lvl}  {name}  (Aktion {id})");
 
         if (_skills.Count == 0)
         {
@@ -1572,5 +1971,167 @@ public sealed class HotbarService
             return false;
         }
         return true;
+    }
+
+    /// <summary>
+    /// The eight crafting classes, in the game's own order. Used as the
+    /// per-class filter for the <see cref="LuminaCraftAction"/> sheet, whose rows
+    /// carry the class abbreviation as a plain property (unlike
+    /// ClassJobCategory, which is a sheet of boolean columns).
+    /// </summary>
+    private static readonly string[] CrafterAbbreviations = { "CRP", "BSM", "ARM", "GSM", "LTW", "WVR", "ALC", "CUL" };
+
+    /// <summary>
+    /// Rebuilds the crafting tab's list from both game sheets up to the player's
+    /// level. CraftAction holds most synthesis actions, while Action holds buffs
+    /// such as Waste Not, Innovation and Manipulation.
+    /// <para>CraftAction rows need CraftAction hotbar slots, while Action rows
+    /// need Action slots. A single list preserves that distinction per entry.</para>
+    /// <para>
+    /// Rebuilt on every entry, like the bag list: the class level can change while
+    /// the plugin is loaded, and a cached list would hide a freshly learned action.
+    /// False when the player is not on a crafting class or the class has nothing at
+    /// this level - the caller then skips the tab.
+    /// </para>
+    /// </summary>
+    private unsafe bool BuildCraftActionList()
+    {
+        _craftSkills.Clear();
+        _craftIndex = -1;
+        if (!_clientState.IsLoggedIn) return false;
+
+        var player = PlayerState.Instance();
+        var ui = UIState.Instance();
+        if (player == null || ui == null) return false;
+
+        var jobId = (byte)player->CurrentClassJobId;
+        var level = (uint)player->CurrentLevel;
+        var abbreviation = _gearInfo.EnglishAbbreviation(jobId);
+        if (!CrafterAbbreviations.Contains(abbreviation, StringComparer.OrdinalIgnoreCase)) return false;
+
+        var sheet = _data.GetExcelSheet<LuminaCraftAction>();
+        if (sheet == null)
+        {
+            _log.Warning("[Hotbar] CraftAction-Sheet nicht ladbar - Handwerks-Aktionen fehlen.");
+            return false;
+        }
+
+        // Which ClassJobCategory row stands for the current crafter. The sheet
+        // names the category through this row, not through the abbreviation -
+        // resolving it that way keeps the eight classes honest if the game ever
+        // renumbers (same approach as GearInfoService for ClassJobCategory).
+        var categoryId = CraftCategoryFor(abbreviation);
+        if (categoryId == 0)
+        {
+            _log.Warning($"[Hotbar] Keine ClassJobCategory-Zeile für {abbreviation} - Handwerksliste leer.");
+            return false;
+        }
+
+        foreach (var row in sheet)
+        {
+            if (row.RowId == 0) continue;
+
+            var name = row.Name.ExtractText();
+            if (string.IsNullOrWhiteSpace(name)) continue;
+
+            // The condition that decides whether the CURRENT class really
+            // learns this action is the category, not the per-class column.
+            //
+            // Measured on the datamined CSV 2026-09-26: the CRP..CUL columns
+            // are not a per-class flag - in the generic block (category 0) every
+            // row carries the same quest id for all eight classes, which is what
+            // produced 258 entries, four names repeating over and over. The
+            // category is the honest filter: category 9 holds exactly the 29
+            // carpenter actions (Basic Synthesis 100001 level 1, Basic Touch 5,
+            // Master's Mend 7, Observe 13, Standard Touch 18 ...). The old
+            // ClassColumn test is gone with it - it accepted the generic block
+            // and so contradicted the level gate below.
+            if (row.ClassJobCategory.RowId != categoryId) continue;
+
+            if (row.ClassJobLevel == 0 || row.ClassJobLevel > level) continue;
+            // Daring Touch is an automatic upgrade of Hasty Touch and the game
+            // explicitly marks it as not assignable (ClassJob is zero).
+            if (row.ClassJob.RowId != jobId) continue;
+            var quest = row.QuestRequirement.RowId;
+            if (quest != 0 && !ui->IsUnlockLinkUnlockedOrQuestCompleted(quest)) continue;
+
+            _craftSkills.Add((row.RowId, name, row.ClassJobLevel,
+                RaptureHotbarModule.HotbarSlotType.CraftAction));
+        }
+
+        foreach (var row in _data.GetExcelSheet<LuminaAction>())
+        {
+            if (row.ClassJobCategory.RowId != categoryId || !row.IsPlayerAction || row.IsPvP) continue;
+            if (row.ClassJobLevel == 0 || row.ClassJobLevel > level) continue;
+            var name = row.Name.ExtractText();
+            if (string.IsNullOrWhiteSpace(name)) continue;
+            var unlock = row.UnlockLink.RowId;
+            if (unlock != 0 && !ui->IsUnlockLinkUnlockedOrQuestCompleted(unlock)) continue;
+
+            _craftSkills.Add((row.RowId, name, row.ClassJobLevel,
+                RaptureHotbarModule.HotbarSlotType.Action));
+        }
+
+        _craftSkills.Sort((a, b) => a.Level != b.Level ? a.Level.CompareTo(b.Level)
+                                                       : a.Id.CompareTo(b.Id));
+        _craftIndex = _craftSkills.Count > 0 ? 0 : -1;
+        _log.Info($"[Hotbar] Handwerksliste für {abbreviation} (Stufe {level}): {_craftSkills.Count} Aktionen.");
+        return _craftSkills.Count > 0;
+    }
+
+    /// <summary>Places the selected crafting entry with the slot type supplied
+    /// by its source sheet. The battle list has its own index and path.</summary>
+    private unsafe bool AssignCraftActionToSlot(int index, int bar, int slot)
+    {
+        if (index < 0 || index >= _craftSkills.Count)
+        {
+            _tolk.SpeakInterrupt(AccessibilityStrings.NoSkillSelected);
+            return false;
+        }
+
+        var module = RaptureHotbarModule.Instance();
+        if (module == null)
+        {
+            _tolk.SpeakInterrupt(AccessibilityStrings.HotbarUnavailable);
+            return false;
+        }
+
+        var (id, name, _, type) = _craftSkills[index];
+
+        _log.Info($"[Hotbar] Belegen (Handwerk): {SlotLabel(bar, slot)} <- action {id} '{name}'. " +
+                  $"Vorher: {DescribeSlotRaw(module, bar, slot)}, LeisteGeteilt={module->IsHotbarShared((uint)bar)}");
+
+        if (!PlaceOnSlot(module, bar, slot, type, id, name))
+            return false;
+
+        // Same 2-frame read-back verdict as a battle skill: only announce what
+        // the slot really holds afterwards.
+        _framework.RunOnTick(() => VerifyAssignment(bar, slot, id, name,
+            type), delayTicks: 2);
+        return true;
+    }
+
+    /// <summary>
+    /// The ClassJobCategory row id that stands for the crafter
+    /// <paramref name="abbreviation"/> (CRP, GSM …), or 0 when it cannot be
+    /// resolved. Resolved by NAME through the ClassJob sheet - the same route
+    /// <see cref="GearInfoService"/> takes: the category sheet carries the job
+    /// abbreviation as its own name ("GSM"), which is what makes this survive a
+    /// renumbering of the category rows.
+    /// </summary>
+    private uint CraftCategoryFor(string abbreviation)
+    {
+        var sheet = _data.GetExcelSheet<LuminaClassJobCategory>();
+        if (sheet == null) return 0;
+
+        foreach (var row in sheet)
+        {
+            if (row.RowId == 0) continue;
+            if (string.Equals(row.Name.ExtractText().Trim(), abbreviation,
+                              StringComparison.OrdinalIgnoreCase))
+                return row.RowId;
+        }
+
+        return 0;
     }
 }

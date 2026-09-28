@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -6,7 +6,9 @@ using System.Text;
 using Dalamud.Game.Addon.Lifecycle;
 using Dalamud.Game.Addon.Lifecycle.AddonArgTypes;
 using Dalamud.Plugin.Services;
+using Dalamud.Game;
 using FFXIVClientStructs.FFXIV.Client.UI;
+using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using FFXIVClientStructs.FFXIV.Client.UI.Arrays;
 using FFXIVClientStructs.FFXIV.Component.GUI;
@@ -19,7 +21,15 @@ using LuminaCompanion = Lumina.Excel.Sheets.Companion;
 
 namespace FF14Accessibility.Services;
 
-public sealed class UIReaderService : IDisposable
+public enum ArmouryMenuActionResult
+{
+    NotReady,
+    WrongItem,
+    Unavailable,
+    Requested,
+}
+
+public sealed partial class UIReaderService : IDisposable
 {
     private enum ScreenContext
     {
@@ -194,6 +204,7 @@ public sealed class UIReaderService : IDisposable
         // und wurden nicht mitgelesen, Fokus sprang auf „Schließen“
         // (Dump/Log 2026-09-20 GrandCompanyRank).
         "GrandCompanyRank",
+        "PerformanceMode",
     ];
 
     // Addons, bei denen Universal-Update/ReceiveEvent nicht l�uft
@@ -293,6 +304,7 @@ public sealed class UIReaderService : IDisposable
         // Rangfenster: eigener Handler (OnGrandCompanyRankUpdate). Generischer
         // Scanner + Fokus auf „Schließen“ deckten Inhalt zu (Dump 2026-09-20).
         "GrandCompanyRank",
+        "PerformanceMode",
         // Bestienbuch: generischer Update/Receive spamte im Wechsel „BESTIENBUCH“
         // (FindFocusedText Key=52012 = Rahmen) und nacktes „Nr. 1“ (Event-Target
         // ohne Enrich) — MouseOut→Titel, MouseOver→Kachel, ~8 ms Takt
@@ -429,37 +441,44 @@ public sealed class UIReaderService : IDisposable
     public DeepDungeonFloor? DeepDungeonFloor { get; set; }
 
     // Plugin.cs pr�ft dies, um Navigationstasten nur bei aktivem Men� zu verarbeiten
-    public bool HasActiveMenu
+    public unsafe bool HasActiveMenu
     {
         get
         {
-            if (_menuStack.Count > 0) return true;
-            unsafe
+            // The stack keeps older window names after some transitions. Only
+            // windows that still exist and are visible may claim navigation keys.
+            foreach (var (name, _) in _menuStack)
             {
-                var t = _gameGui.GetAddonByName("Talk");
-                if (!t.IsNull && ((AtkUnitBase*)(nint)t)->IsVisible) return true;
-                var y = _gameGui.GetAddonByName("SelectYesno");
-                if (!y.IsNull && ((AtkUnitBase*)(nint)y)->IsVisible) return true;
+                var menu = _gameGui.GetAddonByName(name);
+                if (!menu.IsNull && ((AtkUnitBase*)(nint)menu)->IsVisible) return true;
             }
+            var t = _gameGui.GetAddonByName("Talk");
+            if (!t.IsNull && ((AtkUnitBase*)(nint)t)->IsVisible) return true;
+            var y = _gameGui.GetAddonByName("SelectYesno");
+            if (!y.IsNull && ((AtkUnitBase*)(nint)y)->IsVisible) return true;
             return false;
         }
     }
 
     /// <summary>
-    /// True when any visible addon currently has UI focus
-    /// (<c>FocusedUnitsList</c>). Used to keep craft Numpad0 from stealing
-    /// Confirm while a shop, inventory, dialog or similar is open.
+    /// True when a visible interactive addon currently has UI focus.
+    /// Target HUD elements may receive focus while a player is selected, but
+    /// must not prevent Numpad0 from opening that player's context menu.
+    /// Shops, inventory and dialogs still own the game's Confirm key.
     /// </summary>
-    public unsafe bool HasFocusedAddon()
+    public unsafe string? BlockingFocusedAddonForPlayerMenu()
     {
         var mgr = RaptureAtkUnitManager.Instance();
-        if (mgr == null) return false;
+        if (mgr == null) return null;
         for (var i = 0; i < mgr->FocusedUnitsList.Count && i < 256; i++)
         {
             var a = mgr->FocusedUnitsList.Entries[i].Value;
-            if (a != null && a->IsVisible) return true;
+            if (a == null || !a->IsVisible) continue;
+            if (a->NameString is "_TargetInfo" or "_TargetInfoMainTarget" or
+                "_TargetInfoBuffDebuff" or "_PartyList" or "NamePlate") continue;
+            return a->NameString;
         }
-        return false;
+        return null;
     }
 
     /// <summary>
@@ -794,9 +813,16 @@ public sealed class UIReaderService : IDisposable
     private unsafe void OnAnyAddonOpen(AddonEvent type, AddonArgs args)
     {
         var name = args.AddonName;
+        RecordPlayerMenuWindow(name);
         _log.Info($"[Accessibility] Addon: {name}");
         // Still logged above, so the HUD build-up stays diagnosable.
         if (InLoginQuiet) return;
+        if (name == "PerformanceMode")
+        {
+            var performance = (AtkUnitBase*)(nint)args.Addon;
+            if (performance != null && performance->IsVisible) AnnouncePerformanceMode(performance);
+            return;
+        }
         if (SpecialSetupAddons.Contains(name)) return;
         if (IsSuppressedAddon(name)) return;
 
@@ -890,6 +916,8 @@ public sealed class UIReaderService : IDisposable
             else                                  _tolk.Speak(msg);
             return;
         }
+
+        if (name == "ContentsInfoDetail" && TryReadSupplyPaneDetail()) return;
 
         // Generic text cache initialisieren � erm�glicht �nderungs-Erkennung in PostUpdate
         _noListCache.Add(name);
@@ -2218,7 +2246,15 @@ public sealed class UIReaderService : IDisposable
     {
         var ptr = _gameGui.GetAddonByName("GatheringNote");
         var addon = ptr.IsNull ? null : (AtkUnitBase*)(nint)ptr;
-        if (addon == null || !addon->IsVisible) { _gatherEmptySpoken = false; return; }
+        if (addon == null || !addon->IsVisible)
+        {
+            _gatherEmptySpoken = false;
+            _gatherCategorySpoken = -1;
+            _gatherPaneSeen = -1;
+            return;
+        }
+
+        LogGatheringNoteCategoryChange(addon);
 
         var empty = FindTopNode(addon, GatheringNoteEmptyTextId);
         if (!IsVisibleFlag(empty)) { _gatherEmptySpoken = false; return; }
@@ -3182,6 +3218,8 @@ public sealed class UIReaderService : IDisposable
         _log.Info($"[Accessibility] SelectYesno offen: Frage='{question}' Buttons=[{_ynConfirmLabel}|{_ynCancelLabel}]");
         _tolk.SpeakInterrupt(string.IsNullOrWhiteSpace(question) ? buttons : $"{question} {buttons}");
         _dialogOpenedAt = DateTime.UtcNow;
+        _yesNoPress = YesNoPress.None;
+        _holdConfirmActive = false;
     }
 
     /// <summary>
@@ -3839,6 +3877,7 @@ public sealed class UIReaderService : IDisposable
 
         if (!string.IsNullOrEmpty(text))
         {
+            text = GatheringContextPrefix(node, text);
             // The quest-completion reward summary is spoken in full when
             // JournalResult opens (BuildRewardText). Its currency cells carry
             // only bare numbers ("400"/"103"); buttons ("Abschließen") and item
@@ -6655,7 +6694,7 @@ public sealed class UIReaderService : IDisposable
 
         var label = ResolveBuddyIconLabel(node);
         if (string.IsNullOrWhiteSpace(label)) return false;
-        text = label;
+        text = BuddySkillBranchContext(node, label);
         return true;
     }
 
@@ -10323,6 +10362,7 @@ public sealed class UIReaderService : IDisposable
             return;
         }
         var isCancel    = _lastYesNoText == _ynCancelLabel;
+        if (!isCancel && TryStartHeldConfirm(addon)) return;
         var idx         = isCancel ? 1 : 0;
         var shouldClose = addon->ShouldFireCallbackAndHideOrClose;
         _log.Info($"[Accessibility] ConfirmYesNo: '{_lastYesNoText}' idx={idx} ShouldFireCallbackAndHideOrClose={shouldClose}");
@@ -10344,6 +10384,10 @@ public sealed class UIReaderService : IDisposable
             addon->FireCallback(1, v);
         }
         _lastYesNoText = string.Empty;
+        _yesNoPress = isCancel ? YesNoPress.Cancel : YesNoPress.Confirm;
+        _yesNoPressAt = Environment.TickCount64;
+        _yesNoPressReported = false;
+        _ynPressedQuestion = ReadYesNoQuestion(addon);
     }
 
     public void AnnounceContextHelp()
@@ -10456,6 +10500,92 @@ public sealed class UIReaderService : IDisposable
         list->SelectItem(idx, false);
         _log.Info($"[ContextMenu] Auswahl vorbereitet: Sel -> {idx} (für Spiel-OK).");
     }
+
+    /// <summary>Uses only the game's offered "Place in Armoury Chest" menu row
+    /// for the exact physical bag slot. The game chooses the destination section.</summary>
+    public unsafe ArmouryMenuActionResult TryPlaceContextItemInArmoury(
+        InventoryType source, ushort slot, uint itemId, bool finishWaiting)
+    {
+        var ptr = _gameGui.GetAddonByName("ContextMenu");
+        if (ptr.IsNull) return ArmouryMenuActionResult.NotReady;
+        var addon = (AtkUnitBase*)(nint)ptr;
+        var agent = AgentInventoryContext.Instance();
+        if (addon == null || !addon->IsVisible || agent == null ||
+            agent->TargetInventorySlot == null || agent->ContextCallbackInfos == null)
+            return ArmouryMenuActionResult.NotReady;
+
+        if (agent->TargetInventoryId != source || agent->TargetInventorySlotId != slot ||
+            agent->TargetInventorySlot->GetItemId() != itemId)
+            return ArmouryMenuActionResult.WrongItem;
+
+        var list = FindListInAddon(addon);
+        if (list == null || agent->ContextItemCount <= 0)
+            return ArmouryMenuActionResult.NotReady;
+
+        var count = Math.Min(Math.Min(GetListEntryCount(list), agent->ContextItemCount), 32);
+        // The ContextMenu addon can be visible before its list has any rows.
+        // Keep waiting instead of treating that frame as a missing command.
+        if (count <= 0) return ArmouryMenuActionResult.NotReady;
+
+        var englishAddons = _data.GetExcelSheet<Lumina.Excel.Sheets.Addon>(ClientLanguage.English);
+        var match = -1;
+        for (var i = 0; i < count; i++)
+        {
+            var disabled = agent->IsContextItemDisabled(i);
+            var displayed = TolkService.Sanitize(ReadListItemText(list, i)).Trim();
+            var labelId = agent->ContextCallbackInfos[i].LabelId;
+            var english = labelId != 0
+                ? englishAddons.GetRowOrDefault(labelId)?.Text.ExtractText().Trim() ?? string.Empty
+                : string.Empty;
+            // Addon 1387 is "Place in Armoury Chest" in the installed game data.
+            // Keep the label check when a translation changes the visible text.
+            if (disabled || (labelId != 1387 &&
+                             !IsPlaceInArmouryCommand(displayed) &&
+                             !IsPlaceInArmouryCommand(english))) continue;
+            if (match >= 0)
+            {
+                _log.Warning("[ArmouryBulk] Mehrere passende Kontextbefehle; Gegenstand übersprungen.");
+                return ArmouryMenuActionResult.Unavailable;
+            }
+            match = i;
+        }
+
+        if (match < 0)
+        {
+            if (!finishWaiting) return ArmouryMenuActionResult.NotReady;
+            var menuRows = new List<string>(count);
+            for (var i = 0; i < count; i++)
+            {
+                var labelId = agent->ContextCallbackInfos[i].LabelId;
+                var english = labelId != 0
+                    ? englishAddons.GetRowOrDefault(labelId)?.Text.ExtractText().Trim() ?? string.Empty
+                    : string.Empty;
+                menuRows.Add($"{i}: label={labelId}, disabled={agent->IsContextItemDisabled(i)}, " +
+                             $"shown='{TolkService.Sanitize(ReadListItemText(list, i)).Trim()}', english='{english}'");
+            }
+            _log.Warning($"[ArmouryBulk] Kein benutzbarer Arsenalbefehl für {itemId} aus {source}/{slot}; " +
+                         $"ContextItemCount={agent->ContextItemCount}, ListLength={GetListEntryCount(list)}; " +
+                         string.Join(" | ", menuRows));
+            return ArmouryMenuActionResult.Unavailable;
+        }
+
+        var values = stackalloc AtkValue[5];
+        values[0].SetInt(0);
+        values[1].SetInt(match);
+        values[2].SetUInt(0);
+        values[3].SetInt(0);
+        values[4].SetInt(0);
+        addon->FireCallback(5, values);
+        agent->AgentInterface.Hide();
+        addon->Hide(false, true, 0);
+        _log.Info($"[ArmouryBulk] Spielbefehl für {itemId} aus {source}/{slot} ausgeführt, Menüzeile {match}.");
+        return ArmouryMenuActionResult.Requested;
+    }
+
+    private static bool IsPlaceInArmouryCommand(string text) =>
+        text.Equals("Place in Armoury Chest", StringComparison.OrdinalIgnoreCase) ||
+        text.Equals("Place in Armory Chest", StringComparison.OrdinalIgnoreCase) ||
+        text.Equals("Поместить в оружейный сундук", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Activates the focused <c>ContextMenu</c> list row via
@@ -11171,6 +11301,7 @@ public sealed class UIReaderService : IDisposable
 
     public unsafe void ReadCurrentFocus()
     {
+        if (TryReadSupplyPaneDetail()) return;
         // Quest-Journal offen? Dann will der User die QUEST lesen, nicht die Liste.
         if (TryReadQuestDetail()) return;
 
@@ -13124,8 +13255,8 @@ public sealed class UIReaderService : IDisposable
     /// The complete recipe under the cursor, spoken on the read-menu key: name,
     /// class and level, the craft values, how many are craftable and already
     /// owned, every material with required amount and NQ/HQ stock, and the
-    /// requirement lines. All values come from AddonRecipeNote's named nodes, so
-    /// the numbers are exactly the ones the window displays.
+    /// requirement lines. Material amounts come from the selected recipe's game
+    /// data because the window's quantity text nodes can be empty.
     /// Returns false when the crafting log is not open, so the read-menu key
     /// falls through to its other readers.
     /// </summary>
@@ -13184,31 +13315,64 @@ public sealed class UIReaderService : IDisposable
     }
 
     /// <summary>
-    /// One line per filled material slot plus the crystals. A slot counts as
-    /// filled when its name node carries text - the window keeps all six slots
-    /// alive and blanks the unused ones (dump 2026-08-08: id=94..90 empty,
-    /// id=89 "Dreckiges Wasser").
+    /// One line per material plus the crystals. Prefer the selected recipe's
+    /// ingredient data: it carries the required amount even when the window's
+    /// quantity text node is blank. Only use it when its result name matches the
+    /// visible selection, so a recipe change cannot mix two recipes in one read.
+    /// The window's material nodes remain a fallback while game data loads.
     /// </summary>
     private static unsafe List<string> ReadRecipeMaterials(AddonRecipeNote* addon)
     {
         var lines = new List<string>();
+        var game = FFXIVClientStructs.FFXIV.Client.Game.UI.RecipeNote.Instance();
+        var recipe = game != null && game->RecipeList != null ? game->RecipeList->SelectedRecipe : null;
+        var selectedName = AtkText.ReadClean(addon->SelectedRecipeName).Trim();
+        var runtimeName = recipe != null ? AtkText.ReadClean(&recipe->ItemName).Trim() : string.Empty;
+        var useRuntime = selectedName.Length > 0
+            && string.Equals(selectedName, runtimeName, StringComparison.OrdinalIgnoreCase);
 
-        foreach (var ing in addon->Ingredients)
+        if (useRuntime)
         {
-            var matName = AtkText.ReadClean(ing.Name).Trim();
-            if (matName.Length == 0) continue;
-            lines.Add(AccessibilityStrings.RecipeMaterial(
-                matName,
-                AtkText.Read(ing.QuantityRequiredForCraft).Trim(),
-                AtkText.Read(ing.QuantityInInventoryNq).Trim(),
-                AtkText.Read(ing.QuantityInInventoryHq).Trim()));
+            var runtimeLines = new List<string>();
+            var complete = true;
+            for (var i = 0; i < recipe->Ingredients.Length; i++)
+            {
+                var ing = recipe->Ingredients[i];
+                if (ing.ItemId == 0 || ing.Amount == 0) continue;
+                var matName = AtkText.ReadClean(&ing.Name).Trim();
+                if (matName.Length == 0)
+                {
+                    complete = false;
+                    break;
+                }
+                runtimeLines.Add(AccessibilityStrings.RecipeMaterial(
+                    matName, ing.Amount.ToString(), ing.NQCount.ToString(), ing.HQCount.ToString()));
+            }
+            if (complete) lines.AddRange(runtimeLines);
+        }
+
+        if (lines.Count == 0)
+        {
+            foreach (var ing in addon->Ingredients)
+            {
+                var matName = AtkText.ReadClean(ing.Name).Trim();
+                if (matName.Length == 0) continue;
+                lines.Add(AccessibilityStrings.RecipeMaterial(
+                    matName,
+                    AtkText.Read(ing.QuantityRequiredForCraft).Trim(),
+                    AtkText.Read(ing.QuantityInInventoryNq).Trim(),
+                    AtkText.Read(ing.QuantityInInventoryHq).Trim()));
+            }
         }
 
         // Crystals are icon-only in this window - CrystalNodes carries Image but
         // no name node, so the element is announced unnamed rather than guessed.
-        foreach (var crystal in addon->Crystals)
+        for (var i = 0; i < addon->Crystals.Length; i++)
         {
+            var crystal = addon->Crystals[i];
             var needed = AtkText.Read(crystal.QuantityRequiredForCraft).Trim();
+            if (useRuntime && i < recipe->Crystals.Length && recipe->Crystals[i].Amount > 0)
+                needed = recipe->Crystals[i].Amount.ToString();
             if (needed.Length == 0 || needed == "0") continue;
             lines.Add(AccessibilityStrings.RecipeCrystal(
                 needed, AtkText.Read(crystal.QuantityInInventory).Trim()));

@@ -56,8 +56,50 @@ public sealed class GearInfoService
 
         if (briefWhenWearable) return head;
 
+        var occupied = MultiSlotNote(row);
+        if (occupied.Length > 0) head += $", {occupied}";
         var stats = DescribeStats(row);
         return stats.Length > 0 ? $"{head}, {stats}" : head;
+    }
+
+    private static string MultiSlotNote(LuminaItem row)
+    {
+        var names = OccupiedSlotNames(row);
+        if (names.Count < 2) return string.Empty;
+        var note = AccessibilityStrings.OccupiedSlots(string.Join(", ", names));
+        if (row.EquipSlotCategory.ValueNullable is { } category && category.Legs > 0 && category.Feet > 0)
+            note += ", " + AccessibilityStrings.FeetBlocked;
+        return note;
+    }
+
+    public string DescribeAlsoSlots(uint baseItemId, string ownSlotLabel)
+    {
+        if (baseItemId == 0 || !_data.GetExcelSheet<LuminaItem>().TryGetRow(baseItemId, out var row))
+            return string.Empty;
+        var names = OccupiedSlotNames(row);
+        if (names.Count < 2) return string.Empty;
+        names.RemoveAll(name => string.Equals(name, ownSlotLabel, StringComparison.Ordinal));
+        return names.Count > 0 ? AccessibilityStrings.OccupiesAlso(string.Join(", ", names)) : string.Empty;
+    }
+
+    private static List<string> OccupiedSlotNames(LuminaItem row)
+    {
+        var names = new List<string>();
+        if (row.EquipSlotCategory.ValueNullable is not { } category) return names;
+        if (category.MainHand > 0) names.Add(AccessibilityStrings.SlotWeapon);
+        if (category.OffHand > 0) names.Add(AccessibilityStrings.SlotOffHand);
+        if (category.Head > 0) names.Add(AccessibilityStrings.SlotHead);
+        if (category.Body > 0) names.Add(AccessibilityStrings.SlotBody);
+        if (category.Gloves > 0) names.Add(AccessibilityStrings.SlotHands);
+        if (category.Waist > 0) names.Add(AccessibilityStrings.SlotWaist);
+        if (category.Legs > 0) names.Add(AccessibilityStrings.SlotLegs);
+        if (category.Feet > 0) names.Add(AccessibilityStrings.SlotFeet);
+        if (category.Ears > 0) names.Add(AccessibilityStrings.SlotEars);
+        if (category.Neck > 0) names.Add(AccessibilityStrings.SlotNeck);
+        if (category.Wrists > 0) names.Add(AccessibilityStrings.SlotWrists);
+        if (category.FingerL > 0 || category.FingerR > 0) names.Add(AccessibilityStrings.SlotRing);
+        if (category.SoulCrystal > 0) names.Add(AccessibilityStrings.SlotSoulCrystal);
+        return names;
     }
 
     /// <summary>
@@ -105,7 +147,11 @@ public sealed class GearInfoService
             var value = row.BaseParamValue[i];
             if (param.RowId == 0 || value == 0) continue;
 
-            var name = param.ValueNullable?.Name.ExtractText().Trim() ?? string.Empty;
+            // Russisch zuerst, wie bei den Jobnamen: BaseParam kommt hier
+            // englisch ("Strength"), das Spiel zeigt "Сила".
+            var name = Loc.IsRussian && RussianSheetTerms.BaseParam(param.RowId) is { } russianParam
+                ? russianParam
+                : param.ValueNullable?.Name.ExtractText().Trim() ?? string.Empty;
             if (name.Length == 0) continue; // unnamed attribute: stay silent rather than say "Attribut 12"
             parts.Add(AccessibilityStrings.AttributeValue(name, value));
         }
@@ -143,7 +189,12 @@ public sealed class GearInfoService
 
         var parts = new List<string>();
 
-        var category = row.ItemUICategory.ValueNullable?.Name.ExtractText().Trim() ?? string.Empty;
+        // Auch die Gattung kommt aus einem Blatt und ist hier englisch; im
+        // Spiel steht die uebersetzte ("Arznei"/"Лекарство"). Unbekannte Id ->
+        // Blattname, nie stumm.
+        var category = Loc.IsRussian && RussianSheetTerms.ItemUICategory(row.ItemUICategory.RowId) is { } russianCategory
+            ? russianCategory
+            : row.ItemUICategory.ValueNullable?.Name.ExtractText().Trim() ?? string.Empty;
         // Some items ARE their category ("Leder" in category "Leder") - saying
         // the same word twice in a row sounds like a stutter, so it is dropped.
         var itemName = row.Name.ExtractText().Trim();
@@ -191,8 +242,10 @@ public sealed class GearInfoService
             if (jobOk == null) return (null, string.Empty);
             if (jobOk == false)
             {
-                var forWho = cat.Name.ExtractText().Trim();
-                return (false, forWho.Length > 0 ? AccessibilityStrings.OnlyForClass(forWho) : AccessibilityStrings.DifferentClassNeeded);
+                var forWho = RequiredJobNames(cat);
+                if (forWho.Length > 0) return (false, AccessibilityStrings.OnlyForJobs(forWho));
+                var categoryName = cat.Name.ExtractText().Trim();
+                return (false, categoryName.Length > 0 ? AccessibilityStrings.OnlyForClass(categoryName) : AccessibilityStrings.DifferentClassNeeded);
             }
         }
 
@@ -204,6 +257,20 @@ public sealed class GearInfoService
         }
 
         return (true, string.Empty);
+    }
+
+    private string RequiredJobNames(ClassJobCategory category)
+    {
+        var names = new List<string>();
+        foreach (var job in _data.GetExcelSheet<ClassJob>())
+        {
+            if (job.RowId == 0 || AllowsJob(category, (byte)job.RowId) != true) continue;
+            var name = RussianSheetTerms.ClassJob(job.RowId);
+            if (string.IsNullOrEmpty(name)) continue;
+            names.Add(name);
+            if (names.Count > 3) return string.Empty;
+        }
+        return string.Join(", ", names);
     }
 
     /// <summary>
@@ -243,7 +310,12 @@ public sealed class GearInfoService
             if (levels[index] <= 0) continue;                   // not one of the player's
             if (AllowsJob(cat, (byte)job.RowId) != true) continue;
 
-            var name = job.Name.ExtractText().Trim();
+            // Russisch zuerst: das ClassJob-Blatt liefert hier Englisch, das
+            // Spiel zeigt aber den uebersetzten Namen - gemeldet am 2026-09-14
+            // ("gladiator" statt "Гладиатор"). Unbekannte Id -> Blattname.
+            var name = Loc.IsRussian && RussianSheetTerms.ClassJob(job.RowId) is { } russian
+                ? russian
+                : job.Name.ExtractText().Trim();
             if (name.Length > 0) names.Add(name);
         }
 
@@ -320,6 +392,34 @@ public sealed class GearInfoService
         _log.Warning($"[Gear] Keine Job-Spalte '{abbr}' (Job {jobId}) im ClassJobCategory-Sheet.");
         return null;
     }
+
+    /// <summary>
+    /// True, when the category is a name list of OTHER jobs and does not
+    /// mention this one. Used by the skill browser, where an unresolved job
+    /// column must not silently swallow craft-class skills: the game's
+    /// category for a craft skill lists several classes ("CRP WVR ..."), so
+    /// the row stays offerable to whoever is standing on one of them. False
+    /// on any doubt - a wrong True costs a dead entry, a wrong False costs a
+    /// missing skill the player cannot assign at all.
+    /// </summary>
+    public bool NamesOnlyOtherJobs(ClassJobCategory cat, byte jobId)
+    {
+        var own = EnglishAbbreviation(jobId);
+        if (own.Length == 0) return false;
+
+        var names = (cat.Name.ExtractText() ?? string.Empty)
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return names.Length > 0 && !names.Contains(own, StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>English abbreviation of a job ("CRP", "GLA") from the sheet -
+    /// the same naming the ClassJobCategory columns and the category name
+    /// lists use. "" when the job is unknown. Public because the skill browser
+    /// also needs it to pick the matching column of the CraftAction sheet.</summary>
+    public string EnglishAbbreviation(byte jobId)
+        => _data.GetExcelSheet<ClassJob>(ClientLanguage.English).TryGetRow(jobId, out var job)
+            ? job.Abbreviation.ExtractText().Trim()
+            : string.Empty;
 
     /// <summary>
     /// Findet die bool-Spalte über die ClassJobCategory-Zeile, deren Name die

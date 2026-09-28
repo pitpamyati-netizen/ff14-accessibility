@@ -559,14 +559,14 @@ public sealed partial class JobGaugeService
 
     private static string CardName(CardType card) => card switch
     {
-        CardType.Balance => Loc.IsGerman ? "Waage" : "Balance",
-        CardType.Bole    => Loc.IsGerman ? "Baum" : "Bole",
-        CardType.Arrow   => Loc.IsGerman ? "Pfeil" : "Arrow",
-        CardType.Spear   => Loc.IsGerman ? "Speer" : "Spear",
-        CardType.Ewer    => Loc.IsGerman ? "Krug" : "Ewer",
-        CardType.Spire   => Loc.IsGerman ? "Turm" : "Spire",
-        CardType.Lord    => Loc.IsGerman ? "Lord" : "Lord",
-        CardType.Lady    => Loc.IsGerman ? "Lady" : "Lady",
+        CardType.Balance => AccessibilityStrings.L("Waage", "Balance", "Весы"),
+        CardType.Bole    => AccessibilityStrings.L("Baum", "Bole", "Древо"),
+        CardType.Arrow   => AccessibilityStrings.L("Pfeil", "Arrow", "Стрела"),
+        CardType.Spear   => AccessibilityStrings.L("Speer", "Spear", "Копьё"),
+        CardType.Ewer    => AccessibilityStrings.L("Krug", "Ewer", "Кувшин"),
+        CardType.Spire   => AccessibilityStrings.L("Turm", "Spire", "Шпиль"),
+        CardType.Lord    => AccessibilityStrings.L("Lord", "Lord", "Лорд"),
+        CardType.Lady    => AccessibilityStrings.L("Lady", "Lady", "Леди"),
         _                => card.ToString(),
     };
 }

@@ -201,7 +201,17 @@ public sealed class ObjectNameService
 
         if (link.Is<Quest>() && link.GetValueOrDefault<Quest>() is { } quest)
         {
-            var name = StripDeclensionMarkers(quest.Name.ExtractText());
+            // Das Blatt liefert den Namen ENGLISCH - diese Installation rendert
+            // russisch nur in der Anzeige (6.08.53). Die Zeilen-Id kennt keine
+            // Sprache: ueber sie kommt der russische Kurzname aus derselben
+            // Uebersetzungsdatei, aus der auch die Anzeige im Spiel kommt.
+            // Ohne Uebersetzung bleibt es beim Blattnamen, nie bei Schweigen
+            // (Meldung 2026-09-16: "Цель для To Catch a Poacher" statt
+            // "Поймать браконьера").
+            var name = StripDeclensionMarkers(
+                Loc.IsRussian && RussianQuestNames.QuestName(quest.RowId) is { } russian
+                    ? russian
+                    : quest.Name.ExtractText());
             if (IsSpeakable(name)) return new ObjectPurpose(quest.RowId, name, string.Empty);
         }
 

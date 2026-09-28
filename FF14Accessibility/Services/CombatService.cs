@@ -10,7 +10,7 @@ using LuminaAction = Lumina.Excel.Sheets.Action;
 
 namespace FF14Accessibility.Services;
 
-public sealed class CombatService
+public sealed partial class CombatService
 {
     private readonly IObjectTable          _objectTable;
     private readonly ITargetManager        _targetManager;
@@ -24,6 +24,7 @@ public sealed class CombatService
     // Der zweite Sprachkanal fuer die Kampfwarnungen - siehe SpeakWarning.
     private readonly WarningVoiceService   _warnVoice;
     private readonly IPluginLog            _log;
+    private readonly StatusEffectReader     _statusEffects;
 
     // Gefahrenflaechen dieses Frames, fuer die Fluchtsuche. Feld statt lokaler
     // Liste, damit der Kampf-Frame nichts anlegt - er laeuft in jedem Bild.
@@ -131,6 +132,7 @@ public sealed class CombatService
         _warnVoice     = warnVoice;
         _leveEnemies   = leveEnemies;
         _log           = log;
+        _statusEffects = new StatusEffectReader(log);
         _actionShape   = new ActionShapeService(data, log);
     }
 
@@ -186,12 +188,17 @@ public sealed class CombatService
         {
             _lastHpPercent = HpPercent(player.CurrentHp, player.MaxHp);
             _tolk.Speak(AccessibilityStrings.CombatStart);
+            _attackerWindowUntilMs = Environment.TickCount64 + 2000;
         }
         else if (!inCombat && _wasInCombat)
         {
             _tolk.Speak(AccessibilityStrings.CombatEnd);
+            _attackerWindowUntilMs = 0;
         }
         _wasInCombat = inCombat;
+
+        if (_attackerWindowUntilMs != 0) UpdateAttacker(player);
+        UpdateStrongerEnemyWarning(player);
 
         UpdateTarget(inCombat, player.GameObjectId);
 
@@ -926,8 +933,11 @@ public sealed class CombatService
         // Dieselbe Formulierung wie im Anhang der Sammel-Ansage, damit dieselbe
         // Auskunft nicht je nach Taste anders klingt. Das fuehrende Leerzeichen
         // der Anhang-Fassung faellt weg, hier ist es der ganze Satz.
-        _tolk.SpeakInterrupt(
-            AccessibilityStrings.TargetStatusClause(name, target.CurrentHp, target.MaxHp).TrimStart());
+        var text = AccessibilityStrings.TargetStatusClause(name, target.CurrentHp, target.MaxHp).TrimStart();
+        var effects = _statusEffects.Rows(target, "Zielwirkung", withDescription: false);
+        if (effects.Count > 0)
+            text += ". " + AccessibilityStrings.TargetEffectsHeader(effects.Count) + ". " + string.Join(". ", effects);
+        _tolk.SpeakInterrupt(text);
     }
 
     /// <summary>
@@ -1044,8 +1054,10 @@ public sealed class CombatService
         foreach (var obj in _objectTable)
         {
             if (obj is not IBattleChara bc) continue;
-            // Only hostile combatants: friendly EventNpcs never threaten the player.
-            if (bc.ObjectKind != ObjectKind.BattleNpc) continue;
+            // BattleNpc also includes other players' pets, chocobos and duty allies.
+            // Use the same side check as the object browser so their casts cannot
+            // interrupt warnings about the enemy the player is fighting.
+            if (!CombatSide.IsEnemy(bc)) continue;
             if (bc.GameObjectId == playerId) continue;
 
             if (!bc.IsCasting)
@@ -1118,11 +1130,8 @@ public sealed class CombatService
         {
             _castsAtMeAlive.Clear();
             foreach (var obj in _objectTable)
-                // Same kind filter as the loop above, and for the same reason:
-                // IsCasting dereferences GetCastInfo() unchecked. This pass only
-                // runs while _castsAtMe holds something, which is why it had not
-                // thrown yet - the exposure is identical.
-                if (obj is IBattleChara bc && bc.ObjectKind == ObjectKind.BattleNpc && bc.IsCasting)
+                // Use the same enemy filter as the announcement pass.
+                if (obj is IBattleChara bc && CombatSide.IsEnemy(obj) && bc.IsCasting)
                     _castsAtMeAlive.Add(bc.GameObjectId);
             foreach (var id in _castsAtMe.Keys)
                 if (!_castsAtMeAlive.Contains(id)) _castsAtMeStale.Add(id);
