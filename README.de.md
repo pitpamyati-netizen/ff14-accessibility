@@ -122,12 +122,10 @@ Tönen unterstützt — inklusive Braillezeile und automatischem Laufen.
   beantworten kann — *wo geht es weiter*. **Numpad 3 läuft zur gewählten
   Station.** Es ist ein Skelett von im Schnitt sechzehn Stationen, kein
   Raumplan: zwischen zwei Stationen läuft der Auto-Lauf wie überall sonst.
-  - Die dafür nötigen **Wegdateien holt der Installer** (309 Dateien, rund
-    750 KB) nach
+  - Das Plugin kann die Wegdateien beim ersten Start selbst herunterladen,
+    wenn der automatische Download aktiviert und dieser Ordner leer ist:
     `%AppData%\XIVLauncher\pluginConfigs\FF14Accessibility\DungeonPaths\`.
-    Wer das Plugin ohne den Installer einrichtet, bekommt sie trotzdem: das
-    **Plugin lädt sie beim ersten Start selbst nach**, wenn der Ordner leer ist.
-    Solange er leer ist, wird die Kategorie **gar nicht angeboten**.
+    Solange er leer ist, wird die Dungeon-Wegekategorie nicht angeboten.
   - Im Einstellungsmenü (**Umschalt+F9**) sagt der Punkt **Dungeon-Wege**, wie
     viele Wege geladen sind, lädt sie auf Wunsch neu und schaltet das
     automatische Laden ab.
@@ -478,8 +476,9 @@ aktuelle Hilfe an. Alle Tasten lassen sich über die Einstellungen ändern.
   (z. B. „24.1 21.0" kopieren, dann Taste)
 - **Strg+Umschalt+F2** — eigene Karten-Koordinaten in die Zwischenablage
   kopieren
-- **Nummernblock 5** — einmal in die Richtung drehen, in die die Gehhilfe
-  weist
+- **Nummernblock 5** — bei aktiver Gehhilfe einmal in deren Richtung drehen;
+  sonst Name, Entfernung und Himmelsrichtung des gewählten Ziels vorlesen,
+  ohne die Figur oder Kamera zu drehen
 - **Strg+Umschalt+F6** — Spur aufzeichnen an/aus (eine Stelle, die das
   Wegenetz nicht kennt, einmal selbst ablaufen)
 - **N** — Himmelsrichtungs-Ansage beim Drehen an/aus
@@ -640,17 +639,18 @@ Viele Funktionen gibt es auch als Befehl:
 - `/acc trails` — aufgezeichnete Spuren im Gebiet auflisten
 - `/acc cd` (auch `/acc cooldowns`) — Ansage „Fähigkeit bereit" an/aus
 - `/acc soundtest` — die Töne des Plugins zur Probe abspielen
-- `/acc lang de|en|auto` — Sprache der Plugin-Ansagen umstellen
+- `/acc lang ru|de|en|auto` — Sprache der Plugin-Ansagen umstellen
 - `/acc dump <Fenstername>` — Fensterstruktur auf den Desktop speichern
 
 ## Sprache
 
-Die Ansagen des Plugins gibt es auf **Deutsch und Englisch**. Ohne
-Einstellung richtet sich die Sprache nach Windows; mit `/acc lang de`,
-`/acc lang en` oder `/acc lang auto` lässt sie sich jederzeit umstellen.
-Spieltexte (Dialoge, Menüs, Gegenstandsnamen) werden immer in der Sprache
-des Spiel-Clients vorgelesen. Entwickelt und getestet wird vorrangig mit dem
-deutschen Client.
+Die Plugin-Ansagen unterstützen **Russisch, Deutsch und Englisch**. Mit
+`/acc lang ru`, `/acc lang de` oder `/acc lang en` wird die Sprache gewählt;
+`/acc lang auto` richtet sich nach Windows. Für fehlende Übersetzungen bleibt
+der Spieltext oder die Ersatzsprache des Plugins erhalten. Im russischen Modus
+übersetzen eingebaute Wörterbücher unterstützte Gegenstandsnamen, Fähigkeiten,
+Beschreibungen und weitere gesprochene Informationen. Sie ersetzen nicht alle
+sichtbaren Spieltexte und übersetzen keine Nachrichten anderer Spieler.
 
 ## Mitwirkende
 

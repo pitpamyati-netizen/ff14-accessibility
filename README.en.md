@@ -117,12 +117,10 @@ cues — including braille display output and automatic walking.
   continue*. **Numpad 3 walks to the selected station.** It is a skeleton of
   sixteen stations on average, not a room plan: between two stations the
   auto-walk runs exactly as it does everywhere else.
-  - **The installer fetches the required route files** (309 files, about
-    750 KB) into
+  - The plugin can download the required route files on first start when
+    automatic downloading is enabled and this folder is empty:
     `%AppData%\XIVLauncher\pluginConfigs\FF14Accessibility\DungeonPaths\`.
-    Setting the plugin up without the installer still works: the **plugin
-    downloads them itself on first start** while that folder is empty. As long
-    as it is empty, the category is **not offered at all**.
+    While the folder is empty, the dungeon route category is not offered.
   - In the settings menu (**Shift+F9**) the **dungeon routes** entry says how
     many routes are loaded, re-downloads them on request and switches the
     automatic download off.
@@ -571,17 +569,17 @@ Many functions are also available as commands:
 - `/acc trails` — list the trails recorded in this zone
 - `/acc cd` (or `/acc cooldowns`) — toggle the "ability ready" announcement
 - `/acc soundtest` — play the plugin's tones for reference
-- `/acc lang de|en|auto` — switch the language of the plugin's announcements
+- `/acc lang ru|de|en|auto` — switch the language of the plugin's announcements
 - `/acc dump <window name>` — save a window's structure to the desktop
 
 ## Language
 
-The plugin's own announcements are available in **English and German**.
-Without a setting the language follows Windows; `/acc lang en`,
-`/acc lang de` or `/acc lang auto` switches it at any time. Game texts
-(dialogues, menus, item names) are always read in whatever language your
-game client uses. Development and testing happen primarily with the German
-client.
+Plugin announcements support **Russian, English and German**. Select a language
+with `/acc lang ru`, `/acc lang en` or `/acc lang de`; `/acc lang auto` follows
+Windows. Missing translations fall back to the game's text or the plugin's
+fallback language. In Russian mode, built-in dictionaries translate supported
+item names, actions, descriptions and other spoken information. They do not
+replace all visible game text or translate player messages.
 
 ## Contributors
 
