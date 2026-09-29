@@ -40,7 +40,11 @@ public sealed class GameDescriptionService
     public string GeneralActionName(uint id) => Read<GeneralAction>("GeneralActionName", id, row => row.Name, names: true);
     public string PetActionName(uint id) => Read<PetAction>("PetActionName", id, row => row.Name, names: true);
     public string EmoteName(uint id) => Read<Emote>("EmoteName", id, row => row.Name, names: true);
-    public string ItemName(uint id) => Read<Item>("ItemName", id, row => row.Name, names: true);
+    public string ItemName(uint id)
+    {
+        var name = Read<Item>("ItemName", id, row => row.Name, names: true);
+        return _data.GetExcelSheet<Item>().TryGetRow(id, out var item) ? EquipmentSpeech.WithSlots(item, name) : name;
+    }
     public string EventItemName(uint id) => Read<EventItem>("EventItemName", id, row => row.Name, names: true);
     public string TraitName(uint id) => Read<Trait>("TraitName", id, row => row.Name, names: true);
     public string MountName(uint id) => Read<Mount>("MountName", id, row => row.Singular, names: true);

@@ -73,14 +73,13 @@ public sealed class EquipmentService
             // worn pieces are normally wearable, only a mismatch (e.g. after a
             // class change) is worth words: "nicht tragbar, nur für ...".
             var gear = _gearInfo.DescribeGear(item.BaseItemId, briefWhenWearable: true);
-            var alsoSlots = _gearInfo.DescribeAlsoSlots(item.BaseItemId, label);
-            var gearNote = string.Join(", ", new[] { gear, alsoSlots }.Where(value => value.Length > 0));
+            var gearNote = gear;
             if (gearNote.Length > 0) gearNote = ", " + gearNote;
             var condition = _inventoryReader.DescribeWornCondition(item.Address, item.BaseItemId, onlyWhenDamaged: true);
             var conditionNote = condition.Length > 0 ? $", {condition}" : string.Empty;
             if (condition.Length > 0) damaged++;
             _log.Info($"[Equip] slot={item.InventorySlot} id={item.ItemId} '{label}: {name}'{hq}{gearNote}{conditionNote}");
-            parts.Add($"{label}: {name}{hq}{gearNote}{conditionNote}");
+            parts.Add($"{name}{hq}{gearNote}{conditionNote}");
             labels.Add(label);
         }
 
@@ -173,7 +172,7 @@ public sealed class EquipmentService
     {
         if (_data.GetExcelSheet<LuminaItem>().TryGetRow(baseItemId, out var row))
         {
-            var name = RussianGameText.Name(_data, row, x => x.Name);
+            var name = EquipmentSpeech.Name(_data, row);
             if (!string.IsNullOrWhiteSpace(name)) return name;
         }
         return AccessibilityStrings.ItemFallback(baseItemId);

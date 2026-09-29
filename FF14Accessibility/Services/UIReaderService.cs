@@ -4759,23 +4759,25 @@ public sealed partial class UIReaderService : IDisposable
         }
         if (!shopOpen) return text;
 
-        foreach (var part in text.Split(", "))
+        var parts = text.Split(", ");
+        var info = string.Empty;
+        for (var i = 0; i < parts.Length; i++)
         {
             // Shop rows wrap the item name in SeString payload bytes
             // (0x02..0x03, log 2026-07-16 18:21: '226, <payload>Laien-
             // Hanfbundhaube<payload>') - match on the sanitized name, the
             // same form the user hears.
-            var sourceName = TolkService.Sanitize(part);
-            var info = _gearInfo.DescribeByName(sourceName);
-            var translatedName = _inventory.TranslateItemLabel(sourceName);
-            if (translatedName != sourceName) text = text.Replace(part, translatedName, StringComparison.Ordinal);
-            if (info.Length > 0)
+            var sourceName = TolkService.Sanitize(parts[i]);
+            var itemId = _inventory.ResolveItemIdByName(sourceName);
+            if (itemId != 0)
             {
-                _log.Info($"[Gear] Laden-Zeile '{part}': {info}");
-                return $"{text}, {info}";
+                parts[i] = _inventory.ResolveItemLabel(itemId);
+                if (info.Length == 0) info = _gearInfo.DescribeGear(itemId);
             }
+            else parts[i] = _gearInfo.TranslateClassLabel(parts[i]);
         }
-        return text;
+        text = string.Join(", ", parts);
+        return info.Length > 0 ? $"{text}, {info}" : text;
     }
 
     /// <summary>
@@ -4861,7 +4863,7 @@ public sealed partial class UIReaderService : IDisposable
                 if (agentItemId != 0)
                 {
                     itemId = agentItemId;
-                    name   = _inventory.ResolveItemName(itemId);
+                    name   = _inventory.ResolveItemLabel(itemId);
                 }
                 else
                 {
@@ -11234,6 +11236,7 @@ public sealed partial class UIReaderService : IDisposable
 
             var t = AtkText.Read((AtkTextNode*)n).Trim();
             if (string.IsNullOrWhiteSpace(t) || t.Length <= 1) continue;
+            t = _gearInfo.TranslateClassLabel(_inventory.TranslateItemLabel(t));
             if (parts.Contains(t)) continue; // name appears twice in the tooltip
             parts.Add(t);
         }

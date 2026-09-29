@@ -211,7 +211,7 @@ public sealed partial class Plugin : IDalamudPlugin
     // 6.08.18 lokal: Chat-Absender Kontextmenü (Strg+Umschalt+BildAuf) + Numpad3-Ziel.
     // 6.08.19: Charakterauswahl — eine Ansage (Name, Job, Ort) statt Scan-Sturm.
     // 6.08.20: Mitstreiter-Taste (PR 27 Port) — Strg+Umschalt+C öffnet/vorliest.
-    private const string PluginVersion    = "6.08.70";
+    private const string PluginVersion    = "6.08.73";
     // Der Tag nennt, was diese Fassung MITBRINGT, nicht woher sie stammt: die
     // russische Schicht auf dem Stand des Autors 6.08.34 (Auftragstext im
     // Quest-Tracker des Autors, siehe package-Schritt).
@@ -2200,9 +2200,8 @@ public sealed partial class Plugin : IDalamudPlugin
         finally { CloseClipboard(); }
     }
 
-    // Keybind dump runs automatically once per session: the user cannot open
-    // the chat yet, so /acc keys would be unreachable for them.
-    private bool _keybindsDumped;
+    // Check key conflicts once per login; desktop export requires /acc keys.
+    private bool _keybindsChecked;
 
     // True while a game text field has keyboard focus. Cached once per frame
     // (IsJustPressed is called ~60x per frame - one native call is enough) and
@@ -2374,12 +2373,10 @@ public sealed partial class Plugin : IDalamudPlugin
             Log.Info($"[TextInput] active={_textInputActive} - mod hotkeys {(_textInputActive ? "suppressed" : "live")}");
         }
 
-        if (!_keybindsDumped && ClientState.IsLoggedIn && _keybinds.IsReady())
+        if (!_keybindsChecked && ClientState.IsLoggedIn && _keybinds.IsReady())
         {
-            _keybindsDumped = true;
-            // Silent: the spoken "Tastenbelegung gespeichert" at every login was
-            // noise (user 2026-07-13); conflicts are still announced.
-            _keybinds.DumpKeybinds(GetPluginKeys(), announce: false);
+            _keybindsChecked = true;
+            _keybinds.CheckConflicts(GetPluginKeys());
         }
 
         // [Chat-Puffer] Dem Register des Spiels folgen und, einmal je Sitzung, den vom
@@ -3517,13 +3514,13 @@ public sealed partial class Plugin : IDalamudPlugin
     /// <summary>
     /// Starts the post-login quiet period: the game builds its entire HUD here
     /// and every window would otherwise be announced (see
-    /// <see cref="UIReaderService.BeginLoginQuiet"/>). The keybind dump is also
+    /// <see cref="UIReaderService.BeginLoginQuiet"/>). The conflict check is also
     /// re-armed, so a character switch re-checks for key conflicts.
     /// </summary>
     private void OnLogin()
     {
         _uiReader.BeginLoginQuiet(_config.LoginQuietSeconds);
-        _keybindsDumped = false;
+        _keybindsChecked = false;
     }
 
     public void Dispose()

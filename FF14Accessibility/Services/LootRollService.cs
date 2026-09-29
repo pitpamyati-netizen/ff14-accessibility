@@ -309,7 +309,7 @@ public sealed class LootRollService
     {
         if (_data.GetExcelSheet<LuminaItem>().TryGetRow(itemId, out var row))
         {
-            var name = RussianGameText.Name(_data, row, x => x.Name);
+            var name = EquipmentSpeech.Name(_data, row);
             if (!string.IsNullOrWhiteSpace(name)) return name;
         }
         return AccessibilityStrings.ItemFallback(itemId);

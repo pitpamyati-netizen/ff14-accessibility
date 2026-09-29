@@ -56,8 +56,14 @@ public sealed class GearInfoService
 
         if (briefWhenWearable) return head;
 
-        var occupied = MultiSlotNote(row);
-        if (occupied.Length > 0) head += $", {occupied}";
+        // Slots now follow the item name. Class restrictions must also be heard
+        // when the item is wearable, or the level check failed before the job check.
+        if (Loc.IsRussian && row.ClassJobCategory.ValueNullable is { } jobs)
+        {
+            var classes = EquipmentSpeech.ClassCategory(_data, jobs);
+            if (classes.Length > 0 && !reason.Contains(classes, StringComparison.Ordinal))
+                head += ", " + AccessibilityStrings.EquipmentClasses(classes);
+        }
         var stats = DescribeStats(row);
         return stats.Length > 0 ? $"{head}, {stats}" : head;
     }
@@ -222,6 +228,16 @@ public sealed class GearInfoService
             : string.Empty;
     }
 
+    /// <summary>Known equipment label with slots, resolved before translating.</summary>
+    public string ItemLabelByName(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return text;
+        _gearNames ??= BuildGearNameCache();
+        return _gearNames.TryGetValue(text.Trim().ToLowerInvariant(), out var id)
+               && _data.GetExcelSheet<LuminaItem>().TryGetRow(id, out var row)
+            ? EquipmentSpeech.Name(_data, row) : text;
+    }
+
     // ── Tragbarkeits-Prüfung ──
 
     /// <summary>
@@ -261,12 +277,12 @@ public sealed class GearInfoService
 
     private string RequiredJobNames(ClassJobCategory category)
     {
+        if (Loc.IsRussian) return EquipmentSpeech.ClassCategory(_data, category);
         var names = new List<string>();
         foreach (var job in _data.GetExcelSheet<ClassJob>())
         {
             if (job.RowId == 0 || AllowsJob(category, (byte)job.RowId) != true) continue;
-            var name = (Loc.IsRussian ? RussianSheetTerms.ClassJob(job.RowId) : null)
-                       ?? job.Name.ExtractText().Trim();
+            var name = RussianGameText.Name(_data, job, x => x.Name).Trim();
             if (string.IsNullOrEmpty(name)) continue;
             names.Add(name);
             if (names.Count > 3) return string.Empty;
@@ -314,9 +330,7 @@ public sealed class GearInfoService
             // Russisch zuerst: das ClassJob-Blatt liefert hier Englisch, das
             // Spiel zeigt aber den uebersetzten Namen - gemeldet am 2026-09-14
             // ("gladiator" statt "Гладиатор"). Unbekannte Id -> Blattname.
-            var name = Loc.IsRussian && RussianSheetTerms.ClassJob(job.RowId) is { } russian
-                ? russian
-                : job.Name.ExtractText().Trim();
+            var name = RussianGameText.Name(_data, job, x => x.Name).Trim();
             if (name.Length > 0) names.Add(name);
         }
 
@@ -496,18 +510,48 @@ public sealed class GearInfoService
 
     private Dictionary<string, uint>? _gearNames;
 
+    private Dictionary<string, string>? _classLabels;
+    private ClientLanguage _classLabelLanguage;
+
+    /// <summary>Translate a complete class label in a tooltip/comparison, never arbitrary prose.</summary>
+    public string TranslateClassLabel(string text)
+    {
+        if (!Loc.IsRussian || string.IsNullOrWhiteSpace(text)) return text;
+        if (_classLabels == null || _classLabelLanguage != _data.Language)
+        {
+            var labels = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var ambiguous = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            // The same abbreviation may name different jobs in different
+            // languages (English SCH = scholar, German SCH = rogue).
+            foreach (var category in _data.GetExcelSheet<ClassJobCategory>())
+            {
+                var source = category.Name.ExtractText().Trim();
+                if (source.Length == 0) continue;
+                var translated = EquipmentSpeech.ClassCategory(_data, category);
+                if (labels.TryGetValue(source, out var existing) && existing != translated) ambiguous.Add(source);
+                else labels[source] = translated;
+            }
+            foreach (var label in ambiguous) labels.Remove(label);
+            _classLabels = labels;
+            _classLabelLanguage = _data.Language;
+        }
+        return _classLabels.TryGetValue(text.Trim(), out var result) ? result : text;
+    }
+
     /// <summary>Lowercased equipment names only - consumables in a list can then
     /// never be mis-matched, and the map stays small. Built once, lazily.</summary>
     private Dictionary<string, uint> BuildGearNameCache()
     {
         var map = new Dictionary<string, uint>();
+        var ambiguous = new HashSet<string>();
         foreach (var row in _data.GetExcelSheet<LuminaItem>())
         {
             if (row.EquipSlotCategory.RowId == 0) continue;
             var name = row.Name.ExtractText();
-            if (!string.IsNullOrWhiteSpace(name))
-                map.TryAdd(name.Trim().ToLowerInvariant(), row.RowId);
+            if (!string.IsNullOrWhiteSpace(name) && !map.TryAdd(name.Trim().ToLowerInvariant(), row.RowId))
+                ambiguous.Add(name.Trim().ToLowerInvariant());
         }
+        foreach (var name in ambiguous) map.Remove(name);
         _log.Info($"[Gear] Namens-Cache gebaut: {map.Count} Ausrüstungs-Namen.");
         return map;
     }

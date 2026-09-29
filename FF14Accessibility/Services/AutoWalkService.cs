@@ -303,6 +303,10 @@ public sealed class AutoWalkService : IDisposable
         Starting,
         /// <summary>Our path is steering the character.</summary>
         Walking,
+        /// <summary>Querying a short walking detour around a stalled uphill corner.</summary>
+        DetourSearch,
+        /// <summary>Following the checked local detour before resuming the destination.</summary>
+        DetourWalking,
         /// <summary>Driving a recorded trail over a gap in the mesh (see
         /// <see cref="TryTakeTrail"/>), with vnavmesh's pathfinding out of the loop.</summary>
         TrailWalking,
@@ -371,6 +375,11 @@ public sealed class AutoWalkService : IDisposable
     private bool _routeSpoken;
     private int _lastWaypointCount;     // remaining hops at the last check
     private DateTime _lastDiagAt;
+    private GroundDetour? _groundDetour;
+    private readonly List<Vector3> _detourAttempts = new();
+    private DateTime _detourStartedAt;
+    private Vector3 _detourEnd;
+    private int _detourWaypointsSeen;
 
     // Spur-Etappe (siehe TryTakeTrail / TrailWalkingUpdate)
     private Vector3 _trailEnd;
@@ -500,7 +509,7 @@ public sealed class AutoWalkService : IDisposable
     /// automatic target-change announcements while this is true - passing NPCs
     /// grab the soft target every few steps and each one would be announced
     /// with distance and direction (user feedback 2026-07-10).</summary>
-    public bool IsActive => _phase is Phase.Starting or Phase.Walking
+    public bool IsActive => _phase is Phase.Starting or Phase.Walking or Phase.DetourSearch or Phase.DetourWalking
                                    or Phase.TrailWalking or Phase.Landing;
 
     /// <summary>Read-only destination for an explicit status request. A stopped
@@ -857,11 +866,14 @@ public sealed class AutoWalkService : IDisposable
     /// loop.</param>
     private void Begin(Vector3 destination, string name, float stopRange, ulong targetId, bool fresh = true)
     {
+        _groundDetour?.Dispose();
+        _groundDetour = null;
         var player = _objectTable.LocalPlayer;
         if (player == null) return;
 
         if (fresh)
         {
+            _detourAttempts.Clear();
             _usedTrails.Clear();
             _reengageCount = 0;
             _reengageBestDistance = float.MaxValue;
@@ -1316,6 +1328,8 @@ public sealed class AutoWalkService : IDisposable
     /// </summary>
     private void Finish(string? spoken, string reason)
     {
+        _groundDetour?.Dispose();
+        _groundDetour = null;
         _nav.Stop();
         _phase = Phase.Guarding;
         _guardUntil = DateTime.UtcNow.AddSeconds(StopGuardS);
@@ -1383,6 +1397,8 @@ public sealed class AutoWalkService : IDisposable
             case Phase.Guarding: GuardUpdate(); return;
             case Phase.Starting: StartingUpdate(); return;
             case Phase.Walking:  WalkingUpdate(); return;
+            case Phase.DetourSearch: DetourSearchUpdate(); return;
+            case Phase.DetourWalking: DetourWalkingUpdate(); return;
             case Phase.TrailWalking: TrailWalkingUpdate(); return;
             case Phase.Landing:  LandingUpdate(); return;
             default: return;
@@ -1618,6 +1634,7 @@ public sealed class AutoWalkService : IDisposable
             // with restWp=2, so the mesh-edge branch never ran).
             if (TryTakeTrail(player.Position)) return;
             if (TryNudgeIntoTransition(distance)) return;
+            if (!meshEnds && TryGroundDetour(player.Position, waypoints, now)) return;
             var direction = RouteService.CompassWord(player.Position, _destPosition);
             // Wedged on geometry is the "ich laufe gegen etwas" case - so say what
             // that something is when it can be named. The mesh-edge case is a
@@ -1939,6 +1956,112 @@ public sealed class AutoWalkService : IDisposable
         var player = _objectTable.LocalPlayer;
         if (player != null) FacingService.FaceTowards(player, _destPosition);
         return true;
+    }
+
+    private bool TryGroundDetour(Vector3 position, IReadOnlyList<Vector3> path, DateTime now)
+    {
+        if (_flying || _destinationIsTransition || _pendingCrossing != null
+            || !_nav.IsRunning || _nav.PathfindInProgress || _detourAttempts.Count >= 3
+            || _detourAttempts.Any(p => GroundDetour.FlatDistance(p, position) < 3f)
+            || !GroundDetour.TryChoose(position, path, out var corner, out var end)) return false;
+
+        _detourAttempts.Add(position);
+        _nav.Stop();
+        _groundDetour = new GroundDetour(position, corner, end,
+            p => _nav.NearestPoint(p, 0.5f, 0.5f), _nav.FindGroundPath);
+        _detourStartedAt = now;
+        _phase = Phase.DetourSearch;
+        _log.Info($"[GroundDetour] search from=({Fmt(position)}) corner=({Fmt(corner)}) end=({Fmt(end)}) attempt={_detourAttempts.Count}");
+        _tolk.SpeakInterrupt(AccessibilityStrings.GroundDetourSearching);
+        return true;
+    }
+
+    private void DetourSearchUpdate()
+    {
+        var player = _objectTable.LocalPlayer;
+        if (player == null) { Finish(null, "detour: player missing"); return; }
+        if ((ushort)_clientState.TerritoryType != _startTerritory)
+        {
+            Finish(AccessibilityStrings.ArrivedNewZone, "detour: zone changed");
+            return;
+        }
+        var search = _groundDetour;
+        if (search == null) { Finish(AccessibilityStrings.GroundDetourFailed, "detour: search missing"); return; }
+        // A late native retry may have been queued before Stop. Never let it
+        // move the player while we calculate a route from the original position.
+        if (_nav.IsRunning) _nav.Stop();
+        if (Vector3.Distance(player.Position, search.Start) > 0.75f)
+        {
+            Finish(AccessibilityStrings.GroundDetourFailed, "detour: start position changed");
+            return;
+        }
+        if ((DateTime.UtcNow - _detourStartedAt).TotalSeconds > StartTimeoutS || !_nav.IsReady)
+        {
+            Finish(AccessibilityStrings.GroundDetourFailed, "detour: timeout or mesh unavailable");
+            return;
+        }
+        if (_nav.PathfindInProgress) return;
+        search.Update();
+        if (!search.Done) return;
+        var result = search.Result;
+        if (result == null)
+        {
+            Finish(AccessibilityStrings.GroundDetourFailed, "detour: no complete route around corner");
+            return;
+        }
+        _detourEnd = search.End;
+        _groundDetour = null;
+        search.Dispose();
+        _nav.Stop();
+        if (!_nav.MoveAlong(result))
+        {
+            Finish(AccessibilityStrings.AutoWalkAbortedNoResponse, "detour: move rejected");
+            return;
+        }
+        _detourWaypointsSeen = result.Count;
+        _detourStartedAt = _lastMoveAt = DateTime.UtcNow;
+        _lastPosition = player.Position;
+        _phase = Phase.DetourWalking;
+        _log.Info($"[GroundDetour] walking {string.Join(" -> ", result.Select(p => $"({Fmt(p)})"))}");
+        _tolk.SpeakInterrupt(AccessibilityStrings.GroundDetourWalking);
+    }
+
+    private void DetourWalkingUpdate()
+    {
+        var player = _objectTable.LocalPlayer;
+        if (player == null) { Finish(null, "detour: player missing"); return; }
+        if ((ushort)_clientState.TerritoryType != _startTerritory)
+        {
+            Finish(AccessibilityStrings.ArrivedNewZone, "detour: zone changed");
+            return;
+        }
+        var now = DateTime.UtcNow;
+        var remaining = _nav.NumWaypoints;
+        var distance = Vector3.Distance(player.Position, _detourEnd);
+        if (_nav.PathfindInProgress || remaining > _detourWaypointsSeen)
+        {
+            Finish(AccessibilityStrings.GroundDetourFailed, "detour: native route replaced the checked path");
+            return;
+        }
+        _detourWaypointsSeen = remaining;
+        if (distance <= 0.5f)
+        {
+            _log.Info($"[GroundDetour] reached rejoin point, distance={distance:F2}; resuming destination");
+            Finish(null, "detour: resuming destination");
+            if (_targetId != 0 && _objectTable.FirstOrDefault(o => o.GameObjectId == _targetId) is { } live)
+                _destPosition = live.Position;
+            Begin(_destPosition, _targetName, _stopRange, _targetId, fresh: false);
+            return;
+        }
+        if (Vector3.Distance(player.Position, _lastPosition) >= MovementEpsilon)
+        {
+            _lastPosition = player.Position;
+            _lastMoveAt = now;
+        }
+        if ((remaining == 0 && (now - _detourStartedAt).TotalSeconds > TrailSettleS)
+            || (now - _lastMoveAt).TotalSeconds > StallS
+            || (now - _detourStartedAt).TotalSeconds > 12)
+            Finish(AccessibilityStrings.GroundDetourFailed, $"detour: stopped short, distance={distance:F2}");
     }
 
     private bool TryTakeTrail(Vector3 position)

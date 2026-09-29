@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Numerics;
+using System.Threading;
+using System.Threading.Tasks;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Ipc;
 using Dalamud.Plugin.Services;
@@ -34,6 +36,7 @@ public sealed class NavmeshIpc
     private readonly ICallGateSubscriber<Vector3, float, float, Vector3?> _nearestPoint;
     private readonly ICallGateSubscriber<Vector3, float, float, Vector3?> _nearestPointReachable;
     private readonly ICallGateSubscriber<Vector3, bool, float, Vector3?> _pointOnFloor;
+    private readonly ICallGateSubscriber<Vector3, Vector3, bool, CancellationToken, Task<List<Vector3>>> _findPath;
 
     /// <summary>True once any invoke has failed with the plugin absent, so callers
     /// can tell "vnavmesh is missing" from "vnavmesh says no".</summary>
@@ -60,6 +63,24 @@ public sealed class NavmeshIpc
         _nearestPoint          = pluginInterface.GetIpcSubscriber<Vector3, float, float, Vector3?>("vnavmesh.Query.Mesh.NearestPoint");
         _nearestPointReachable = pluginInterface.GetIpcSubscriber<Vector3, float, float, Vector3?>("vnavmesh.Query.Mesh.NearestPointReachable");
         _pointOnFloor          = pluginInterface.GetIpcSubscriber<Vector3, bool, float, Vector3?>("vnavmesh.Query.Mesh.PointOnFloor");
+        _findPath              = pluginInterface.GetIpcSubscriber<Vector3, Vector3, bool, CancellationToken, Task<List<Vector3>>>("vnavmesh.Nav.PathfindCancelable");
+    }
+
+    /// <summary>A cancellable ground query only; its completion never starts movement.</summary>
+    public Task<List<Vector3>>? FindGroundPath(Vector3 from, Vector3 to, CancellationToken cancel)
+    {
+        try
+        {
+            var task = _findPath.InvokeFunc(from, to, false, cancel);
+            LastCallFailed = false;
+            return task;
+        }
+        catch (Exception ex)
+        {
+            LastCallFailed = true;
+            _log.Warning(ex, "[Nav] Ground detour path query unavailable");
+            return null;
+        }
     }
 
     private T Call<T>(ICallGateSubscriber<T> gate, T fallback, string what)

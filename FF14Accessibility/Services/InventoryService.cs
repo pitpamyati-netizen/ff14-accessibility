@@ -121,7 +121,7 @@ public sealed class InventoryService
             {
                 if (item.IsEmpty || item.ItemId == 0) continue;
 
-                var name = ResolveItemName(item.BaseItemId);
+                var name = ResolveItemLabel(item.BaseItemId);
                 var hq = item.IsHq ? AccessibilityStrings.HighQuality : string.Empty;
                 var set = IsRegisteredToGearset(item) ? AccessibilityStrings.InGearsetShort : string.Empty;
                 _log.Info($"[Inventory] {page} slot={item.InventorySlot} id={item.ItemId} " +
@@ -610,7 +610,7 @@ public sealed class InventoryService
     {
         var map = new Dictionary<uint, string>();
         foreach (var (icon, entry) in BuildOwnedIconMap())
-            map[icon] = entry.Name;
+            map[icon] = entry.ItemId == 0 ? entry.Name : ResolveItemLabel(entry.ItemId);
         return map;
     }
 
@@ -668,14 +668,17 @@ public sealed class InventoryService
     {
         if (iconId == 0) return (string.Empty, 0);
 
-        if (BuildOwnedIconMap().TryGetValue(iconId, out var owned)) return owned;
+        if (BuildOwnedIconMap().TryGetValue(iconId, out var owned))
+            return (owned.ItemId == 0 ? owned.Name : ResolveItemLabel(owned.ItemId), owned.ItemId);
 
         if (_iconSheetCache == null || _iconSheetRussian != Loc.IsRussian)
         {
             _iconSheetCache = BuildIconSheetCache();
             _iconSheetRussian = Loc.IsRussian;
         }
-        return _iconSheetCache.TryGetValue(iconId, out var sheet) ? sheet : (string.Empty, 0);
+        return _iconSheetCache.TryGetValue(iconId, out var sheet)
+            ? (sheet.ItemId == 0 ? sheet.Name : ResolveItemLabel(sheet.ItemId), sheet.ItemId)
+            : (string.Empty, 0);
     }
 
     // Name -> Item row, over the WHOLE sheet. GearInfoService has a name map too,
@@ -697,10 +700,14 @@ public sealed class InventoryService
     /// <summary>Translate a known item label after the UI lookup, never its search key.</summary>
     public string TranslateItemLabel(string name)
     {
-        if (!Loc.IsRussian) return name;
         var id = ResolveItemIdByName(name);
-        return id == 0 ? name : ResolveItemName(id);
+        return id == 0 ? name : ResolveItemLabel(id);
     }
+
+    /// <summary>Spoken name and equipment positions; the plain name stays available for matching.</summary>
+    public string ResolveItemLabel(uint baseItemId)
+        => _data.GetExcelSheet<LuminaItem>().TryGetRow(baseItemId, out var row)
+            ? EquipmentSpeech.WithSlots(row, ResolveItemName(baseItemId)) : ResolveItemName(baseItemId);
 
     private Dictionary<string, uint> BuildItemNameCache()
     {
