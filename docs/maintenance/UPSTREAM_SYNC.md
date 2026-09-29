@@ -5,6 +5,8 @@
 - `origin` — наш форк `https://github.com/pitpamyati-netizen/ff14-accessibility.git`.
 - `upstream` — исходный проект `https://github.com/derbruedi/ff14-accessibility.git`.
 - `feature/russian-accessibility-recovery` — рабочая ветка наших дополнений.
+- С 29 сентября 2026 она также выбрана главной веткой форка на GitHub:
+  главная страница показывает русскую версию. Выпуски описаны в `RELEASES.md`.
 - `origin/main` хранит основу автора. Наш код находится в отдельной ветке.
 - `recovery/local-6.08.61` — первый восстановленный снимок. Не передвигать эту метку.
 

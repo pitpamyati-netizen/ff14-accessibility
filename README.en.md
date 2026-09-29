@@ -1,6 +1,6 @@
 # FF14 Accessibility
 
-🇩🇪 Deutsche Version: [README.md](README.md)
+🇩🇪 Deutsche Version: [README.de.md](README.de.md)
 
 🇷🇺 Русская версия и рабочая документация: [README-RU.md](README-RU.md)
 

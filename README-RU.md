@@ -1,4 +1,8 @@
-# FF14 Accessibility — рабочая русская версия
+# FF14 Accessibility — сборка и разработка русской версии
+
+[Главная страница и установка](README.md) ·
+[Скачать релиз](https://github.com/pitpamyati-netizen/ff14-accessibility/releases/latest) ·
+[Порядок выпуска новых версий](docs/maintenance/RELEASES.md)
 
 Плагин помогает играть в FINAL FANTASY XIV со скринридером и клавиатурой.
 Эта ветка сохраняет исходный проект derbruedi и наши дополнения: русский язык,
@@ -13,8 +17,9 @@
 https://github.com/pitpamyati-netizen/ff14-accessibility/tree/feature/russian-accessibility-recovery
 
 Предложение изменений автору: https://github.com/derbruedi/ff14-accessibility/pull/31
-— функции проверены в игре по подтверждению пользователя от 28 сентября 2026;
-пул-реквест подготовлен к рассмотрению автором.
+— прежние функции проверены в игре по подтверждению пользователя от 28 сентября 2026.
+Это подтверждение не распространяется на все последующие версии; ограничения
+последнего выпуска перечислены в `docs/maintenance/VERIFICATION.md`.
 
 ## Где что находится
 
@@ -27,6 +32,8 @@ https://github.com/pitpamyati-netizen/ff14-accessibility/tree/feature/russian-ac
 - `scripts/Build-Local.ps1` — сборка Release без установки в игру.
 - `scripts/Test-Local.ps1` — автоматические проверки.
 - `scripts/Package-Local.ps1` — создание и проверка архива для установки.
+- `scripts/Publish-Release.ps1` — публикация проверенного архива в GitHub Releases.
+- `docs/releases/` и `CHANGELOG.md` — описания выпусков для игроков.
 - `artifacts/plugin/` — последняя подготовленная сборка.
 - `artifacts/releases/` — ZIP для передачи; прежние архивы сохранены.
 - `artifacts/logs/` — отчёты сборок и проверок.
@@ -54,7 +61,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Package-Local.ps1
 
 ## Состояние
 
-Восстановленный исходный снимок — 6.08.61, подготовленная и установленная версия — 6.08.64.
+Восстановленный исходный снимок — 6.08.61, текущая версия — 6.08.73.
+Главной веткой форка выбрана `feature/russian-accessibility-recovery`;
+`main` сохраняет основу автора. Готовые архивы распространяются через GitHub Releases.
 Основа автора — `b5ae793`, версия 6.08.34. Сравнение показало, что её изменения
 уже входили в наши исходники. Восстановлены отсутствовавшие документация, тесты и инструменты.
 История отдельных прежних локальных правок не сохранилась: в Git они записаны

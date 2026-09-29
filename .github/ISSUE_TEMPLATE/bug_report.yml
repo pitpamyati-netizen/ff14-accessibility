@@ -1,0 +1,36 @@
+name: Ошибка или проблема с озвучиванием
+description: Сообщить о проблеме в русской версии FF14 Accessibility.
+title: "[Ошибка] "
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Версия плагина
+      description: Например, 6.08.73. Если знаете, добавьте версию игры и Dalamud.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Что вы делали
+      description: Назовите окно игры и нажатые клавиши по порядку.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Что должно было произойти
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Что произошло или прозвучало
+      description: Если возможно, приведите точную фразу скринридера.
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Дополнительные сведения
+      description: Скринридер, язык игры, клавиатура или геймпад. Перед добавлением журнала уберите личные сведения.
