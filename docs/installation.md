@@ -1,19 +1,19 @@
-Установка FF14 Accessibility
+# Установка FF14 Accessibility
 
-Версия мода: 6.08.73. Файлы выпуска: https://github.com/pitpamyati-netizen/ff14-accessibility/releases/latest
+[Главная страница](../README.md) · [Скачать файлы](https://github.com/pitpamyati-netizen/ff14-accessibility/releases/latest)
 
-Какой файл выбрать
+## Какой файл выбрать
 
-- FF14AccessibilityInstaller.exe — автоматическая установка и обновление.
+- **FF14AccessibilityInstaller.exe** — автоматическая установка и обновление.
   Он сам скачивает мод, копирует файлы и включает его в Dalamud.
-- FF14Accessibility-6.08.73-RU-no-source.zip — ручная установка.
-  Содержит папку plugin, инструкцию и лицензии, без скриптов, EXE и исходников.
-- Source code и FF14AccessibilityInstaller-1.0.0-source.zip — исходный
+- **FF14Accessibility-6.08.73-RU-no-source.zip** — ручная установка.
+  Содержит папку `plugin`, инструкцию и лицензии, без скриптов, EXE и исходников.
+- **Source code** и **FF14AccessibilityInstaller-1.0.0-source.zip** — исходный
   код для разработки. Для установки готового мода эти архивы не нужны.
 
-Подготовка
+## Подготовка
 
-Нужны Windows x64, FFXIV, XIVLauncher: https://goatcorp.github.io/ с включённым
+Нужны Windows x64, FFXIV, [XIVLauncher](https://goatcorp.github.io/) с включённым
 Dalamud и настроенный скринридер, например NVDA. Версия плагина 6.08.73
 предназначена для Dalamud API 15; после обновления игры дождитесь совместимых
 версий Dalamud и плагина, если они ещё не доступны.
@@ -21,15 +21,15 @@ Dalamud и настроенный скринридер, например NVDA. �
 При первой настройке XIVLauncher сначала войдите в игру с включённым Dalamud,
 чтобы создались его настройки. Затем закройте FFXIV и XIVLauncher.
 
-Автоматическая установка через EXE
+## Автоматическая установка через EXE
 
-1. Скачайте FF14AccessibilityInstaller.exe: https://github.com/pitpamyati-netizen/ff14-accessibility/releases/latest/download/FF14AccessibilityInstaller.exe и запустите его.
+1. Скачайте [FF14AccessibilityInstaller.exe](https://github.com/pitpamyati-netizen/ff14-accessibility/releases/latest/download/FF14AccessibilityInstaller.exe) и запустите его.
    Интернет нужен для проверки версии и скачивания файлов. .NET уже включён в EXE.
 2. Дождитесь результата проверки в журнале. Само открытие окна ничего не устанавливает.
-3. Нажмите «Установить / обновить мод» и дождитесь сообщения о результате.
+3. Нажмите **«Установить / обновить мод»** и дождитесь сообщения о результате.
 4. Если vnavmesh отсутствует, установщик предложит добавить её. Она нужна для
    движения по рассчитанным маршрутам; её установка необязательна для озвучивания.
-5. Запустите игру через XIVLauncher и введите /acc lang ru для русского языка плагина.
+5. Запустите игру через XIVLauncher и введите `/acc lang ru` для русского языка плагина.
 
 Установщик скачивает последний стабильный выпуск из этого репозитория,
 проверяет контрольную сумму и включает плагин в Dalamud. Чтобы проверить
@@ -44,50 +44,47 @@ Ctrl+Home и Ctrl+End; выделенный текст копируется че
 ещё требуют проверки со скринридером.
 
 Перед заменой сохраняются прежние файлы и настройки Dalamud. Обычное место копий:
-%APPDATA%\XIVLauncher\installer-backups. Точный путь указан в журнале.
+`%APPDATA%\XIVLauncher\installer-backups`. Точный путь указан в журнале.
 При ошибке записи установщик возвращает прежние файлы и настройки.
 Если обнаружены несколько копий плагина или неизвестная настройка Dalamud,
 следуйте сообщению журнала: установщик остановится и объяснит причину.
 
-Ручная установка из ZIP
+## Ручная установка из ZIP
 
-1. Скачайте архив мода: https://github.com/pitpamyati-netizen/ff14-accessibility/releases/latest/download/FF14Accessibility-6.08.73-RU-no-source.zip и распакуйте его в отдельную папку.
+1. Скачайте [архив мода](https://github.com/pitpamyati-netizen/ff14-accessibility/releases/latest/download/FF14Accessibility-6.08.73-RU-no-source.zip) и распакуйте его в отдельную папку.
 2. Закройте игру и XIVLauncher. Если обновляете установленный мод, сохраните
    копию всей его прежней папки в другом месте.
-3. Нажмите Win+R, введите %APPDATA%\XIVLauncher\devPlugins и нажмите Enter.
-   Если папки devPlugins нет, создайте её в %APPDATA%\XIVLauncher.
-4. Создайте внутри папку FF14Accessibility и скопируйте в неё всё содержимое
-   папки plugin из архива, включая подпапки. DLL должна оказаться по адресу
-   %APPDATA%\XIVLauncher\devPlugins\FF14Accessibility\FF14Accessibility.dll,
-   без дополнительной папки plugin между ними.
+3. Нажмите Win+R, введите `%APPDATA%\XIVLauncher\devPlugins` и нажмите Enter.
+   Если папки `devPlugins` нет, создайте её в `%APPDATA%\XIVLauncher`.
+4. Создайте внутри папку `FF14Accessibility` и скопируйте в неё **всё содержимое**
+   папки `plugin` из архива, включая подпапки. DLL должна оказаться по адресу
+   `%APPDATA%\XIVLauncher\devPlugins\FF14Accessibility\FF14Accessibility.dll`,
+   без дополнительной папки `plugin` между ними.
    Если плагин уже зарегистрирован в другом месте, обновите именно ту папку.
 5. Запустите игру через XIVLauncher. При первой установке откройте настройки
-   Dalamud командой /xlsettings, раздел Experimental, список
-   Dev Plugin Locations. Добавьте полный путь к FF14Accessibility.dll
+   Dalamud командой `/xlsettings`, раздел **Experimental**, список
+   **Dev Plugin Locations**. Добавьте полный путь к `FF14Accessibility.dll`
    и сохраните настройки. В поле нужен полный путь, который Проводник показывает
-   вместо %APPDATA%, например C:\Users\Имя\AppData\Roaming\XIVLauncher\devPlugins\FF14Accessibility\FF14Accessibility.dll.
-6. В списке плагинов Dalamud (/xlplugins) найдите FF14Accessibility,
+   вместо `%APPDATA%`, например `C:\Users\Имя\AppData\Roaming\XIVLauncher\devPlugins\FF14Accessibility\FF14Accessibility.dll`.
+6. В списке плагинов Dalamud (`/xlplugins`) найдите FF14Accessibility,
    включите его и загрузку при запуске. При обновлении уже зарегистрированной
    копии повторно добавлять тот же путь не нужно.
-7. Введите /acc lang ru. Для маршрутов отдельно установите совместимую vnavmesh.
+7. Введите `/acc lang ru`. Для маршрутов отдельно установите совместимую vnavmesh.
 
 Ручной способ требует настройки в окнах Dalamud, доступность которых для
 скринридера ограничена. EXE выполняет эту настройку автоматически.
-Добавление DLL описано также в документации Dalamud: https://dalamud.dev/faq/getting-started/.
+Добавление DLL описано также в [документации Dalamud](https://dalamud.dev/faq/getting-started/).
 
-Настройки плагина в pluginConfigs при обычном обновлении сохраняйте.
+Настройки плагина в `pluginConfigs` при обычном обновлении сохраняйте.
 Для русской версии используйте выпуски этого репозитория; установщик исходного
 проекта скачивает другую сборку. Не включайте две копии FF14Accessibility одновременно.
 
-После установки
+## После установки
 
-/acc lang ru выбирает русский язык озвучивания, /acc help открывает справку,
-/acc keys сохраняет список клавиш на рабочем столе. Сохранённые пользователем
+`/acc lang ru` выбирает русский язык озвучивания, `/acc help` открывает справку,
+`/acc keys` сохраняет список клавиш на рабочем столе. Сохранённые пользователем
 сочетания клавиш могут отличаться от стандартных.
 
 Если плагин не загрузился, проверьте совместимость Dalamud, путь к DLL и наличие
-всех файлов из plugin. При обращении за помощью приложите текст ошибки,
-версию плагина и последовательность действий. Сообщить о проблеме: https://github.com/pitpamyati-netizen/ff14-accessibility/issues/new/choose.
-
-
-Лицензия: LICENSE. Сторонние компоненты: THIRD-PARTY-NOTICES.md.
+всех файлов из `plugin`. При обращении за помощью приложите текст ошибки,
+версию плагина и последовательность действий. [Сообщить о проблеме](https://github.com/pitpamyati-netizen/ff14-accessibility/issues/new/choose).

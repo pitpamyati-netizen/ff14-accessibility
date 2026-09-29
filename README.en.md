@@ -1,8 +1,13 @@
 # FF14 Accessibility
 
+> This is the Russian fork. Installation below refers to this fork's release.
+> The detailed feature reference originates from the upstream project; current
+> changes and testing limits are listed in [CHANGELOG](CHANGELOG.md) and
+> [known issues](docs/known-issues.md).
+
 🇩🇪 Deutsche Version: [README.de.md](README.de.md)
 
-🇷🇺 Русская версия и рабочая документация: [README-RU.md](README-RU.md)
+🇷🇺 Русская версия: [README.md](README.md)
 
 A Dalamud plugin that makes **FINAL FANTASY XIV accessible to blind
 players**: menus, dialogues, quests, navigation, inventory, combat and
@@ -334,70 +339,34 @@ instead of sixteen world categories there are five answers.
 - After every login the plugin saves the game's keybinds as a text file
   on the desktop and warns about conflicts with plugin keys.
 
-## Requirements
+## Installation of the Russian edition
 
-- Windows, FINAL FANTASY XIV and [XIVLauncher](https://goatcorp.github.io/)
-  with Dalamud.
-- **NVDA** as screen reader (via the Tolk library; the required DLLs ship
-  with the plugin).
-- Optional: the third-party plugin **vnavmesh** for auto-walk and
-  mesh-based guidance — the installer offers to download it.
+This fork publishes plugin **6.08.73** and Russian-language installer **1.0.0**.
+Requirements: Windows x64, FFXIV, XIVLauncher with compatible Dalamud API 15,
+and a configured screen reader. Launch the game with Dalamud once before the
+first installation, then close both the game and XIVLauncher.
 
-## Installation for blind users (with a screen reader)
+1. Download [FF14AccessibilityInstaller.exe](https://github.com/pitpamyati-netizen/ff14-accessibility/releases/latest/download/FF14AccessibilityInstaller.exe). .NET is included.
+2. Run it, wait for the check, and select **«Установить / обновить мод»** (Install / update).
+3. Accept the optional vnavmesh installation if you need route navigation.
+4. Start the game through XIVLauncher. Use `/acc lang ru` for Russian speech
+   or `/acc lang en` for English.
 
-There is a graphical installer with a single button. It sets everything up
-and keeps the plugin up to date — **without** you having to operate
-Dalamud's plugin window (which a screen reader cannot read).
+The EXE checks the latest stable release of this fork, enables the plugin,
+and backs up existing files and Dalamud settings. Run it again for plugin updates.
+An installed newer version is preserved. Existing vnavmesh is not updated by this EXE.
+Keyboard controls are provided through standard Windows controls; actual NVDA
+speech and keyboard traversal still need confirmation.
 
-### Step by step
+For manual installation, download the [plugin ZIP](https://github.com/pitpamyati-netizen/ff14-accessibility/releases/latest/download/FF14Accessibility-6.08.73-RU-no-source.zip), back up the old
+plugin directory with the game closed, and copy the entire contents of `plugin`
+to `%APPDATA%\XIVLauncher\devPlugins\FF14Accessibility`. On first installation,
+register the full DLL path in Dalamud Settings → Experimental → Dev Plugin Locations,
+then enable the plugin and loading at startup. The ZIP contains no installation
+scripts, EXE or source code. [Detailed instructions in Russian](docs/installation.md).
 
-1. Download `FF14AccessibilityInstaller.exe` from the
-   [latest release](https://github.com/derbruedi/ff14-accessibility/releases/latest)
-   (section "Assets", the link with this file name).
-2. Run the downloaded file (Enter or double-click in your Downloads
-   folder).
-3. Windows SmartScreen may show a warning because the installer is not
-   signed. In that dialogue activate the link or button "More info" and
-   then the button "Run anyway". Both can be reached with Tab and
-   activated with Enter or Space.
-4. In the installer window the focus automatically jumps to the button
-   "Install or update" ("Installieren oder Aktualisieren"). If not, press
-   Tab until that button is announced, then press Enter.
-5. Wait for the messages in the status field. At the end a dialogue box
-   appears saying the operation is complete. Confirm it with Enter.
-6. Start XIVLauncher and log into the game — the plugin is active and
-   greets you at login with a spoken version announcement.
-
-### Update
-
-To update, simply run `FF14AccessibilityInstaller.exe` again and activate
-the "Install or update" button once more. It overwrites the plugin files,
-and the next game start loads the new version.
-
-**The installer also updates itself** (from installer version 1.1 onwards).
-When a newer installer version exists, it asks first:
-
-1. A Yes/No prompt appears, including the download size. "Yes" fetches the
-   new version, "No" carries on with the current one.
-2. On "Yes" it downloads, closes briefly and reopens automatically — the
-   file at your own location is replaced, so there is nothing to download
-   by hand.
-3. After the restart it announces "The installer was updated to version …"
-   and continues the installation on its own. Confirming with Enter is all
-   it takes.
-
-If the file cannot be replaced (write protection, for example), it says so
-and carries on normally.
-
-### What the installer does
-
-- Checks whether **XIVLauncher** is installed and otherwise offers to
-  download and start the official setup.
-- Copies the plugin files into Dalamud's `devPlugins` folder and enables
-  them directly in `dalamudConfig.json` (with a backup copy).
-- Offers to download the **vnavmesh** plugin (for auto-walk) from its
-  original source. vnavmesh is made by a different author and is **not**
-  redistributed by this project.
+The upstream installer's self-update and launcher setup features do not describe
+this Russian EXE. Source code downloads are for developers.
 
 ## Default hotkeys
 
@@ -656,7 +625,7 @@ archive and must stay with it on redistribution.
 ## For developers
 
 - Plugin source code: `FF14Accessibility/`
-- Installer source code: `Installer/`
-- Custom plugin repository (optional path for sighted helpers): `repo.json`
+- Russian installer source: `FF14AccessibilityInstaller-1.0.0-source.zip` in the release; upstream installer: `Installer/`.
+- `repo.json` belongs to upstream and does not distribute this Russian release.
 - Project status and test log: `STATUS.md`
 - Verified game internals: `docs/game-api.md`

@@ -50,13 +50,13 @@ try {
         throw 'Archive, build and verification report disagree.'
     }
 
-    # Compare the entire ZIP against the current build and the committed installer.
+    # Compare the entire ZIP against the current build and the manual-install documentation.
     $expected = @{}
     foreach ($file in Get-ChildItem -LiteralPath $plugin -File -Recurse) {
         $relative = 'plugin/' + $file.FullName.Substring($plugin.Length + 1).Replace('\', '/')
         $expected[$relative] = $file.FullName
     }
-    foreach ($name in @('install.bat', 'install.ps1', 'README-RU.txt', 'LICENSE', 'THIRD-PARTY-NOTICES.md')) {
+    foreach ($name in @('README-RU.txt', 'LICENSE', 'THIRD-PARTY-NOTICES.md')) {
         $expected[$name] = Join-Path $root $name
     }
     Add-Type -AssemblyName System.IO.Compression.FileSystem
@@ -74,7 +74,7 @@ try {
             try { $entryHash = ([BitConverter]::ToString($sha.ComputeHash($stream))).Replace('-', '') }
             finally { $stream.Dispose(); $sha.Dispose() }
             if ($entryHash -ne (Get-FileHash -LiteralPath $expected[$name] -Algorithm SHA256).Hash) {
-                throw "ZIP file differs from current build/installer: $name"
+                throw "ZIP file differs from current build/documentation: $name"
             }
         }
     } finally { $zip.Dispose() }

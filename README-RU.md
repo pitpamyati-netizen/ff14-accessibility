@@ -31,7 +31,7 @@ https://github.com/pitpamyati-netizen/ff14-accessibility/tree/feature/russian-ac
   ограничения и проверки. Это основная документация для дальнейшей разработки.
 - `scripts/Build-Local.ps1` — сборка Release без установки в игру.
 - `scripts/Test-Local.ps1` — автоматические проверки.
-- `scripts/Package-Local.ps1` — создание и проверка архива для установки.
+- `scripts/Package-Local.ps1` — создание и проверка архива для ручной установки.
 - `scripts/Publish-Release.ps1` — публикация проверенного архива в GitHub Releases.
 - `docs/releases/` и `CHANGELOG.md` — описания выпусков для игроков.
 - `artifacts/plugin/` — последняя подготовленная сборка.
@@ -54,10 +54,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Test-Local.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Package-Local.ps1
 ```
 
-Установка готовой сборки: закрыть игру и XIVLauncher, запустить `install.bat`.
-Он находит файлы как в рабочем каталоге `artifacts/plugin`, так и в папке `plugin`
-распакованного архива. Подробности для игрока — в `README-RU.txt`.
-Установщик проверяет существующую настройку Dalamud, но не включает новый плагин автоматически.
+Готовый мод устанавливается через EXE либо ручным копированием содержимого
+`artifacts/plugin` в зарегистрированную папку плагина. Порядок описан в
+[инструкции](docs/installation.md). ZIP для игроков содержит только готовые
+файлы, инструкцию и лицензии; установочные скрипты в него не включаются.
+
+Русский автоустановщик распространяется отдельно. Его исходники, проверки
+и инструкция сборки находятся в `FF14AccessibilityInstaller-1.0.0-source.zip`
+на странице релиза; исходный архив GitHub по метке v6.08.73 выпущен раньше него.
 
 ## Состояние
 

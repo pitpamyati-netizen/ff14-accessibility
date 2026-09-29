@@ -1,8 +1,13 @@
 # FF14 Accessibility
 
+> Dies ist der russische Fork. Die Installationsanleitung bezieht sich auf
+> dessen Releases. Die ausführliche Funktionsübersicht stammt aus dem ursprünglichen
+> Projekt. Aktuelle Änderungen und Prüfgrenzen stehen im [CHANGELOG](CHANGELOG.md)
+> und unter [bekannten Problemen](docs/known-issues.md).
+
 🇬🇧 English version: [README.en.md](README.en.md)
 
-🇷🇺 Русская версия и рабочая документация: [README-RU.md](README-RU.md)
+🇷🇺 Русская версия: [README.md](README.md)
 
 Ein Dalamud-Plugin, das **FINAL FANTASY XIV für blinde Spielerinnen und
 Spieler** zugänglich macht: Menüs, Dialoge, Quests, Navigation, Inventar,
@@ -393,71 +398,37 @@ sich darin um: statt sechzehn Weltkategorien gibt es fünf Antworten.
 - Nach jedem Login speichert das Plugin die Spiel-Tastenbelegung als
   Textdatei auf dem Desktop und warnt bei Konflikten mit Plugin-Tasten.
 
-## Voraussetzungen
+## Installation der russischen Version
 
-- Windows, FINAL FANTASY XIV und [XIVLauncher](https://goatcorp.github.io/)
-  mit Dalamud.
-- **NVDA** als Screenreader (über die Tolk-Bibliothek; die nötigen DLLs
-  bringt das Plugin mit).
-- Optional: das Fremd-Plugin **vnavmesh** für Auto-Lauf und
-  Wegenetz-Führung — der Installer bietet den Download an.
+Dieser Fork veröffentlicht Plugin **6.08.73** und den russischsprachigen
+Installer **1.0.0**. Benötigt werden Windows x64, FFXIV, XIVLauncher mit
+kompatiblem Dalamud API 15 und ein eingerichteter Screenreader.
+Vor der ersten Installation einmal mit aktiviertem Dalamud ins Spiel einloggen.
+Danach Spiel und XIVLauncher schließen.
 
-## Installation für blinde Nutzerinnen und Nutzer (mit Screenreader)
+1. [FF14AccessibilityInstaller.exe](https://github.com/pitpamyati-netizen/ff14-accessibility/releases/latest/download/FF14AccessibilityInstaller.exe) herunterladen. .NET ist enthalten.
+2. Starten, Prüfung abwarten und **«Установить / обновить мод»** (Installieren / aktualisieren) wählen.
+3. Die optionale Installation von vnavmesh bestätigen, wenn Routen benötigt werden.
+4. Spiel über XIVLauncher starten. `/acc lang ru` wählt Russisch,
+   `/acc lang de` Deutsch.
 
-Es gibt einen grafischen Installer mit einem einzigen Button. Er richtet
-alles ein und hält das Plugin aktuell — **ohne** dass du Dalamuds
-Plugin-Fenster (das ein Screenreader nicht vorliest) bedienen musst.
+Der EXE-Installer prüft den neuesten stabilen Release dieses Forks, aktiviert
+das Plugin und sichert vorhandene Dateien und Dalamud-Einstellungen.
+Für Plugin-Updates denselben EXE erneut starten. Neuere installierte Versionen
+bleiben erhalten. Vorhandenes vnavmesh wird durch diesen EXE nicht aktualisiert.
+Das Fenster verwendet normale Windows-Steuerelemente; die tatsächliche
+NVDA-Ausgabe und Tastaturnavigation müssen noch bestätigt werden.
 
-### Schritt für Schritt
+Für die manuelle Installation das [Plugin-ZIP](https://github.com/pitpamyati-netizen/ff14-accessibility/releases/latest/download/FF14Accessibility-6.08.73-RU-no-source.zip) entpacken, bei
+geschlossenem Spiel die alte Plugin-Mappe sichern und den gesamten Inhalt von
+`plugin` nach `%APPDATA%\XIVLauncher\devPlugins\FF14Accessibility` kopieren.
+Bei der ersten Installation den vollständigen DLL-Pfad unter Dalamud Settings →
+Experimental → Dev Plugin Locations eintragen, das Plugin aktivieren und das
+Laden beim Start einschalten. Das ZIP enthält keine Installationsskripte,
+keinen EXE und keinen Quellcode. [Ausführliche russische Anleitung](docs/installation.md).
 
-1. Lade `FF14AccessibilityInstaller.exe` vom
-   [neuesten Release](https://github.com/derbruedi/ff14-accessibility/releases/latest)
-   herunter (Abschnitt „Assets", Link mit diesem Dateinamen).
-2. Führe die heruntergeladene Datei aus (Enter oder Doppelklick im
-   Downloads-Ordner).
-3. Windows SmartScreen zeigt möglicherweise eine Warnung, weil der Installer
-   nicht signiert ist. Aktiviere in diesem Dialog den Link oder Button
-   „Weitere Informationen" und danach den Button „Trotzdem ausführen". Beide
-   lassen sich mit Tab erreichen und mit Enter bzw. Leertaste auslösen.
-4. Im Installer-Fenster springt der Fokus automatisch auf den Button
-   „Installieren oder Aktualisieren". Falls nicht, drücke Tab, bis dieser
-   Button angesagt wird, und drücke dann Enter.
-5. Warte die Meldungen im Statusfeld ab. Am Ende erscheint eine Dialogbox mit
-   der Meldung „Vorgang abgeschlossen". Bestätige sie mit Enter.
-6. Starte XIVLauncher und logge dich ins Spiel ein — das Plugin ist aktiv und
-   meldet sich beim Login mit einer gesprochenen Versionsansage.
-
-### Update
-
-Für ein Update reicht es, `FF14AccessibilityInstaller.exe` erneut
-auszuführen und wieder den Button „Installieren oder Aktualisieren" zu
-aktivieren. Er überschreibt die Plugin-Dateien, und der nächste Spielstart
-lädt die neue Version.
-
-**Der Installer aktualisiert auch sich selbst** (ab Installer-Version 1.1).
-Liegt eine neuere Installer-Version vor, fragt er nach:
-
-1. Es erscheint eine Ja/Nein-Abfrage mit der Downloadgröße. „Ja" holt die
-   neue Version, „Nein" arbeitet mit der vorhandenen weiter.
-2. Bei „Ja" lädt er sie, schließt sich kurz und öffnet sich automatisch
-   wieder — die Datei an deinem Speicherort wird dabei ersetzt, du musst
-   also nichts von Hand herunterladen.
-3. Nach dem Neustart meldet er „Der Installer wurde auf Version …
-   aktualisiert" und führt die Installation von selbst weiter aus. Ein
-   Bestätigen mit Enter genügt.
-
-Falls die Datei nicht ersetzt werden kann (z. B. wegen Schreibschutz),
-sagt er das und macht trotzdem normal weiter.
-
-### Was der Installer macht
-
-- Prüft, ob **XIVLauncher** installiert ist, und bietet sonst an, das
-  offizielle Setup herunterzuladen und zu starten.
-- Kopiert die Plugin-Dateien in Dalamuds `devPlugins`-Ordner und aktiviert
-  sie direkt in `dalamudConfig.json` (mit Sicherungskopie).
-- Bietet an, das **vnavmesh**-Plugin (für den Auto-Lauf) vom Original
-  herunterzuladen. vnavmesh stammt von einem anderen Autor und wird
-  **nicht** von diesem Projekt mitverteilt.
+Die Selbstaktualisierung und Einrichtung von XIVLauncher im ursprünglichen
+Installer gelten nicht für diesen russischen EXE. Quellcode-Archive sind für Entwickler.
 
 ## Tastenübersicht (Standard)
 
@@ -724,7 +695,7 @@ auch im heruntergeladenen Archiv und muss bei einer Weitergabe dabeibleiben.
 ## Für Entwickler
 
 - Plugin-Quellcode: `FF14Accessibility/`
-- Installer-Quellcode: `Installer/`
-- Custom Plugin Repository (für sehende Helfer, optionaler Weg): `repo.json`
+- Russischer Installer-Quellcode: `FF14AccessibilityInstaller-1.0.0-source.zip` im Release; ursprünglicher Installer: `Installer/`.
+- `repo.json` gehört zum ursprünglichen Projekt und verteilt nicht diese russische Version.
 - Projektstand und Testprotokoll: `STATUS.md`
 - Verifizierte Spiel-Interna: `docs/game-api.md`

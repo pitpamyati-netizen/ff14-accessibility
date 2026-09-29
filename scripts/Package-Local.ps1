@@ -16,7 +16,7 @@ $stage = Join-Path $root "artifacts\packages\$stamp"
 $releases = Join-Path $root 'artifacts\releases'
 New-Item -ItemType Directory -Force -Path $stage, $releases | Out-Null
 Copy-Item -LiteralPath $plugin -Destination (Join-Path $stage 'plugin') -Recurse
-foreach ($name in @('install.bat', 'install.ps1', 'README-RU.txt', 'LICENSE', 'THIRD-PARTY-NOTICES.md')) {
+foreach ($name in @('README-RU.txt', 'LICENSE', 'THIRD-PARTY-NOTICES.md')) {
     Copy-Item -LiteralPath (Join-Path $root $name) -Destination $stage
 }
 $zipPath = Join-Path $releases "FF14Accessibility-$version-RU-no-source.zip"
@@ -26,7 +26,7 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 $zip = [IO.Compression.ZipFile]::OpenRead($zipPath)
 try {
     $entries = @($zip.Entries | Where-Object { $_.Name.Length -gt 0 })
-    $forbidden = @($entries | Where-Object { $_.FullName -match '(?i)(^|/)(bin|obj|\.git)/|\.(cs|csproj|sln|pdb|log|bak)$' })
+    $forbidden = @($entries | Where-Object { $_.FullName -match '(?i)(^|/)(bin|obj|\.git)/|\.(cs|csproj|sln|pdb|log|bak|bat|cmd|ps1|psm1|vbs|exe)$' })
     if ($forbidden.Count) { throw "Forbidden archive entries: $($forbidden.FullName -join ', ')" }
     $expectedFiles = @(Get-ChildItem -LiteralPath $stage -File -Recurse)
     if ($entries.Count -ne $expectedFiles.Count) { throw 'Archive file count differs from staging.' }
@@ -47,6 +47,8 @@ $report = [ordered]@{
     Version = $version
     Archive = $zipPath
     ContainsSource = $false
+    ManualInstall = $true
+    ContainsInstallScripts = $false
     Files = $entries.Count
     Bytes = (Get-Item -LiteralPath $zipPath).Length
     SHA256 = (Get-FileHash -LiteralPath $zipPath).Hash
