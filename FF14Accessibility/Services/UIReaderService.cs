@@ -14014,13 +14014,11 @@ public sealed partial class UIReaderService : IDisposable
     ///
     /// Announced is the entry's NAME plus its position ("Charakter, 2 von 7").
     ///
-    /// The name comes from the button's own ButtonClick event: its parameter is
-    /// the row id in the Lumina sheet MainCommand. That mapping was PROVEN by
-    /// the V5.16 probe (log 2026-07-19 15:33), not assumed - all seven buttons
-    /// carried params 1..7 resolving to a coherent menu group (Initiative,
-    /// Charakter, Kommandoliste, Archiv, Timer, Errungenschaften,
-    /// Sammler-Notizbuch), and param ran exactly parallel to the position
-    /// computed below, each confirming the other.
+    /// ButtonClick.Param identifies MainCommandCategory, NOT MainCommand.
+    /// The player log of 2026-09-29 proves the old mapping wrong: param 4
+    /// opened Travel, and param 7 opened System after we said Gathering Log.
+    /// Category ids 1..7 and command 7's Logs category are checked against the
+    /// installed game data by tools/main-menu-check.
     ///
     /// The position is measured too: the buttons are counted in the addon's own
     /// node list and the focused one located by identity. It stays as the
@@ -14067,7 +14065,7 @@ public sealed partial class UIReaderService : IDisposable
         // No window name: "Hauptmenü" was wrong (user 2026-07-19 - "es ist nicht
         // das hauptmenü"), and the addon's internal name (_MainCommand) is not a
         // name a player would recognise.
-        var name = ReadMainCommandName(button);
+        var name = ReadMainCommandCategoryName(button);
         text = name.Length > 0
             ? $"{name}, {AccessibilityStrings.Counter(position, buttons.Count)}"
             : AccessibilityStrings.Counter(position, buttons.Count);
@@ -14075,16 +14073,23 @@ public sealed partial class UIReaderService : IDisposable
     }
 
     /// <summary>
-    /// Name of a main-menu button, "" if it carries no click event or the
-    /// parameter addresses no sheet row. Reading the event rather than indexing
-    /// the sheet by position means a menu that gains, loses or reorders entries
-    /// still announces correctly - the button states its own command id.
+    /// Name of a main-menu category, "" if its event or category row is missing.
+    /// The event identifies the category even if the visible buttons reorder.
+    /// Never fall back to a command id or infer a category from its position.
     /// </summary>
-    private unsafe string ReadMainCommandName(AtkResNode* button)
+    private unsafe string ReadMainCommandCategoryName(AtkResNode* button)
     {
         var evt = FindEventOfType(button, AtkEventType.ButtonClick);
         if (evt == null) return string.Empty;
-        return LookupMainCommandName(evt->Param);
+        try
+        {
+            return MainCommandMenu.ReadCategoryName(_data, evt->Param);
+        }
+        catch (Exception ex)
+        {
+            _log.Error(ex, $"[MainCmd] Category lookup failed for id={evt->Param}");
+            return string.Empty;
+        }
     }
 
     /// <summary>Name of a MainCommand sheet row, "" if the id has no row.</summary>
@@ -14201,16 +14206,13 @@ public sealed partial class UIReaderService : IDisposable
     /// AddonCharacter exists in FFXIVClientStructs but carries only TabIndex and
     /// TabCount (ilspycmd 2026-07-19), so it offers no button names either.
     ///
-    /// WHY EVENTS: this is the route that PROVED itself in V5.18. The
-    /// _MainCommand buttons were equally textless, and their ButtonClick
-    /// parameter turned out to be the MainCommand sheet row - three independent
-    /// checks confirmed it (params ran 1..7 parallel to the positions, the names
-    /// formed a coherent menu group, and the z-order cross-check matched). The
-    /// user asks for buttons like "Aktualisieren", which exist in many windows,
-    /// so a generic route matters more than a Character-window special case.
+    /// Event parameters have addon-specific meanings. For _MainCommand they
+    /// address MainCommandCategory; the old MainCommand interpretation was
+    /// disproved by the player log of 2026-09-29. Plausible labels alone cannot
+    /// prove a mapping. Other addons need independent evidence.
     ///
-    /// The parameter is resolved against BOTH candidate sheets - Addon (the
-    /// game's UI label sheet) and MainCommand (proven for the main menu) - so
+    /// The parameter is resolved against candidate sheets - Addon (the game's
+    /// UI label sheet), MainCommand and MainCommandCategory - so
     /// the log shows which one produces sensible names. Nothing is announced
     /// until that mapping is confirmed against what the buttons actually do:
     /// a wrong label sends a blind player into the wrong window, which is worse
@@ -14242,7 +14244,7 @@ public sealed partial class UIReaderService : IDisposable
     }
 
     /// <summary>The sheet rows an event parameter would address, "" when it hits
-    /// none. Both candidates are shown so the log decides which sheet applies -
+    /// none. Candidates are shown so the log decides which sheet applies -
     /// picking one up front would be a guess.</summary>
     private string DescribeParamRows(uint param)
     {
@@ -14253,6 +14255,13 @@ public sealed partial class UIReaderService : IDisposable
 
         var main = LookupMainCommandName(param);
         if (main.Length > 0) bits.Add($"MainCommand:'{main}'");
+
+        try
+        {
+            var category = MainCommandMenu.ReadCategoryName(_data, param);
+            if (category.Length > 0) bits.Add($"MainCommandCategory:'{category}'");
+        }
+        catch { /* Diagnostic candidates must not interrupt focus reading. */ }
 
         return bits.Count > 0 ? " -> " + string.Join(" ", bits) : string.Empty;
     }

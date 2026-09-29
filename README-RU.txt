@@ -1,20 +1,20 @@
 Установка FF14 Accessibility
 
-Версия мода: 6.08.73. Файлы выпуска: https://github.com/pitpamyati-netizen/ff14-accessibility/releases/latest
+Версия мода: 6.08.74. Файлы выпуска: https://github.com/pitpamyati-netizen/ff14-accessibility/releases/latest
 
 Какой файл выбрать
 
 - FF14AccessibilityInstaller.exe — автоматическая установка и обновление.
   Он сам скачивает мод, копирует файлы и включает его в Dalamud.
-- FF14Accessibility-6.08.73-RU-no-source.zip — ручная установка.
+- FF14Accessibility-6.08.74-RU-no-source.zip — ручная установка.
   Содержит папку plugin, инструкцию и лицензии, без скриптов, EXE и исходников.
-- Source code и FF14AccessibilityInstaller-1.0.0-source.zip — исходный
+- Source code и FF14AccessibilityInstaller-1.1.2-source.zip — исходный
   код для разработки. Для установки готового мода эти архивы не нужны.
 
 Подготовка
 
 Нужны Windows x64, FFXIV, XIVLauncher: https://goatcorp.github.io/ с включённым
-Dalamud и настроенный скринридер, например NVDA. Версия плагина 6.08.73
+Dalamud и настроенный скринридер, например NVDA. Версия плагина 6.08.74
 предназначена для Dalamud API 15; после обновления игры дождитесь совместимых
 версий Dalamud и плагина, если они ещё не доступны.
 
@@ -51,7 +51,7 @@ Ctrl+Home и Ctrl+End; выделенный текст копируется че
 
 Ручная установка из ZIP
 
-1. Скачайте архив мода: https://github.com/pitpamyati-netizen/ff14-accessibility/releases/latest/download/FF14Accessibility-6.08.73-RU-no-source.zip и распакуйте его в отдельную папку.
+1. Скачайте архив мода: https://github.com/pitpamyati-netizen/ff14-accessibility/releases/latest/download/FF14Accessibility-6.08.74-RU-no-source.zip и распакуйте его в отдельную папку.
 2. Закройте игру и XIVLauncher. Если обновляете установленный мод, сохраните
    копию всей его прежней папки в другом месте.
 3. Нажмите Win+R, введите %APPDATA%\XIVLauncher\devPlugins и нажмите Enter.
