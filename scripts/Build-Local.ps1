@@ -60,3 +60,4 @@ $report = [ordered]@{
 $report | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $root 'artifacts\build-info.json') -Encoding UTF8
 Write-Host "Release $version prepared in $destination"
 Write-Host 'The build has not changed the installed plugin.'
+& (Join-Path $PSScriptRoot 'Build-Installer.ps1')

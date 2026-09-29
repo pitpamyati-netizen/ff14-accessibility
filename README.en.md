@@ -339,7 +339,7 @@ instead of sixteen world categories there are five answers.
 
 ## Installation of the Russian edition
 
-This fork publishes plugin **6.08.73** and Russian-language installer **1.0.0**.
+This fork publishes plugin **6.08.73** and Russian-language installer **1.1.0**.
 Requirements: Windows x64, FFXIV, XIVLauncher with compatible Dalamud API 15,
 and a configured screen reader. Launch the game with Dalamud once before the
 first installation, then close both the game and XIVLauncher.
@@ -623,7 +623,7 @@ archive and must stay with it on redistribution.
 ## For developers
 
 - Plugin source code: `FF14Accessibility/`
-- Russian installer source: `FF14AccessibilityInstaller-1.0.0-source.zip` in the release; upstream installer: `Installer/`.
+- Russian installer source: `FF14AccessibilityInstaller-1.1.0-source.zip` in the release; upstream installer: `Installer/`.
 - `repo.json` belongs to upstream and does not distribute this Russian release.
 - Project status and test log: `STATUS.md`
 - Verified game internals: `docs/game-api.md`

@@ -7,6 +7,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'Local-Common.ps1')
+. (Join-Path $PSScriptRoot 'Installer-Common.ps1')
 $root = Get-LocalRoot
 $repository = 'pitpamyati-netizen/ff14-accessibility'
 
@@ -33,6 +34,7 @@ try {
     if (($remote -split '\s+')[0] -ne $head) { throw 'Push the current branch before publishing.' }
 
     $version = Get-LocalVersion $root
+    $installer = Assert-InstallerBuild $root
     $tag = "v$version"
     $existingTag = Invoke-ReleaseCommand 'git' @('ls-remote', '--tags', 'origin', "refs/tags/$tag", "refs/tags/$tag^{}")
     if ($existingTag) { throw "Tag $tag already exists. Use a new version; do not replace a published release." }
@@ -92,10 +94,15 @@ try {
     $asset = Join-Path $stage $assetName
     Copy-Item -LiteralPath $archive -Destination $asset
     $sums = Join-Path $stage 'SHA256SUMS.txt'
-    @("$archiveHash  $assetName", "$dllHash  plugin/FF14Accessibility.dll") |
+    $installerAsset = Join-Path $stage 'FF14AccessibilityInstaller.exe'
+    $installerSource = Join-Path $stage ([IO.Path]::GetFileName($installer.SourceArchive))
+    Copy-Item -LiteralPath $installer.Exe -Destination $installerAsset
+    Copy-Item -LiteralPath $installer.SourceArchive -Destination $installerSource
+    @("$archiveHash  $assetName", "$dllHash  plugin/FF14Accessibility.dll",
+        "$($installer.SHA256)  FF14AccessibilityInstaller.exe", "$($installer.SourceSHA256)  $([IO.Path]::GetFileName($installerSource))") |
         Set-Content -LiteralPath $sums -Encoding ASCII
     # gh uploads all assets before publishing. A failure must be inspected, never overwritten.
-    Invoke-ReleaseCommand 'gh' @('release', 'create', $tag, $asset, $sums,
+    Invoke-ReleaseCommand 'gh' @('release', 'create', $tag, $asset, $sums, $installerAsset, $installerSource,
         '--repo', $repository, '--target', $head, '--title', "FF14 Accessibility $version - RU",
         '--notes-file', $notes, '--latest')
     Write-Host "Published https://github.com/$repository/releases/tag/$tag"

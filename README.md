@@ -8,7 +8,10 @@
 **[Скачать автоустановщик для Windows](https://github.com/pitpamyati-netizen/ff14-accessibility/releases/latest/download/FF14AccessibilityInstaller.exe)** ·
 [Все файлы выпуска](https://github.com/pitpamyati-netizen/ff14-accessibility/releases/latest) · [Инструкция](docs/installation.md)
 
-Текущая версия плагина — **6.08.73**, автоустановщика — **1.0.0**.
+Текущая версия плагина — **6.08.73**, опубликованного автоустановщика — **1.1.1**.
+Устранена повторяющаяся просьба войти в мир при русификации. Установщик сам
+создаёт недостающие настройки Penumbra. 29 сентября 2026 пользователь
+подтвердил, что установка русификации работает.
 Это русская версия [проекта derbruedi](https://github.com/derbruedi/ff14-accessibility).
 [English](README.en.md) · [Deutsch](README.de.md).
 
@@ -40,7 +43,7 @@ EXE скачивает последний стабильный выпуск эт
 **установочных скриптов, EXE и исходного кода в этом ZIP нет**.
 [Пошаговая ручная установка](docs/installation.md#ручная-установка-из-zip).
 
-Файлы **Source code** и `FF14AccessibilityInstaller-1.0.0-source.zip` нужны
+Файлы **Source code** и `FF14AccessibilityInstaller-1.1.1-source.zip` нужны
 разработчикам. Для обычной установки выбирайте EXE, для ручной — ZIP мода.
 
 ## Возможности
