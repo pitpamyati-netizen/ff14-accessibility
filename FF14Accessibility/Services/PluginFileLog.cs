@@ -36,10 +36,22 @@ internal static class PluginFileLog
     {
         try
         {
-            Directory.CreateDirectory(directory);
-            _path = Path.Combine(directory, "FF14Accessibility.log");
-            File.WriteAllText(_path,
-                $"FF14 Accessibility {version} - Diagnoseprotokoll, gestartet {DateTime.Now:yyyy-MM-dd HH:mm:ss}{Environment.NewLine}");
+            lock (Gate)
+            {
+                Directory.CreateDirectory(directory);
+                _path = Path.Combine(directory, "FF14Accessibility.log");
+                // Preserve the previous session: a restart after a failure must
+                // not erase the only detailed transfer evidence.
+                if (File.Exists(_path))
+                {
+                    var archive = Path.Combine(directory, "logs");
+                    Directory.CreateDirectory(archive);
+                    File.Copy(_path, Path.Combine(archive,
+                        $"FF14Accessibility-{DateTime.Now:yyyyMMdd-HHmmss-fff}-{Guid.NewGuid():N}.log"));
+                }
+                File.WriteAllText(_path,
+                    $"FF14 Accessibility {version} - Diagnoseprotokoll, gestartet {DateTime.Now:yyyy-MM-dd HH:mm:ss}{Environment.NewLine}");
+            }
         }
         catch
         {

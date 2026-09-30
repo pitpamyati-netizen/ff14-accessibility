@@ -71,6 +71,7 @@ public sealed unsafe class ArmouryTransferService
 
         try
         {
+            _remaining.Clear();
             var manager = InventoryManager.Instance();
             if (manager == null)
             {
@@ -163,12 +164,18 @@ public sealed unsafe class ArmouryTransferService
             }
 
             var now = DateTime.UtcNow;
+            // Closing the source window cancels the batch; never reuse a stale owner.
+            if (FindVisibleInventoryAddonId() == 0)
+            {
+                StopUnconfirmed();
+                return;
+            }
             if (_pending is { } pending)
             {
                 if (_menuOpening)
                 {
                     var action = _uiReader.TryPlaceContextItemInArmoury(
-                        pending.Source, pending.SourceSlot, pending.ItemId,
+                        pending.Source, pending.SourceSlot, pending.ItemId, _ownerAddonId,
                         now - _requestedAt >= TimeSpan.FromMilliseconds(750));
                     if (action == ArmouryMenuActionResult.Requested)
                     {
@@ -198,9 +205,9 @@ public sealed unsafe class ArmouryTransferService
                 var destinationCount = CountInArmourySection(manager, pending.Destination, pending.ItemId);
                 // The first inventory update can be optimistic. Give the game
                 // time to settle the action before reporting it as completed.
-                if (now - _requestedAt >= TimeSpan.FromMilliseconds(750) &&
-                    source != null && source->GetItemId() != pending.ItemId &&
-                    destinationCount > _armouryCountBefore)
+                if (ArmouryTransferRules.IsConfirmed(pending.ItemId,
+                    source == null ? null : source->GetItemId(),
+                    _armouryCountBefore, destinationCount, now - _requestedAt))
                 {
                     _moved++;
                     _pending = null;
@@ -302,6 +309,7 @@ public sealed unsafe class ArmouryTransferService
         var addon = (AtkUnitBase*)(nint)ptr;
         var agent = AgentInventoryContext.Instance();
         if (addon == null || !addon->IsVisible || agent == null) return;
+        if (agent->OwnerAddonId != _ownerAddonId) return;
         if (_pending is { } item)
         {
             if (agent->TargetInventoryId != item.Source ||

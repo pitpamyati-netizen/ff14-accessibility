@@ -1786,7 +1786,7 @@ public static partial class AccessibilityStrings
     private static int Percent(uint cur, uint max)
     {
         if (max == 0) return 0;
-        var percent = (int)(cur * 100u / max);
+        var percent = VitalPercent.Floor(cur, max);
         return percent == 0 && cur > 0 ? 1 : percent;
     }
 

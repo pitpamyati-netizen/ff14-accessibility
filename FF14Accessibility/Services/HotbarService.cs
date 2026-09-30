@@ -1848,17 +1848,10 @@ public sealed class HotbarService
     /// </summary>
     private unsafe string DescribeSavedSlotRaw(RaptureHotbarModule* module, uint jobId, int bar, int slot)
     {
-        if (slot is < 0 or >= 12 || !_savedHotbarsShapeKnown)
-            return "unbekannt";
-        var group = module->SavedHotbars[(int)jobId];
-        var entry = group.Hotbars[bar].Slots[slot];
-        return $"type={entry.CommandType} id={entry.CommandId}";
+        // The previous guard was never set: this probe has no verified saved
+        // layout. Keep its honest result without unreachable native indexing.
+        return "unbekannt";
     }
-
-    // Guards the hand-offset indexing above until a probe run has shown it to be
-    // right; a wrong guess here would read foreign memory. Deliberately false
-    // until measured.
-    private bool _savedHotbarsShapeKnown;
 
     /// <summary>All locations of this action or item on standard and cross bars,
     /// or null when not placed. Cross locations include the trigger and button.</summary>

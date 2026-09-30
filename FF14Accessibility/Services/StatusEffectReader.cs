@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using Dalamud.Game.ClientState.Objects.Types;
 using Dalamud.Game.ClientState.Statuses;
@@ -38,54 +38,10 @@ public sealed class StatusEffectReader
 			{
 				continue;
 			}
-			Status? valueNullable = status.GameData.ValueNullable;
-			object obj;
-			Status valueOrDefault;
-			ReadOnlySeString val;
-			if (!valueNullable.HasValue)
-			{
-				obj = null;
-			}
-			else
-			{
-				valueOrDefault = valueNullable.GetValueOrDefault();
-				val = valueOrDefault.Name;
-				obj = _descriptions.StatusName(status.StatusId).Trim();
-			}
-			if (obj == null)
-			{
-				obj = string.Empty;
-			}
-			string text = (string)obj;
-			if (text.Length == 0)
-			{
-				continue;
-			}
-			string text2;
-			if (!withDescription)
-			{
-				text2 = string.Empty;
-			}
-			else
-			{
-				object obj2;
-				if (!valueNullable.HasValue)
-				{
-					obj2 = null;
-				}
-				else
-				{
-					valueOrDefault = valueNullable.GetValueOrDefault();
-					val = valueOrDefault.Description;
-					obj2 = _descriptions.Status(status.StatusId);
-				}
-				if (obj2 == null)
-				{
-					obj2 = string.Empty;
-				}
-				text2 = Flatten((string)obj2);
-			}
-			string text3 = text2;
+            if (status.GameData.ValueNullable is null) continue;
+            var text = _descriptions.StatusName(status.StatusId).Trim();
+            if (text.Length == 0) continue;
+            var text3 = withDescription ? Flatten(_descriptions.Status(status.StatusId)) : string.Empty;
 			_log.Info($"[{logTag}] {status.StatusId}:'{text}' Param={status.Param} Rest={status.RemainingTime:0.0}s Desc='{text3}'", Array.Empty<object>());
 			string text4 = text;
 			int num = (int)status.RemainingTime;

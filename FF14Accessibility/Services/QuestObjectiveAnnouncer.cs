@@ -91,10 +91,10 @@ public sealed class QuestObjectiveAnnouncer : IDisposable
 			_primed = true;
 			return;
 		}
-		List<string> list = null;
+		List<string>? list = null;
 		foreach (var (text3, text4) in questObjectives)
 		{
-			if (_last.TryGetValue(text3, out string value) && !(value == text4))
+			if (_last.TryGetValue(text3, out var value) && !(value == text4))
 			{
 				(list ?? (list = new List<string>())).Add(text3 + ": " + text4);
 			}

@@ -1360,6 +1360,6 @@ public sealed partial class CombatService
     }
 
     private static int HpPercent(uint current, uint max) =>
-        max == 0 ? 0 : (int)(current * 100u / max);
+        VitalPercent.Floor(current, max);
 
 }

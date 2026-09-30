@@ -8,7 +8,7 @@ $stamp = Get-Date -Format 'yyyyMMdd-HHmmss-fff'
 $output = Join-Path $root "artifacts/installer/$stamp"
 $logs = Join-Path $root 'artifacts/logs'
 New-Item -ItemType Directory -Force -Path $output, $logs | Out-Null
-& dotnet publish (Join-Path $root 'Installer/Russian/FF14AccessibilityInstaller.Ru.csproj') -c Release -r win-x64 --self-contained true --output $output -v:minimal 2>&1 |
+& dotnet publish (Join-Path $root 'Installer/Russian/FF14AccessibilityInstaller.Ru.csproj') -c Release -warnaserror -r win-x64 --self-contained true --output $output -v:minimal 2>&1 |
     Tee-Object -FilePath (Join-Path $logs "installer-build-$stamp.txt") | Write-Host
 if ($LASTEXITCODE -ne 0) { throw 'Installer publish failed.' }
 if ((Get-InstallerFingerprint $root) -ne $fingerprint) { throw 'Installer sources changed during publish.' }

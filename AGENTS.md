@@ -50,6 +50,10 @@
 
 ## Проверка и выдача
 
+- Порядок защиты существующих функций — `docs/maintenance/REGRESSION_POLICY.md`.
+  Общая команда: `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Verify-Local.ps1`.
+  Не обходить запрет упаковки без актуальных тестов и не скрывать предупреждения.
+
 - `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Build-Local.ps1`
 - `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Test-Local.ps1`
 - `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Package-Local.ps1`

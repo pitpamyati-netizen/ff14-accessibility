@@ -31,6 +31,37 @@ function Get-LocalVersion([string]$Root) {
     [string]$group.Version
 }
 
+# Includes the tests and the verification tools, so changing a check invalidates
+# an earlier success just like changing the plugin does.
+function Get-LocalVerificationFingerprint([string]$Root) {
+    $lines = @('Plugin:' + (Get-LocalSourceFingerprint $Root))
+    $files = [string[]]@(foreach ($directory in @('tests', 'scripts', 'Installer\Russian')) {
+        Get-ChildItem -LiteralPath (Join-Path $Root $directory) -File -Recurse |
+            Where-Object { $_.FullName -notmatch '[\\/](bin|obj|TestResults)[\\/]' } |
+            ForEach-Object { $_.FullName }
+    })
+    [Array]::Sort($files, [StringComparer]::Ordinal)
+    foreach ($file in $files) {
+        $lines += $file.Substring($Root.Length + 1).Replace('\', '/') + ':' +
+            (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash
+    }
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try { ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes(($lines -join "`n"))))).Replace('-', '') }
+    finally { $sha.Dispose() }
+}
+
+function Assert-LocalVerification([string]$Root) {
+    $path = Join-Path $Root 'artifacts\test-info.json'
+    if (!(Test-Path -LiteralPath $path)) { throw 'No test report. Run Test-Local.ps1 before packaging.' }
+    $report = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+    if (!$report.Passed -or $report.Total -le 0 -or $report.Skipped -ne 0) {
+        throw 'Tests did not pass completely. Run Test-Local.ps1.'
+    }
+    if ($report.VerificationFingerprint -ne (Get-LocalVerificationFingerprint $Root)) {
+        throw 'Plugin, installer, tests or verification tools changed since testing. Run Test-Local.ps1 again.'
+    }
+}
+
 function Assert-LocalPlugin([string]$Directory, [string]$Version) {
     foreach ($name in @('FF14Accessibility.dll', 'FF14Accessibility.json', 'FF14Accessibility.deps.json',
         'Tolk.dll', 'nvdaControllerClient64.dll', 'System.Speech.dll', 'NAudio.dll', 'NAudio.Core.dll',

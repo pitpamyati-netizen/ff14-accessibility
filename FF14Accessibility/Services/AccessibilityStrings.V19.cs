@@ -74,6 +74,8 @@ public static partial class AccessibilityStrings
 	public static string ModsPenumbraSilent => L("Penumbra antwortet nicht. Sage mir Bescheid, dann sehe ich nach.", "Penumbra is not answering. Tell me and I will look into it.", "Penumbra не отвечает. Скажи мне, и я посмотрю.");
 
 	public static string ModsNone => L("In Penumbra liegt kein einziger Mod.", "There is not a single mod in Penumbra.", "В Penumbra нет ни одного мода.");
+	public static string ModsNoNames => L("keine", "none", "нет");
+	public static string ModsMoreNames(int count) => L($"und {count} weitere", $"and {count} more", $"и ещё {count}");
 
 	public static string ModsReadPartlyFailed => L("Penumbra hat geantwortet, aber den Zustand nicht aller Mods freigegeben. Eine Zahl waere geraten - sage mir Bescheid, dann sehe ich nach.", "Penumbra answered, but it did not give away the state of every mod. A number would be a guess - tell me and I will look into it.", "Penumbra ответила, но не про все моды отдала состояние. Число было бы наугад — скажи мне, и я посмотрю.");
 

@@ -153,7 +153,7 @@ public sealed class PartyMonitorService : IDisposable
 
             var position = slot.Position;
             var id       = slot.Key;
-            var percent  = (int)(slot.CurrentHp * 100u / slot.MaxHp);
+            var percent  = VitalPercent.Floor(slot.CurrentHp, slot.MaxHp);
             var step     = StepFor(percent);
             var role     = RoleFor(slot.JobId);
             _seen.Add(id);
@@ -198,7 +198,7 @@ public sealed class PartyMonitorService : IDisposable
             if (slot.MaxHp == 0) continue;
 
             var position = slot.Position;
-            var percent  = (int)(slot.CurrentHp * 100u / slot.MaxHp);
+            var percent  = VitalPercent.Floor(slot.CurrentHp, slot.MaxHp);
             var role     = RoleFor(slot.JobId);
             var alarmAt  = Setting(_config.PartyMonitorContinuousStartAt, role, 70);
 

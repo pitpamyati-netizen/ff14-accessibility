@@ -21,7 +21,7 @@ $logs = Join-Path $root 'artifacts\logs'
 New-Item -ItemType Directory -Force -Path $build, $logs | Out-Null
 $fingerprint = Get-LocalSourceFingerprint $root
 $projectPath = Join-Path $root 'FF14Accessibility\FF14Accessibility.csproj'
-& dotnet build $projectPath -c Release --no-incremental --output $build "-p:DALAMUD_HOME=$DalamudHome" -v:minimal 2>&1 |
+& dotnet build $projectPath -c Release --no-incremental -warnaserror --output $build "-p:DALAMUD_HOME=$DalamudHome" -v:minimal 2>&1 |
     Tee-Object -FilePath (Join-Path $logs "build-$stamp.txt") | Write-Host
 if ($LASTEXITCODE -ne 0) { throw "Build failed: exit $LASTEXITCODE" }
 if ((Get-LocalSourceFingerprint $root) -ne $fingerprint) { throw 'Source changed during the build. Build again.' }

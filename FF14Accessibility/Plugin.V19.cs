@@ -43,8 +43,14 @@ public sealed partial class Plugin
 
     private void BeginModsRead()
     {
+        if (Interlocked.CompareExchange(ref _modsRunning, 1, 0) != 0)
+        {
+            _tolk.SpeakInterrupt(AccessibilityStrings.ModsBusy);
+            return;
+        }
         if (!_mods.PenumbraReady)
         {
+            Interlocked.Exchange(ref _modsRunning, 0);
             _tolk.SpeakInterrupt(AccessibilityStrings.ModsPenumbraSilent);
             return;
         }
@@ -55,9 +61,13 @@ public sealed partial class Plugin
             {
                 var overview = _mods.Read();
                 if (!_shutdown.IsCancellationRequested)
-                    Framework.RunOnFrameworkThread(() => AnnounceModsRead(overview));
+                    Framework.RunOnFrameworkThread(() =>
+                    {
+                        if (!_shutdown.IsCancellationRequested) AnnounceModsRead(overview);
+                    });
             }
             catch (Exception ex) { Log.Error($"[Mods] Lesen fehlgeschlagen: {ex}"); }
+            finally { Interlocked.Exchange(ref _modsRunning, 0); }
         });
     }
 
@@ -92,7 +102,8 @@ public sealed partial class Plugin
                 if (!_shutdown.IsCancellationRequested)
                     Framework.RunOnFrameworkThread(() =>
                     {
-                        if (!restore) PluginInterface.SavePluginConfig(_config);
+                        if (_shutdown.IsCancellationRequested) return;
+                        PluginInterface.SavePluginConfig(_config);
                         AnnounceModsSwitch(result, restore);
                     });
             }

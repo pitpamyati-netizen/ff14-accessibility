@@ -56,8 +56,8 @@ internal static class SpeechTrace
 			StackTrace stackTrace = new StackTrace(2, fNeedFileInfo: false);
 			for (int i = 0; i < stackTrace.FrameCount; i++)
 			{
-				MethodBase methodBase = stackTrace.GetFrame(i)?.GetMethod();
-				Type type = methodBase?.DeclaringType;
+				MethodBase? methodBase = stackTrace.GetFrame(i)?.GetMethod();
+				Type? type = methodBase?.DeclaringType;
 				if (!(methodBase == null) && !(type == null) && !(type == typeof(TolkService)) && !(type == typeof(SpeechTrace)))
 				{
 					return type.Name + "." + methodBase.Name;

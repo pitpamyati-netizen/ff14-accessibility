@@ -6,14 +6,14 @@
          um Updates im Custom-Repo zu erkennen - bei JEDEM Release erhÃ¶hen, sonst
          zieht der Plugin-Installer keine neue Version. MUSS mit der PluginVersion-
          Konstante in Plugin.cs synchron bleiben (dort speist sie die Sprachansage). -->
-    <Version>6.08.74</Version>
-    <AssemblyVersion>6.08.74.0</AssemblyVersion>
-    <FileVersion>6.08.74.0</FileVersion>
+    <Version>6.08.75</Version>
+    <AssemblyVersion>6.08.75.0</AssemblyVersion>
+    <FileVersion>6.08.75.0</FileVersion>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Optimize>true</Optimize>
-    <NoWarn>1705</NoWarn>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <ImplicitUsings>enable</ImplicitUsings>
     <!-- Baut auf Linux (Container). NAudio 2.2.1 zielt auf net6.0-windows7.0,
          deshalb erklaert NuGet es als TRANSITIVEN FrameworkReference auf

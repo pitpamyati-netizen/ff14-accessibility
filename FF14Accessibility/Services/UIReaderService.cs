@@ -10546,7 +10546,7 @@ public sealed partial class UIReaderService : IDisposable
     /// <summary>Uses only the game's offered "Place in Armoury Chest" menu row
     /// for the exact physical bag slot. The game chooses the destination section.</summary>
     public unsafe ArmouryMenuActionResult TryPlaceContextItemInArmoury(
-        InventoryType source, ushort slot, uint itemId, bool finishWaiting)
+        InventoryType source, ushort slot, uint itemId, uint ownerAddonId, bool finishWaiting)
     {
         var ptr = _gameGui.GetAddonByName("ContextMenu");
         if (ptr.IsNull) return ArmouryMenuActionResult.NotReady;
@@ -10556,7 +10556,8 @@ public sealed partial class UIReaderService : IDisposable
             agent->TargetInventorySlot == null || agent->ContextCallbackInfos == null)
             return ArmouryMenuActionResult.NotReady;
 
-        if (agent->TargetInventoryId != source || agent->TargetInventorySlotId != slot ||
+        if (agent->OwnerAddonId != ownerAddonId ||
+            agent->TargetInventoryId != source || agent->TargetInventorySlotId != slot ||
             agent->TargetInventorySlot->GetItemId() != itemId)
             return ArmouryMenuActionResult.WrongItem;
 
@@ -10564,13 +10565,16 @@ public sealed partial class UIReaderService : IDisposable
         if (list == null || agent->ContextItemCount <= 0)
             return ArmouryMenuActionResult.NotReady;
 
-        var count = Math.Min(Math.Min(GetListEntryCount(list), agent->ContextItemCount), 32);
+        var count = agent->ContextItemCount;
         // The ContextMenu addon can be visible before its list has any rows.
         // Keep waiting instead of treating that frame as a missing command.
-        if (count <= 0) return ArmouryMenuActionResult.NotReady;
+        if (count <= 0 || count > 32 || GetListEntryCount(list) != count)
+            return ArmouryMenuActionResult.NotReady;
 
         var englishAddons = _data.GetExcelSheet<Lumina.Excel.Sheets.Addon>(ClientLanguage.English);
-        var match = -1;
+        var gameLabel = _data.GetExcelSheet<Lumina.Excel.Sheets.Addon>()
+            .GetRowOrDefault(1387)?.Text.ExtractText() ?? string.Empty;
+        var rows = new ArmouryMenuRow[count];
         for (var i = 0; i < count; i++)
         {
             var disabled = agent->IsContextItemDisabled(i);
@@ -10579,22 +10583,13 @@ public sealed partial class UIReaderService : IDisposable
             var english = labelId != 0
                 ? englishAddons.GetRowOrDefault(labelId)?.Text.ExtractText().Trim() ?? string.Empty
                 : string.Empty;
-            // Addon 1387 is "Place in Armoury Chest" in the installed game data.
-            // Keep the label check when a translation changes the visible text.
-            if (disabled || (labelId != 1387 &&
-                             !IsPlaceInArmouryCommand(displayed) &&
-                             !IsPlaceInArmouryCommand(english))) continue;
-            if (match >= 0)
-            {
-                _log.Warning("[ArmouryBulk] Mehrere passende Kontextbefehle; Gegenstand übersprungen.");
-                return ArmouryMenuActionResult.Unavailable;
-            }
-            match = i;
+            rows[i] = new ArmouryMenuRow(labelId, disabled, displayed, english);
         }
 
-        if (match < 0)
+        var result = ArmouryTransferRules.SelectCommand(rows, gameLabel, Loc.IsRussian, finishWaiting, out var match);
+        if (result != ArmouryMenuActionResult.Requested)
         {
-            if (!finishWaiting) return ArmouryMenuActionResult.NotReady;
+            if (result == ArmouryMenuActionResult.NotReady) return result;
             var menuRows = new List<string>(count);
             for (var i = 0; i < count; i++)
             {
@@ -10623,11 +10618,6 @@ public sealed partial class UIReaderService : IDisposable
         _log.Info($"[ArmouryBulk] Spielbefehl für {itemId} aus {source}/{slot} ausgeführt, Menüzeile {match}.");
         return ArmouryMenuActionResult.Requested;
     }
-
-    private static bool IsPlaceInArmouryCommand(string text) =>
-        text.Equals("Place in Armoury Chest", StringComparison.OrdinalIgnoreCase) ||
-        text.Equals("Place in Armory Chest", StringComparison.OrdinalIgnoreCase) ||
-        text.Equals("Поместить в оружейный сундук", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Activates the focused <c>ContextMenu</c> list row via

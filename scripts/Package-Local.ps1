@@ -3,6 +3,7 @@ param()
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'Local-Common.ps1')
 $root = Get-LocalRoot
+Assert-LocalVerification $root
 $version = Get-LocalVersion $root
 $plugin = Join-Path $root 'artifacts\plugin'
 $info = Get-Content -LiteralPath (Join-Path $root 'artifacts\build-info.json') -Raw | ConvertFrom-Json
