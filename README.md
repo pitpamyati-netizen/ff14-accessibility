@@ -8,7 +8,7 @@
 **[Скачать автоустановщик для Windows](https://github.com/pitpamyati-netizen/ff14-accessibility/releases/latest/download/FF14AccessibilityInstaller.exe)** ·
 [Все файлы выпуска](https://github.com/pitpamyati-netizen/ff14-accessibility/releases/latest) · [Инструкция](docs/installation.md)
 
-Версия плагина в этом выпуске — **6.08.78**, автоустановщика — **1.1.2**.
+Опубликована версия плагина **6.08.78**, автоустановщика — **1.1.2**.
 В 6.08.78 добавлено чтение окна персонажа и других таблиц по строкам
 на **Ctrl+Alt+F10**, исправлены русские названия пассивных навыков на P
 и повтор описания выбранного умения на **Ctrl+F10**.
