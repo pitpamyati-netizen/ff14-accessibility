@@ -339,7 +339,7 @@ public sealed class NavigationService
                            $"{DescribeObject(target)}, " +
                            $"{FormatDistance(distance)}, {CalculateDirection(player, target.Position)}" +
                            $"{DescribeTargetHp(target)}{DescribeTamed(target)}" +
-                           $"{DescribePartyPosition(target)}.";
+                           $"{DescribePartyPosition(target)}." + AccessibilityStrings.TargetHeight(target.Position.Y - player.Position.Y);
                 _log.Info($"[Nav] Zielwechsel: {text} (id={target.GameObjectId:X}, kind={target.ObjectKind})");
                 _tolk.SpeakInterrupt(text);
             }
@@ -1639,6 +1639,7 @@ public sealed class NavigationService
                    $"{CalculateDirection(player, obj.Position)}" +
                    $"{stats}, " +
                    $"{AccessibilityStrings.Counter(_cycleIndex + 1, count)}." +
+                   AccessibilityStrings.TargetHeight(obj.Position.Y - player.Position.Y) +
                    (rejected ? AccessibilityStrings.NotTargetedSuffix : "");
         _log.Info($"[Nav] Auswahl: {text} (id={obj.GameObjectId:X})");
         _tolk.SpeakInterrupt(text);
@@ -4843,13 +4844,13 @@ public sealed class NavigationService
         var distance = heightIsGuess
             ? Distance2D(player.Position, position)
             : Vector3.Distance(player.Position, position);
-        var sameHorizontalPosition = Math.Abs(position.X - player.Position.X) < 0.01f &&
-                                     Math.Abs(position.Z - player.Position.Z) < 0.01f;
+        var sameHorizontalPosition = Distance2D(player.Position, position) < 1f;
         var direction = sameHorizontalPosition
             ? AccessibilityStrings.TargetSameHorizontalPosition
             : CalculateDirection(player, position);
         _tolk.SpeakInterrupt(AccessibilityStrings.TargetDirection(
-            name, FormatDistance(distance), direction + (heightIsGuess ? "" : VerticalHint(player, position))));
+            name, FormatDistance(distance), direction) +
+            (heightIsGuess ? "" : AccessibilityStrings.TargetHeight(position.Y - player.Position.Y)));
         _log.Info($"[Nav] Numpad5 destination read: '{name}', dist={distance:F1}, heightIsGuess={heightIsGuess}, no turn");
     }
 
@@ -5525,6 +5526,8 @@ public sealed class NavigationService
     private string CalculateDirection(IGameObject player, Vector3 targetPos,
                                       [CallerMemberName] string caller = "")
     {
+        if (Distance2D(player.Position, targetPos) < 1f)
+            return AccessibilityStrings.TargetSameHorizontalPosition;
         var word = RouteService.CompassAdjective(player.Position, targetPos);
         // Weiter berechnet, aber nur noch fuer die Sonde: sie misst die Seite,
         // an der der PEIL-TON haengt, und der bleibt relativ.

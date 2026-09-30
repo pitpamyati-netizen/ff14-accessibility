@@ -42,7 +42,7 @@ namespace FF14Accessibility.Services;
 /// it ends a walk, and it keeps watching for a while afterwards because a
 /// pathfind already in flight can revive a stopped walk (see <see cref="_guardUntil"/>).
 /// </summary>
-public sealed class AutoWalkService : IDisposable
+public sealed partial class AutoWalkService : IDisposable
 {
     /// <summary>Stop this close to the destination, in yalms/meters (interaction range).
     /// Public so a position-based walk to a browsed object stops as close as the
@@ -301,6 +301,8 @@ public sealed class AutoWalkService : IDisposable
         Idle,
         /// <summary>Path requested, waiting for vnavmesh to deliver it.</summary>
         Starting,
+        /// <summary>Checking a ground route to a destination on another floor.</summary>
+        HeightSearch,
         /// <summary>Our path is steering the character.</summary>
         Walking,
         /// <summary>Querying a short walking detour around a stalled uphill corner.</summary>
@@ -437,7 +439,7 @@ public sealed class AutoWalkService : IDisposable
         var direction = RouteService.CompassWord(position, _destPosition);
         var rise = _destPosition.Y - position.Y;
         return MathF.Abs(rise) >= LedgeAnnounceRise
-            ? AccessibilityStrings.WalkMeshEndsBelowOrAbove(distance, direction, rise)
+            ? AccessibilityStrings.WalkMeshEndsAtHeight(GroundDetour.FlatDistance(position, _destPosition), direction, rise)
             : AccessibilityStrings.WalkMeshEndsHere(distance, direction);
     }
 
@@ -510,7 +512,7 @@ public sealed class AutoWalkService : IDisposable
     /// grab the soft target every few steps and each one would be announced
     /// with distance and direction (user feedback 2026-07-10).</summary>
     public bool IsActive => _phase is Phase.Starting or Phase.Walking or Phase.DetourSearch or Phase.DetourWalking
-                                   or Phase.TrailWalking or Phase.Landing;
+                                   or Phase.TrailWalking or Phase.Landing or Phase.HeightSearch;
 
     /// <summary>Read-only destination for an explicit status request. A stopped
     /// walk must not make an old destination look selected again.</summary>
@@ -866,6 +868,7 @@ public sealed class AutoWalkService : IDisposable
     /// loop.</param>
     private void Begin(Vector3 destination, string name, float stopRange, ulong targetId, bool fresh = true)
     {
+        ClearHeightPath();
         _groundDetour?.Dispose();
         _groundDetour = null;
         var player = _objectTable.LocalPlayer;
@@ -992,7 +995,9 @@ public sealed class AutoWalkService : IDisposable
 
         _nav.Stop();
 
-        if (!_nav.MoveCloseTo(walkTo, walkStopRange))
+        var checkHeight = crossing == null && !_destinationIsTransition
+            && MathF.Abs(walkTo.Y - player.Position.Y) >= 3;
+        if (!checkHeight && !_nav.MoveCloseTo(walkTo, walkStopRange))
         {
             _tolk.SpeakInterrupt(_nav.LastCallFailed
                 ? AccessibilityStrings.AutoWalkUnavailable
@@ -1011,7 +1016,7 @@ public sealed class AutoWalkService : IDisposable
         _stopRange = walkStopRange;
         _startTerritory = (ushort)_clientState.TerritoryType;
 
-        _phase = Phase.Starting;
+        _phase = checkHeight ? Phase.HeightSearch : Phase.Starting;
         _startedAt = DateTime.UtcNow;
         _lastPosition = player.Position;
         _lastMoveAt = _startedAt;
@@ -1026,6 +1031,15 @@ public sealed class AutoWalkService : IDisposable
         // Only a fresh walk may go looking for a bridge. A continuation is already
         // ON one (or came off one), and re-checking would send it back.
         _partialPathChecked = !fresh || crossing != null;
+
+        if (checkHeight)
+        {
+            _heightPath = new HeightPath(player.Position, walkTo, walkStopRange,
+                _nav.NearestPoint, _nav.FindGroundPath);
+            _log.Info($"[HeightPath] search start=({Fmt(player.Position)}) target=({Fmt(walkTo)}) range={walkStopRange:F1}");
+            _tolk.SpeakInterrupt(AccessibilityStrings.WalkingTo(name) + " " + AccessibilityStrings.HeightPathSearching);
+            return;
+        }
 
         _log.Info($"[Nav] Auto-Lauf: gestartet zu {name} (id={targetId:X}, stopRange={stopRange:F1}, " +
                   $"dist={distance:F1}, neu={fresh})");
@@ -1328,6 +1342,7 @@ public sealed class AutoWalkService : IDisposable
     /// </summary>
     private void Finish(string? spoken, string reason)
     {
+        ClearHeightPath();
         _groundDetour?.Dispose();
         _groundDetour = null;
         _nav.Stop();
@@ -1396,6 +1411,7 @@ public sealed class AutoWalkService : IDisposable
         {
             case Phase.Guarding: GuardUpdate(); return;
             case Phase.Starting: StartingUpdate(); return;
+            case Phase.HeightSearch: HeightSearchUpdate(); return;
             case Phase.Walking:  WalkingUpdate(); return;
             case Phase.DetourSearch: DetourSearchUpdate(); return;
             case Phase.DetourWalking: DetourWalkingUpdate(); return;
@@ -1533,6 +1549,16 @@ public sealed class AutoWalkService : IDisposable
         var distance = Vector3.Distance(player.Position, _destPosition);
         var waypoints = _nav.Waypoints;
         var remaining = waypoints.Count;
+
+        // Native stuck-retry can replace our checked route with the original
+        // false shortcut. Check its contents, not just the waypoint count.
+        if (_checkedHeightRoute != null && (_nav.PathfindInProgress
+            || !HeightPath.IsRemainingPath(_checkedHeightRoute, waypoints)))
+        {
+            Finish(AccessibilityStrings.HeightPathUnavailable(_destPosition.Y - player.Position.Y),
+                "height: native route replaced the checked path");
+            return;
+        }
 
         // Arrival is decided on distance, not on vnavmesh going quiet: its path
         // goes quiet for a second on every stuck-retry too.
@@ -1730,7 +1756,7 @@ public sealed class AutoWalkService : IDisposable
         // fresh:false keeps the "Laufe zu X" line and the used trails intact -
         // this is the same walk continuing, not a new one.
         Begin(_destPosition, _targetName, _stopRange, _targetId, fresh: false);
-        return _phase == Phase.Starting;
+        return _phase is Phase.Starting or Phase.HeightSearch;
     }
 
     // ── Spur-Etappe: über eine Lücke, die das Netz nicht kennt ───────
@@ -1966,6 +1992,7 @@ public sealed class AutoWalkService : IDisposable
             || !GroundDetour.TryChoose(position, path, out var corner, out var end)) return false;
 
         _detourAttempts.Add(position);
+        _checkedHeightRoute = null;
         _nav.Stop();
         _groundDetour = new GroundDetour(position, corner, end,
             p => _nav.NearestPoint(p, 0.5f, 0.5f), _nav.FindGroundPath);
