@@ -1,5 +1,9 @@
 using FF14Accessibility;
 using FF14Accessibility.Services;
+using System.Reflection;
+using System.Runtime.CompilerServices;
+using Dalamud.Plugin.Services;
+using FFXIVClientStructs.FFXIV.Component.GUI;
 
 namespace Regression.Tests;
 
@@ -99,6 +103,8 @@ public sealed class CharaMakeTests
         Assert.Equal(0u, CharaMakeClassText.ResolveClass(123, equipment));
         Assert.Equal(0u, CharaMakeClassText.ResolveClass(0, [new(0, 1)]));
         Assert.Equal(0u, CharaMakeClassText.ResolveClass(123, [new(123, 1), new(123, 7)]));
+        // Same base model is insufficient: material/variant must also match.
+        Assert.Equal(0u, CharaMakeClassText.ResolveClass(0x0001002B00C9, equipment));
     }
 
     [Theory]
@@ -125,5 +131,42 @@ public sealed class CharaMakeTests
         var previous = Loc.Mode;
         try { Loc.Mode = mode; Assert.StartsWith(prefix, AccessibilityStrings.CharaMakeClassUnavailable); }
         finally { Loc.Mode = previous; }
+    }
+
+    [Theory]
+    [InlineData("_CharaMakeCity", true, true)]
+    [InlineData("_CharaMakeCity", false, false)]
+    [InlineData("_CharaMakeClassSelector", true, false)]
+    [InlineData("_CharaMakeGuardian", true, false)]
+    public unsafe void AutomaticReaderMutesOnlyCityWhileClassSelectorIsVisible(string addonName, bool visible, bool expected)
+    {
+        AtkUnitBase selector = default;
+        selector.IsVisible = visible;
+        var gui = DispatchProxy.Create<IGameGui, CreationGui>();
+        ((CreationGui)gui).Selector = (nint)(&selector);
+        var reader = (UIReaderService)RuntimeHelpers.GetUninitializedObject(typeof(UIReaderService));
+        const BindingFlags fields = BindingFlags.Instance | BindingFlags.NonPublic;
+        typeof(UIReaderService).GetField("_gameGui", fields)!.SetValue(reader, gui);
+        typeof(UIReaderService).GetField("_config", fields)!.SetValue(reader, new Configuration());
+        Assert.Equal(expected, typeof(UIReaderService).GetMethod("IsSuppressedAddon", fields)!.Invoke(reader, [addonName]));
+        Assert.Equal(expected, typeof(UIReaderService).GetMethod("IsSuppressedCharaMakeCity", fields)!.Invoke(reader, [addonName]));
+        if (expected)
+        {
+            // The real scanner must exit before touching any city nodes or speech services.
+            typeof(UIReaderService).GetMethod("ScanAddonTexts", fields)!.Invoke(reader,
+                [addonName, Pointer.Box(null, typeof(AtkUnitBase*)), false]);
+        }
+    }
+
+    public class CreationGui : DispatchProxy
+    {
+        public nint Selector;
+        protected override object? Invoke(MethodInfo? method, object?[]? args)
+        {
+            if (method?.Name == "GetAddonByName")
+                return Activator.CreateInstance(method.ReturnType,
+                    [(string)args![0]! == "_CharaMakeClassSelector" ? Selector : nint.Zero]);
+            throw new NotSupportedException(method?.Name);
+        }
     }
 }

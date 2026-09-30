@@ -414,7 +414,13 @@ public sealed partial class UIReaderService : IDisposable
     private bool IsSuppressedAddon(string name) =>
         HudNoiseAddons.Contains(name)
         || (_config.SuppressStatusBarSpam && StatusBarSpamAddons.Contains(name))
-        || IsSuppressedCombatHud(name);
+        || IsSuppressedCombatHud(name)
+        || IsSuppressedCharaMakeCity(name);
+
+    // The city pane changes alongside class selection and must not interrupt
+    // the selected class. Outside that step its normal reading remains available.
+    private bool IsSuppressedCharaMakeCity(string name) =>
+        name == "_CharaMakeCity" && IsAddonVisible("_CharaMakeClassSelector");
 
     // Listenlose Addons, bei denen wir per PostUpdate den Fokus tracken
     private static readonly HashSet<string> FocusTrackAddons =
@@ -3475,7 +3481,8 @@ public sealed partial class UIReaderService : IDisposable
         // moving focus onto a cast bar cannot reintroduce the announcements.
         // Do not use the whole HudNoiseAddons set: it also contains quest and
         // character windows whose deliberate keyboard focus is read here.
-        if (IsSuppressedCombatHud(FindAddonNameForNode(node)))
+        if (IsSuppressedCombatHud(FindAddonNameForNode(node))
+            || IsSuppressedCharaMakeCity(FindAddonNameForNode(node)))
         {
             _lastFocusedNodePtr = 0;
             _lastFocusedNodeText = string.Empty;
@@ -8196,6 +8203,7 @@ public sealed partial class UIReaderService : IDisposable
     // counts is only visible on screen.
     private unsafe void ScanAddonTexts(string addonName, AtkUnitBase* addon, bool isInit)
     {
+        if (IsSuppressedCharaMakeCity(addonName)) return;
         if (IsTableReading) return;
         if (!_genericTextCache.TryGetValue(addonName, out var cache))
         {

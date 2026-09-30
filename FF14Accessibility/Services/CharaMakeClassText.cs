@@ -36,8 +36,7 @@ internal static class CharaMakeClassText
 
     internal static Entry? Read(IDataManager data, ulong weapon)
     {
-        var id = ResolveClass(weapon, data.GetExcelSheet<CharaMakeClassEquip>()
-            .Select(row => new Equipment(row.Weapon, row.Class.RowId)));
+        var id = ResolveClass(weapon, PreviewWeapons(data));
         if (id == 0 || !data.GetExcelSheet<ClassJob>().TryGetRow(id, out var job)) return null;
         var name = RussianGameText.Name(data, job, row => row.Name).Trim();
         if (name.Length == 0) return null;
@@ -52,6 +51,20 @@ internal static class CharaMakeClassText
             && data.GetExcelSheet<Lobby>().TryGetRow(lobbyId, out var lobby))
             description = lobby.Unknown1.ExtractText().Trim();
         return new Entry(id, name, description);
+    }
+
+    private static IEnumerable<Equipment> PreviewWeapons(IDataManager data)
+    {
+        foreach (var row in data.GetExcelSheet<CharaMakeClassEquip>())
+        {
+            if (LobbyRow(row.Class.RowId) == 0) continue;
+            yield return new Equipment(row.Weapon, row.Class.RowId);
+            // The live preview also wears the class's actual starting item.
+            // Its full model differs from the showcase gear in CharaMakeClassEquip.
+            if (data.GetExcelSheet<ClassJob>().TryGetRow(row.Class.RowId, out var job)
+                && data.GetExcelSheet<Item>().TryGetRow(job.ItemStartingWeaponMainHand.RowId, out var item))
+                yield return new Equipment(item.ModelMain, row.Class.RowId);
+        }
     }
 
     internal static bool HeadingMatches(string job, string lobby)

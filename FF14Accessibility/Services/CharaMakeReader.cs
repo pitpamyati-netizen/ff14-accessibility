@@ -1147,10 +1147,10 @@ public sealed unsafe class CharaMakeReader
     /// WHY THE WEAPON: the class icons carry no text (which is what made the step
     /// silent - see UIReaderService.IsCharaMakeIconList), but the game equips the
     /// starting gear of the highlighted class onto the preview model, and
-    /// <c>CharaMakeClassEquip</c> is the sheet that says which weapon belongs to
-    /// which class. Its eight rows carry eight DISTINCT packed model ids with zero
-    /// in the stain bytes (verified 2026-08-08: Gladiator 0x0001000A00C9, Marauder
-    /// 0x000100070191, and so on), so a match identifies the class exactly.
+    /// <c>CharaMakeClassEquip</c> lists showcase gear, while
+    /// <c>ClassJob.ItemStartingWeaponMainHand</c> links the actual starting item.
+    /// Both full models are checked: the 2026-09-30 log uses starting items,
+    /// e.g. Gladiator 0x0001002B00C9 instead of showcase 0x0001000A00C9.
     /// It is match-or-silence by construction. If the model has no weapon, or the
     /// game only equips it on confirm rather than on highlight, nothing is spoken
     /// and the log says what the field actually held - the position announcement

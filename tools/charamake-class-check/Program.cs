@@ -15,6 +15,10 @@ var cases = new List<object>();
 // Explicit expectations separate from the implementation's class-to-Lobby map.
 uint[] classes = [1, 2, 3, 4, 5, 6, 7, 26];
 uint[] lobbyIds = [178, 180, 182, 184, 186, 188, 190, 192];
+// Full main-hand values observed in dalamud.log, 2026-09-30 23:13 (6.08.82).
+// Do not derive these inputs from the same table that the resolver uses.
+ulong[] liveWeapons = [0x0001002B00C9, 0x00010009012D, 0x0007001F0191, 0x000C000301F5,
+    0x000800010259, 0x000C00010321, 0x0009000F0385, 0x0001000106AC];
 var weapons = game.Excel.GetSheet<CharaMakeClassEquip>().ToArray();
 if (weapons.Length != 8 || weapons.Select(x => x.Weapon).Distinct().Count() != 8)
     throw new Exception("Starting weapons changed; check the class mapping.");
@@ -26,24 +30,27 @@ foreach (var mode in new[] { LanguageMode.Russian, LanguageMode.English })
     for (var i = 0; i < classes.Length; i++)
     {
         var equipment = weapons.Single(x => x.Class.RowId == classes[i]);
-        var result = read.Invoke(null, [data, equipment.Weapon]) ?? throw new Exception("Class was not resolved.");
-        var resultType = result.GetType();
-        var id = (uint)resultType.GetProperty("ClassId")!.GetValue(result)!;
-        var name = (string)resultType.GetProperty("Name")!.GetValue(result)!;
-        var description = (string)resultType.GetProperty("Description")!.GetValue(result)!;
-        var source = data.GetExcelSheet<Lobby>().GetRow(lobbyIds[i]);
-        if (id != classes[i] || description.Length < 40 || description != source.Unknown1.ExtractText().Trim())
-            throw new Exception($"Wrong description for {language}/{mode}/{classes[i]}.");
-        if (mode == LanguageMode.Russian)
+        foreach (var (model, kind) in new[] { (liveWeapons[i], "LogStartingWeapon"), (equipment.Weapon, "ShowcaseWeapon") })
         {
-            if (!System.Text.RegularExpressions.Regex.IsMatch(name, "[А-Яа-яЁё]"))
-                throw new Exception($"Russian class name missing: {name}");
+            var result = read.Invoke(null, [data, model]) ?? throw new Exception($"Class {classes[i]} was not resolved for {kind} {model:X12}.");
+            var resultType = result.GetType();
+            var id = (uint)resultType.GetProperty("ClassId")!.GetValue(result)!;
+            var name = (string)resultType.GetProperty("Name")!.GetValue(result)!;
+            var description = (string)resultType.GetProperty("Description")!.GetValue(result)!;
+            var source = data.GetExcelSheet<Lobby>().GetRow(lobbyIds[i]);
+            if (id != classes[i] || description.Length < 40 || description != source.Unknown1.ExtractText().Trim())
+                throw new Exception($"Wrong description for {language}/{mode}/{classes[i]}.");
+            if (mode == LanguageMode.Russian)
+            {
+                if (!System.Text.RegularExpressions.Regex.IsMatch(name, "[А-Яа-яЁё]"))
+                    throw new Exception($"Russian class name missing: {name}");
+            }
+            else if (!string.Equals(name, equipment.Class.Value.Name.ExtractText(), StringComparison.OrdinalIgnoreCase)
+                     && !string.Equals(name, data.GetExcelSheet<ClassJob>().GetRow(id).Name.ExtractText(), StringComparison.OrdinalIgnoreCase))
+                throw new Exception($"Wrong game-language name: {name}");
+            cases.Add(new { ClientLanguage = language.ToString(), PluginLanguage = mode.ToString(), ClassId = id,
+                LobbyRow = lobbyIds[i], WeaponKind = kind, Weapon = $"{model:X12}", Name = name, Description = description });
         }
-        else if (!string.Equals(name, equipment.Class.Value.Name.ExtractText(), StringComparison.OrdinalIgnoreCase)
-                 && !string.Equals(name, data.GetExcelSheet<ClassJob>().GetRow(id).Name.ExtractText(), StringComparison.OrdinalIgnoreCase))
-            throw new Exception($"Wrong game-language name: {name}");
-        cases.Add(new { ClientLanguage = language.ToString(), PluginLanguage = mode.ToString(), ClassId = id,
-            LobbyRow = lobbyIds[i], Weapon = $"{equipment.Weapon:X12}", Name = name, Description = description });
     }
 }
 File.WriteAllText(args[1], JsonSerializer.Serialize(new { CheckedAt = DateTimeOffset.Now, Cases = cases,
