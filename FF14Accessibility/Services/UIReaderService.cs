@@ -983,6 +983,12 @@ public sealed partial class UIReaderService : IDisposable
     private void OnAnyAddonClose(AddonEvent type, AddonArgs args)
     {
         var name = args.AddonName;
+        if (name == "_CharaMakeHelp" || name == _lastCharaMakeHelpOwner)
+        {
+            _charaMakeHelp.Clear();
+            _lastCharaMakeHelpOwner = string.Empty;
+            _lastCharaMakeHelpText = string.Empty;
+        }
         if (name == "Shop" && IsShopQuantityEditing)
             EndShopQuantity(AccessibilityStrings.ShopQuantityChanged);
         _genericTextCache.Remove(name);
@@ -9658,8 +9664,9 @@ public sealed partial class UIReaderService : IDisposable
             _birthDayHelpSpoken = true;
             // Help-Handler puffert denselben Text fuer Volk/Stamm — sonst kaeme er
             // gleich nochmal ueber FlushPendingRaceDescription.
-            _pendingRaceDescription = string.Empty;
+            _charaMakeHelp.Clear();
             _lastCharaMakeHelpText = help;
+            _lastCharaMakeHelpOwner = "_CharaMakeBirthDay";
             _log.Info($"[Accessibility] BirthDay geoeffnet, Hilfe ({help.Length} Zeichen).");
         }
 
@@ -9779,12 +9786,32 @@ public sealed partial class UIReaderService : IDisposable
     }
 
     private string _lastCharaMakeHelpText = string.Empty;
+    private string _lastCharaMakeHelpOwner = string.Empty;
+    private readonly CharaMakeHelpBuffer _charaMakeHelp = new();
+
+    private string CharaMakeHelpOwner()
+    {
+        // Class takes precedence during a transition: the shared help pane can
+        // still display the previously selected guardian for several frames.
+        foreach (var owner in CharaMakeHelpOwners)
+            if (IsAddonVisible(owner)) return owner;
+        return string.Empty;
+    }
+
+    private static readonly string[] CharaMakeHelpOwners =
+    [
+        "_CharaMakeClassSelector", "_CharaMakeBirthDay", "_CharaMakeRaceGender",
+        "_CharaMakeTribe", "_CharaMakeFeature", "_CharaMakeGuardian",
+        "_CharaMakeCity", "_CharaMakeWorldServer", "_CharaMakeCharaName",
+    ];
 
     private void OnCharaMakeHelpOpen(AddonEvent type, AddonArgs args)
     {
         // Fresh pane: forget the old text so an unchanged description is
         // announced again when the creation screen is re-entered.
         _lastCharaMakeHelpText = string.Empty;
+        _lastCharaMakeHelpOwner = string.Empty;
+        _charaMakeHelp.Clear();
     }
 
     /// <summary>
@@ -9811,6 +9838,14 @@ public sealed partial class UIReaderService : IDisposable
 
     private unsafe void OnCharaMakeHelpUpdate(AddonEvent type, AddonArgs args)
     {
+        var owner = CharaMakeHelpOwner();
+        if (owner.Length == 0 || owner == "_CharaMakeClassSelector")
+        {
+            _charaMakeHelp.Clear();
+            _lastCharaMakeHelpText = string.Empty;
+            _lastCharaMakeHelpOwner = owner;
+            return;
+        }
         var addon = (AtkUnitBase*)(nint)args.Addon;
         if (addon == null) { ProbeHelpState("Addon-Zeiger null"); return; }
         if (!addon->IsVisible) { ProbeHelpState("Addon unsichtbar"); return; }
@@ -9820,13 +9855,14 @@ public sealed partial class UIReaderService : IDisposable
         if (node->Type != NodeType.Text) { ProbeHelpState($"Node id=4 ist kein Text (Type={node->Type})"); return; }
         if (!node->IsVisible()) { ProbeHelpState("Node id=4 unsichtbar"); return; }
 
-        var text = AtkText.Read((AtkTextNode*)node).Trim();
-        if (text == _lastCharaMakeHelpText)
+        var text = AtkText.ReadClean((AtkTextNode*)node).Trim();
+        if (text == _lastCharaMakeHelpText && owner == _lastCharaMakeHelpOwner)
         {
             ProbeHelpState($"Text unveraendert (Laenge {text.Length})");
             return;
         }
         _lastCharaMakeHelpText = text;
+        _lastCharaMakeHelpOwner = owner;
         if (string.IsNullOrWhiteSpace(text)) { ProbeHelpState("Text leer"); return; }
 
         // Namenstag offen: Hilfe gehoert hierher, nicht in den Volk/Stamm-Puffer.
@@ -9836,7 +9872,7 @@ public sealed partial class UIReaderService : IDisposable
         {
             _tolk.SpeakInterrupt(text);
             _birthDayHelpSpoken = true;
-            _pendingRaceDescription = string.Empty;
+            _charaMakeHelp.Clear();
             ProbeHelpState($"BirthDay-Hilfe ({text.Length} Zeichen)");
             _log.Info($"[Accessibility] BirthDay Hilfe (nachgereicht, {text.Length} Zeichen).");
 
@@ -9859,15 +9895,10 @@ public sealed partial class UIReaderService : IDisposable
         // announcement interrupts (log 2026-07-18 11:08:56.881 description ->
         // .886 interrupt). Buffered instead, so the order is headline first,
         // description after - and the description is never cut off.
-        _pendingRaceDescription = text;
-        _pendingRaceDescriptionAt = Environment.TickCount64;
+        _charaMakeHelp.Queue(owner, text, Environment.TickCount64);
         ProbeHelpState($"gepuffert (Laenge {text.Length})");
         _log.Info($"[Accessibility] CharaMake-Beschreibung: '{TolkService.Sanitize(text)}'");
     }
-
-    // Buffered race/tribe description (see OnCharaMakeHelpUpdate).
-    private string _pendingRaceDescription = string.Empty;
-    private long   _pendingRaceDescriptionAt;
 
     /// <summary>Speaks a buffered description. Called right after the
     /// "<race>, <gender>" headline; the frame tick flushes it as a fallback when
@@ -9875,12 +9906,10 @@ public sealed partial class UIReaderService : IDisposable
     /// the description arrives on its own).</summary>
     private void FlushPendingRaceDescription(bool force = false)
     {
-        if (_pendingRaceDescription.Length == 0) return;
-        if (!force && Environment.TickCount64 - _pendingRaceDescriptionAt < 250) return;
-
-        var text = _pendingRaceDescription;
-        _pendingRaceDescription = string.Empty;
-        _tolk.Speak(text); // queued, never interrupting
+        if (!_charaMakeHelp.HasPending) return;
+        var text = _charaMakeHelp.Take(CharaMakeHelpOwner(), ReadCharaMakeHelpText(),
+            Environment.TickCount64, force);
+        if (text.Length > 0) _tolk.Speak(text);
     }
 
     /// <summary>
@@ -11329,6 +11358,7 @@ public sealed partial class UIReaderService : IDisposable
 
     public unsafe void ReadCurrentFocus()
     {
+        if (_charaMake.TryReadClass()) return;
         if (TryReadSelectedActionDescription()) return;
         if (TryReadSupplyPaneDetail()) return;
         // Quest-Journal offen? Dann will der User die QUEST lesen, nicht die Liste.

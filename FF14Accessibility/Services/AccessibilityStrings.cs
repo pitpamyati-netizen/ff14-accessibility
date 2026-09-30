@@ -4256,10 +4256,12 @@ public static partial class AccessibilityStrings
         return $"{lead}, {Counter(index, count)}";
     }
 
-    /// <summary>Die Klasse, die die Erstellungs-Vorschau gerade zeigt. Nur der Name -
-    /// die BESCHREIBUNG der Klasse liegt wie bei jedem anderen Erstellungsschritt auf
-    /// der Vorlese-Taste.</summary>
+    /// <summary>The class currently equipped on the creation preview.</summary>
     public static string CharaMakeClass(string name) => name;
+    public static string CharaMakeClassUnavailable => L(
+        "Die ausgewählte Klasse ist noch nicht verfügbar.",
+        "The selected class is not available yet.",
+        "Выбранный класс пока недоступен для чтения.");
 
     /// <summary>Ersatzbezeichnung fuer den Stimmen-Waehler. Normal wird das
     /// Lobby-Label des Spiels benutzt; das hier deckt eine Zeile ohne Stimmen-Menue

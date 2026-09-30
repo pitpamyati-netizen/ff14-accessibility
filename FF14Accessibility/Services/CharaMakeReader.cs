@@ -374,13 +374,17 @@ public sealed unsafe class CharaMakeReader
             _lastSample = -1;
             _sampleGroupLogged = false;
         }
-        if (!classStep) _haveClass = false;
+        if (!classStep) ResetClass();
         if (!appearance && !classStep) return;
 
         TrackWindows(); // must run before any announcement decides how to speak
 
         var model = FindPreviewModel();
-        if (model == null) return;
+        if (model == null)
+        {
+            ResetClass();
+            return;
+        }
 
         if (classStep) UpdateClass(model);
         if (!appearance) return;
@@ -1125,6 +1129,18 @@ public sealed unsafe class CharaMakeReader
 
     private ulong _lastWeapon;
     private bool _haveClass;
+    private LanguageMode _classLanguage;
+    private Dalamud.Game.ClientLanguage _classClientLanguage;
+    private long _classReadAt;
+    private CharaMakeClassText.Entry? _classSelection;
+    private readonly CharaMakeClassSpeech _classSpeech = new();
+
+    private void ResetClass()
+    {
+        _haveClass = false;
+        _classSelection = null;
+        _classSpeech.Update(null, Environment.TickCount64);
+    }
 
     /// <summary>
     /// Names the class the preview model is currently showing.
@@ -1143,35 +1159,51 @@ public sealed unsafe class CharaMakeReader
     /// </summary>
     private void UpdateClass(CsCharacter* model)
     {
-        // Low 48 bits only: Id/Type/Variant identify the weapon, the top two bytes
-        // are dye stains and are zero in the sheet.
-        const ulong ModelMask = 0x0000_FFFF_FFFF_FFFFul;
-        var weapon = model->DrawData.Weapon(CsDrawData.WeaponSlot.MainHand).ModelId.Value & ModelMask;
-
-        if (_haveClass && weapon == _lastWeapon) return;
-        _lastWeapon = weapon;
-        _haveClass = true;
-
-        var name = string.Empty;
-        foreach (var row in _data.GetExcelSheet<CharaMakeClassEquip>())
+        var selection = ReadClass(model);
+        var speech = _classSpeech.Update(selection, Environment.TickCount64);
+        if (speech.Headline.Length > 0)
+            _tolk.SpeakInterrupt(AccessibilityStrings.CharaMakeClass(speech.Headline));
+        if (speech.Description.Length > 0)
         {
-            if ((row.Weapon & ModelMask) != weapon) continue;
-            name = row.Class.ValueNullable is { } job
-                ? RussianGameText.Name(_data, job, x => x.Name) : string.Empty;
-            break;
+            _log.Info($"[CharaMake] class description: ClassJob={selection?.ClassId} Lobby={CharaMakeClassText.LobbyRow(selection?.ClassId ?? 0)}");
+            _tolk.Speak(speech.Description);
         }
-
-        _log.Info($"[CharaMake] class step: main-hand model 0x{weapon:X12} -> " +
-                  $"{(name.Length > 0 ? name : "no CharaMakeClassEquip match")}");
-        if (name.Length == 0) return;
-
-        _tolk.SpeakInterrupt(AccessibilityStrings.CharaMakeClass(Capitalise(name)));
     }
 
-    /// <summary>The ClassJob sheet stores names lower-case ("gladiator"); the game
-    /// capitalises them for display and so does this.</summary>
-    private static string Capitalise(string s)
-        => s.Length == 0 ? s : char.ToUpperInvariant(s[0]) + s[1..];
+    private CharaMakeClassText.Entry? ReadClass(CsCharacter* model)
+    {
+        var weapon = model->DrawData.Weapon(CsDrawData.WeaponSlot.MainHand).ModelId.Value & CharaMakeClassText.ModelMask;
+        var now = Environment.TickCount64;
+        if (_haveClass && weapon == _lastWeapon && _classLanguage == Loc.Mode
+            && _classClientLanguage == _data.Language
+            && (_classSelection is { Description.Length: > 0 } || now - _classReadAt < 500))
+            return _classSelection;
+        _lastWeapon = weapon;
+        _classLanguage = Loc.Mode;
+        _classClientLanguage = _data.Language;
+        _classReadAt = now;
+        _haveClass = false;
+        _classSelection = CharaMakeClassText.Read(_data, weapon);
+        _haveClass = true;
+        _log.Info($"[CharaMake] class step: main-hand model 0x{weapon:X12} -> " +
+                  $"ClassJob={_classSelection?.ClassId}, name='{_classSelection?.Name}', description={_classSelection?.Description.Length ?? 0}");
+        return _classSelection;
+    }
+
+    /// <summary>Ctrl+F10 reads a fresh selection and consumes its pending description.</summary>
+    public bool TryReadClass()
+    {
+        if (!IsAddonVisible("_CharaMakeClassSelector")) return false;
+        var model = FindPreviewModel();
+        var selection = model == null ? null : ReadClass(model);
+        var speech = _classSpeech.Update(selection, Environment.TickCount64, repeat: true);
+        if (speech.Headline.Length == 0)
+            _tolk.SpeakInterrupt(AccessibilityStrings.CharaMakeClassUnavailable);
+        else
+            _tolk.SpeakInterrupt(speech.Description.Length == 0 ? speech.Headline
+                : $"{speech.Headline}. {speech.Description}");
+        return true;
+    }
 
     // ── Announcing one changed value ──────────────────────────────────────────
 
