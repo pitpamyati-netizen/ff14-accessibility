@@ -1,9 +1,9 @@
 ﻿Установка FF14 Accessibility
 
 Версия мода в этом архиве: 6.08.78.
-Этот пакет подготовлен локально; новый выпуск ещё не опубликован.
+Пакет выпуска 6.08.78 русской версии FF14 Accessibility.
 Для установки именно этой версии используйте папку plugin из этого архива.
-Автоустановщик скачивает опубликованную версию, которая может быть старее.
+Автоустановщик скачивает последний стабильный выпуск нашего репозитория.
 
 Файлы опубликованных выпусков: https://github.com/pitpamyati-netizen/ff14-accessibility/releases/latest
 
@@ -56,7 +56,7 @@ Ctrl+Home и Ctrl+End; выделенный текст копируется че
 
 Ручная установка из ZIP
 
-1. Скачайте архив мода: https://github.com/pitpamyati-netizen/ff14-accessibility/releases/latest/download/FF14Accessibility-6.08.76-RU-no-source.zip и распакуйте его в отдельную папку.
+1. Скачайте архив мода: https://github.com/pitpamyati-netizen/ff14-accessibility/releases/download/v6.08.78/FF14Accessibility-6.08.78-RU-no-source.zip и распакуйте его в отдельную папку.
 2. Закройте игру и XIVLauncher. Если обновляете установленный мод, сохраните
    копию всей его прежней папки в другом месте.
 3. Нажмите Win+R, введите %APPDATA%\XIVLauncher\devPlugins и нажмите Enter.
