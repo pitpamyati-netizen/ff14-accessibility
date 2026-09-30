@@ -983,6 +983,8 @@ public sealed partial class UIReaderService : IDisposable
     private void OnAnyAddonClose(AddonEvent type, AddonArgs args)
     {
         var name = args.AddonName;
+        if (name == "Shop" && IsShopQuantityEditing)
+            EndShopQuantity(AccessibilityStrings.ShopQuantityChanged);
         _genericTextCache.Remove(name);
         _lastFocusByAddon.Remove(name);
         _lastDialogTexts.Remove(name);
@@ -1469,6 +1471,7 @@ public sealed partial class UIReaderService : IDisposable
     {
         if (InLoginQuiet) return;
         var name = args.AddonName;
+        if (IsShopQuantityEditing && name == "Shop") return;
         // SpecialUpdateAddons �berspringen, au�er ConfigSystem und TitleDCWorldMap (die wir jetzt universell behandeln)
         if (SpecialUpdateAddons.Contains(name) && name != "ConfigSystem" && name != "TitleDCWorldMap") return;
 
@@ -1610,6 +1613,7 @@ public sealed partial class UIReaderService : IDisposable
     private unsafe void OnAnyAddonReceive(AddonEvent type, AddonArgs args)
     {
         var name = args.AddonName;
+        if (IsShopQuantityEditing && name == "Shop") return;
         if (SpecialUpdateAddons.Contains(name)) return;
         if (IsSuppressedAddon(name)) return;
         if (args is not AddonReceiveEventArgs recv) return;
@@ -3435,6 +3439,7 @@ public sealed partial class UIReaderService : IDisposable
 
     public unsafe void UpdateGlobalFocus(bool navKeyHeld = false)
     {
+        if (IsShopQuantityEditing) return;
         // While the HUD builds after login the game moves focus across freshly
         // created windows on its own; reading that is noise, not navigation.
         if (InLoginQuiet) return;
@@ -3584,7 +3589,11 @@ public sealed partial class UIReaderService : IDisposable
         // on a duty-finder setting, so leaving that window ends the help dwell by
         // itself instead of leaving a stale control behind.
         _settingHelpOwner = 0;
-        if (TryReadContentsFinderSettingRow(node, out var dutySetting))
+        if (TryReadShopQuantityFocus(node, out var quantityText))
+        {
+            text = quantityText;
+        }
+        else if (TryReadContentsFinderSettingRow(node, out var dutySetting))
         {
             // Einstellungen der Inhaltssuche: Name UND Zustand ("Keine
             // Beschraenkungen, Schalter, aus"). Vor dem allgemeinen Pfad, der
@@ -4005,6 +4014,7 @@ public sealed partial class UIReaderService : IDisposable
             // Item-Slot-Texte tragen die Gear-Info schon (ResolveFocusedItemName);
             // rohe Fokus-Texte (Laden-Zeilen) bekommen sie hier angehaengt.
             if (string.IsNullOrEmpty(_lastFocusedItemName)) text = AppendShopGearInfo(text);
+            text = AppendShopQuantityHint(node, text);
             // The name is going out now, so the description dwell may follow it.
             // A shop row counts as well: its name comes from the row text, not
             // from an icon slot, but it is just as much an item name.
@@ -10434,6 +10444,12 @@ public sealed partial class UIReaderService : IDisposable
 
     public void AnnounceContextHelp()
     {
+        if (IsAddonVisible("Shop"))
+        {
+            _tolk.SpeakInterrupt(AccessibilityStrings.ShopQuantityHint(AccessibilityStrings.SpokenKeyLabel(_config.KeyShopQuantity))
+                + " " + AccessibilityStrings.ShopQuantityInstructions);
+            return;
+        }
         _activeScreenContext = GetCurrentScreenContext();
         var text = _activeScreenContext switch
         {

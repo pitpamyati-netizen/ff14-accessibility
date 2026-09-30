@@ -56,6 +56,7 @@ public sealed class Configuration : IPluginConfiguration
     public string KeyReadInventory = "Strg+F3";         // Inventar vorlesen (Tasche + Schlüsselgegenstände)
     public string KeyReadGil       = "Umschalt+F3";     // Nur den Gil-Stand ansagen (Umschalt+F1..F12 laut Keybind-Dump frei)
     public string KeyMoveToArmoury = "Alt+F3";          // Alle Ausrüstungsteile aus dem Inventar in die Arsenaltruhe legen
+    public string KeyShopQuantity = "Strg+Umschalt+B"; // Quantity entry for the focused gil-shop item
     public string KeyLevelExp      = "Strg+L";          // Stufe + fehlende EXP ansagen (L=Level; bare L ist im Spiel Linkshell)
     public string KeyRestedStatus  = "Umschalt+L";      // Ruhebereich + Erholungsbonus ansagen (neben der Stufe auf L; Umschalt+L steht nicht in der Belegt-Liste des Keybind-Dumps)
     // Rang des Begleit-Chocobos - die dritte Belegung der L-Familie (Strg+L eigene
@@ -259,6 +260,7 @@ public sealed class Configuration : IPluginConfiguration
         KeyReadInventory = defaults.KeyReadInventory;
         KeyReadGil       = defaults.KeyReadGil;
         KeyMoveToArmoury = defaults.KeyMoveToArmoury;
+        KeyShopQuantity = defaults.KeyShopQuantity;
         KeyLevelExp      = defaults.KeyLevelExp;
         KeyRestedStatus  = defaults.KeyRestedStatus;
         KeyChocoboRank   = defaults.KeyChocoboRank;

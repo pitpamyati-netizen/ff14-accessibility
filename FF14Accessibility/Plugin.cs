@@ -170,6 +170,7 @@ public sealed partial class Plugin : IDalamudPlugin
     // [Einstellungsmenue] Das gesprochene Menue und seine Tastenabfrage.
     private readonly SpokenMenu         _menu;
     private readonly MenuInput          _menuInput;
+    private readonly MenuInput          _shopQuantityInput;
     private readonly OptionsMenu        _options;
     private readonly ToastService       _toasts;
     private readonly CombatService      _combat;
@@ -211,7 +212,7 @@ public sealed partial class Plugin : IDalamudPlugin
     // 6.08.18 lokal: Chat-Absender Kontextmenü (Strg+Umschalt+BildAuf) + Numpad3-Ziel.
     // 6.08.19: Charakterauswahl — eine Ansage (Name, Job, Ort) statt Scan-Sturm.
     // 6.08.20: Mitstreiter-Taste (PR 27 Port) — Strg+Umschalt+C öffnet/vorliest.
-    private const string PluginVersion    = "6.08.76";
+    private const string PluginVersion    = "6.08.77";
     // Der Tag nennt, was diese Fassung MITBRINGT, nicht woher sie stammt: die
     // russische Schicht auf dem Stand des Autors 6.08.34 (Auftragstext im
     // Quest-Tracker des Autors, siehe package-Schritt).
@@ -676,6 +677,7 @@ public sealed partial class Plugin : IDalamudPlugin
         // also fragt er denselben Leser wie der Chat-Router.
         _menu       = new SpokenMenu(_tolk, Log);
         _menuInput  = new MenuInput(KeyState, Log, SpokenMenu.AllKeys());
+        _shopQuantityInput = new MenuInput(KeyState, Log, UIReaderService.ShopQuantityKeys);
         _options    = new OptionsMenu(_config, () => PluginInterface.SavePluginConfig(_config),
                                       _tolk, Log, _heading, _chatFilters, _aoeWarn, _warnVoice, _chatVoice, _cue,
                                       // [Reihenfolge] Die drei Dienste, die die
@@ -1358,6 +1360,7 @@ public sealed partial class Plugin : IDalamudPlugin
             ("Inventar",       _config.KeyReadInventory),
             ("Gil",            _config.KeyReadGil),
             ("Alle Ausrüstungsteile in Arsenaltruhe legen", _config.KeyMoveToArmoury),
+            ("Количество покупки", _config.KeyShopQuantity),
             ("Stufe",          _config.KeyLevelExp),
             ("Erholungsbonus", _config.KeyRestedStatus),
             ("Chocobo-Rang",   _config.KeyChocoboRank),
@@ -1514,7 +1517,7 @@ public sealed partial class Plugin : IDalamudPlugin
         return parsed;
     }
 
-    private bool IsJustPressed(string keySpec)
+    private bool IsJustPressed(string keySpec, bool allowTextInput = false)
     {
         // While a game text field has focus (chat, search box, name entry, ...)
         // every keystroke belongs to that field. Standing down here suppresses
@@ -1524,7 +1527,7 @@ public sealed partial class Plugin : IDalamudPlugin
         // authority on when a field is receiving input. The per-frame Update()
         // calls in OnFrameworkUpdate do NOT go through here, so the walk guide,
         // beacon and focus reader keep working while typing.
-        if (_textInputActive) return false;
+        if (_textInputActive && !allowTextInput) return false;
 
         var (vk, ctrl, shift, alt) = ParseKeySpec(keySpec);
         if (vk < 0 || !_keyJustPressed[vk]) return false;
@@ -2349,6 +2352,7 @@ public sealed partial class Plugin : IDalamudPlugin
         }
 
         UpdateKeyEdges();
+        _shopQuantityInput.Poll();
         _hotbar.UpdateCrossHotbar(GameGui, IsControllerMode());
 #if DEBUG
         // UNGEGATTERT, mit Absicht: die Sonde sagt am Ende der Messung "fertig",
@@ -2393,6 +2397,22 @@ public sealed partial class Plugin : IDalamudPlugin
         // eine Blaettertaste in diesem Frame schon die richtige Liste sieht.
         FollowChatTab();
         _chatBackfill.Update();
+
+        var quantityModifiers = KeyState[Dalamud.Game.ClientState.Keys.VirtualKey.CONTROL]
+            || KeyState[Dalamud.Game.ClientState.Keys.VirtualKey.SHIFT]
+            || KeyState[Dalamud.Game.ClientState.Keys.VirtualKey.MENU];
+        if (_uiReader.HandleShopQuantityKeys(_shopQuantityInput, GameWindowFocus.IsActive, quantityModifiers)) return;
+        if (!_menu.IsOpen && !_hotbar.IsSkillMenuOpen && GameWindowFocus.IsActive
+            && IsJustPressed(_config.KeyShopQuantity, allowTextInput: true))
+        {
+            // Numeric fields can mark text input active too. The reader admits
+            // only a live buy-list row and explicitly excludes chat/dialogs.
+            if (_uiReader.BeginShopQuantity(reportUnavailable: !textInputActive))
+            {
+                _shopQuantityInput.ConsumeAll();
+                return;
+            }
+        }
 
         // [Einstellungsmenue] Ein offenes Menue besitzt die Tastatur. Ein Textfeld
         // besitzt sie ebenfalls - dann koennen keine Tasten gelesen werden, das Menue
