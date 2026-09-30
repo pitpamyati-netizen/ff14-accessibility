@@ -8,6 +8,26 @@ namespace FF14Accessibility.Services;
 internal sealed class RussianDescriptionCatalog
 {
     private readonly Dictionary<string, Dictionary<uint, byte[][]>> _sheets;
+    private readonly Dictionary<string, Dictionary<string, List<uint>>> _nameIndexes = new();
+
+    internal IEnumerable<uint> FindNameCandidates(string sheet, string name)
+    {
+        if (!_nameIndexes.TryGetValue(sheet, out var index))
+        {
+            index = new(StringComparer.OrdinalIgnoreCase);
+            if (_sheets.TryGetValue(sheet, out var rows))
+                foreach (var (id, pair) in rows)
+                {
+                    if (pair.Length != 2) continue;
+                    var text = System.Text.Encoding.UTF8.GetString(pair[1]).Trim();
+                    if (!index.TryGetValue(text, out var ids)) index[text] = ids = [];
+                    ids.Add(id);
+                }
+            _nameIndexes[sheet] = index;
+        }
+        // Candidates still need the normal current-English-source check.
+        return index.TryGetValue(name.Trim(), out var matches) ? matches : [];
+    }
 
     internal RussianDescriptionCatalog(Stream compressed)
     {

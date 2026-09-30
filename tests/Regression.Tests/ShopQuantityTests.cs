@@ -7,6 +7,7 @@ using FFXIVClientStructs.FFXIV.Component.GUI;
 
 namespace Regression.Tests;
 
+[Collection("Language")]
 public unsafe sealed class ShopQuantityTests : IDisposable
 {
     private readonly List<nint> allocations = [];

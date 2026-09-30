@@ -9,6 +9,17 @@ public sealed class CatalogTests
 {
     private static readonly RussianDescriptionCatalog Catalog = RussianDescriptionCatalog.Load();
 
+    [Theory]
+    [InlineData("GeneralAction", 30u, "Change the order of hotbar-assigned actions.", "Изменить порядок действий на панели питомца.")]
+    [InlineData("GeneralAction", 9u, "Summon a mount at random.", "Призвать случайный транспорт.")]
+    [InlineData("MainCommand", 1u, "Sheathe/unsheathe your main arm.", "Обнажить или убрать основное оружие.")]
+    public void NewMenuDescriptionsAreBoundToTheirOwnSource(string sheet, uint id, string source, string translation)
+    {
+        Assert.Equal(translation, Encoding.UTF8.GetString(Catalog.Find(sheet, id, Encoding.UTF8.GetBytes(source), true)!));
+        Assert.Null(Catalog.Find(sheet, id, Encoding.UTF8.GetBytes(source + " Changed"), true));
+        Assert.Null(Catalog.Find(sheet, id, Encoding.UTF8.GetBytes(source), false));
+    }
+
     [Fact]
     public void EmbeddedCatalogContainsRussianItemDescription()
     {

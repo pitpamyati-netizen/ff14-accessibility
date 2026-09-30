@@ -7,7 +7,7 @@ using Lumina.Text.ReadOnly;
 namespace FF14Accessibility.Services;
 
 /// <summary>One description source for inventory, rewards, skill menus and notebooks.</summary>
-public sealed class GameDescriptionService
+public sealed partial class GameDescriptionService
 {
     private readonly IDataManager _data;
     private readonly ISeStringEvaluator _evaluator;
@@ -39,6 +39,10 @@ public sealed class GameDescriptionService
     public string BuddyActionName(uint id) => Read<BuddyAction>("BuddyActionName", id, row => row.Name, names: true);
     public string GeneralActionName(uint id) => Read<GeneralAction>("GeneralActionName", id, row => row.Name, names: true);
     public string PetActionName(uint id) => Read<PetAction>("PetActionName", id, row => row.Name, names: true);
+    public string GeneralAction(uint id) => Read<GeneralAction>("GeneralAction", id, row => row.Description);
+    public string PetAction(uint id) => Read<PetAction>("PetAction", id, row => row.Description);
+    public string MainCommandName(uint id) => Read<MainCommand>("MainCommandName", id, row => row.Name, names: true);
+    public string MainCommand(uint id) => Read<MainCommand>("MainCommand", id, row => row.Description);
     public string EmoteName(uint id) => Read<Emote>("EmoteName", id, row => row.Name, names: true);
     public string ItemName(uint id)
     {

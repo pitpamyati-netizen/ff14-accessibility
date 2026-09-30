@@ -171,6 +171,7 @@ public sealed partial class Plugin : IDalamudPlugin
     private readonly SpokenMenu         _menu;
     private readonly MenuInput          _menuInput;
     private readonly MenuInput          _shopQuantityInput;
+    private readonly MenuInput          _tableInput;
     private readonly OptionsMenu        _options;
     private readonly ToastService       _toasts;
     private readonly CombatService      _combat;
@@ -212,7 +213,7 @@ public sealed partial class Plugin : IDalamudPlugin
     // 6.08.18 lokal: Chat-Absender Kontextmenü (Strg+Umschalt+BildAuf) + Numpad3-Ziel.
     // 6.08.19: Charakterauswahl — eine Ansage (Name, Job, Ort) statt Scan-Sturm.
     // 6.08.20: Mitstreiter-Taste (PR 27 Port) — Strg+Umschalt+C öffnet/vorliest.
-    private const string PluginVersion    = "6.08.77";
+    private const string PluginVersion    = "6.08.78";
     // Der Tag nennt, was diese Fassung MITBRINGT, nicht woher sie stammt: die
     // russische Schicht auf dem Stand des Autors 6.08.34 (Auftragstext im
     // Quest-Tracker des Autors, siehe package-Schritt).
@@ -678,6 +679,7 @@ public sealed partial class Plugin : IDalamudPlugin
         _menu       = new SpokenMenu(_tolk, Log);
         _menuInput  = new MenuInput(KeyState, Log, SpokenMenu.AllKeys());
         _shopQuantityInput = new MenuInput(KeyState, Log, UIReaderService.ShopQuantityKeys);
+        _tableInput = new MenuInput(KeyState, Log, UIReaderService.TableKeys);
         _options    = new OptionsMenu(_config, () => PluginInterface.SavePluginConfig(_config),
                                       _tolk, Log, _heading, _chatFilters, _aoeWarn, _warnVoice, _chatVoice, _cue,
                                       // [Reihenfolge] Die drei Dienste, die die
@@ -1340,6 +1342,7 @@ public sealed partial class Plugin : IDalamudPlugin
             ("Zu Koordinaten",    _config.KeyGotoCoords),
             ("Koordinaten kopieren", _config.KeyCopyCoords),
             ("Menü vorlesen",  _config.KeyReadUI),
+            ("Чтение по строкам", _config.KeyReadTable),
             ("Sprache stopp",  _config.KeySilence),
             ("Kampfstatus",    _config.KeyCombatStatus),
             ("Ziel-HP",        _config.KeyTargetStatus),
@@ -2353,6 +2356,7 @@ public sealed partial class Plugin : IDalamudPlugin
 
         UpdateKeyEdges();
         _shopQuantityInput.Poll();
+        _tableInput.Poll();
         _hotbar.UpdateCrossHotbar(GameGui, IsControllerMode());
 #if DEBUG
         // UNGEGATTERT, mit Absicht: die Sonde sagt am Ende der Messung "fertig",
@@ -2397,6 +2401,19 @@ public sealed partial class Plugin : IDalamudPlugin
         // eine Blaettertaste in diesem Frame schon die richtige Liste sieht.
         FollowChatTab();
         _chatBackfill.Update();
+
+        if (_uiReader.IsTableReading && IsJustPressed(_config.KeySilence)) { _tolk.Silence(); _chatVoice.Silence(); }
+        if (_uiReader.IsTableReading && IsJustPressed(_config.KeyHelp)) _uiReader.AnnounceContextHelp();
+        if (_uiReader.HandleTableKeys(_tableInput, GameWindowFocus.IsActive, textInputActive,
+                KeyState[Dalamud.Game.ClientState.Keys.VirtualKey.CONTROL],
+                KeyState[Dalamud.Game.ClientState.Keys.VirtualKey.SHIFT],
+                KeyState[Dalamud.Game.ClientState.Keys.VirtualKey.MENU])) return;
+        if (!_menu.IsOpen && !_hotbar.IsSkillMenuOpen && !_uiReader.IsShopQuantityEditing
+            && GameWindowFocus.IsActive && IsJustPressed(_config.KeyReadTable))
+        {
+            if (_uiReader.BeginTableReading()) _tableInput.ConsumeAll();
+            return;
+        }
 
         var quantityModifiers = KeyState[Dalamud.Game.ClientState.Keys.VirtualKey.CONTROL]
             || KeyState[Dalamud.Game.ClientState.Keys.VirtualKey.SHIFT]

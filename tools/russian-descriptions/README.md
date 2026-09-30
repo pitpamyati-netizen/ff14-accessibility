@@ -24,7 +24,7 @@ python -m unittest discover -s tools/russian-descriptions -p test_generate.py
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Test-Local.ps1
 ```
 
-`--download` получает только 12 файлов XLIFF закреплённого снимка. Без этого флага
+`--download` получает только 18 файлов XLIFF закреплённого снимка. Без этого флага
 используется локальная копия в `.local/russian-descriptions`. Результат воспроизводим:
 gzip не содержит текущую дату. Хеши исходников, результат и список пропусков
 записываются в `docs/maintenance/russian-descriptions-coverage.json`.
@@ -55,3 +55,8 @@ dotnet run --project tools/russian-descriptions/Verify.csproj -c Release "-p:DAL
 проверяется самое длинное название, затем границы слов; числа и команды остаются
 целыми. Словарь создаётся `tools/russian-localization/generate_game_text.py`.
 Неизвестные собственные имена сохраняют исходное написание.
+
+С 6.08.78 включены GeneralAction, PetAction и MainCommand: 183 описания.
+26 дополнений и уточнений перевода сохранены в overrides.json. Четыре строки
+MainCommand содержат лишь отметку об отсутствии описания; новые свойства
+для них не выдумываются.

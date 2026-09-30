@@ -7,6 +7,14 @@ public class ActionNameTests
 {
     private static readonly RussianDescriptionCatalog Names = RussianDescriptionCatalog.Load("RussianActionNames");
 
+    [Fact]
+    public void RussianNameCandidatesDoNotCrossSheetsAndStillRequireSourceValidation()
+    {
+        Assert.Contains(100001u, Names.FindNameCandidates("CraftActionName", "Базовый синтез"));
+        Assert.Empty(Names.FindNameCandidates("ActionName", "Базовый синтез"));
+        Assert.Null(Names.Find("CraftActionName", 100001, Encoding.UTF8.GetBytes("Changed"), true));
+    }
+
     [Theory]
     [InlineData("CraftActionName", 100001u, "Basic Synthesis", "Базовый синтез")]
     [InlineData("CraftActionName", 100002u, "Basic Touch", "Базовая обработка")]

@@ -10,6 +10,7 @@ using FFXIVClientStructs.FFXIV.Component.GUI;
 
 namespace Regression.Tests;
 
+[Collection("Language")]
 public unsafe sealed class CraftingTests : IDisposable
 {
     private readonly LanguageMode _previous = Loc.Mode;

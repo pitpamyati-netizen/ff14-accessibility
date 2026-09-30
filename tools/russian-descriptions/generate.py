@@ -22,6 +22,9 @@ FIELDS = {
     "CraftAction": {"CraftAction": 1},
     "TraitTransient": {"Trait": 0},
     "BuddyAction": {"BuddyAction": 1},
+    "GeneralAction": {"GeneralAction": 1},
+    "PetAction": {"PetAction": 1},
+    "MainCommand": {"MainCommand": 1},
     "AozActionTransient": {"AozDescription": 1, "AozStats": 0},
 }
 
@@ -124,7 +127,8 @@ def generate(cache, output, report_path, revision=REVISION, download=False):
                 if not source.strip():
                     continue
                 ru_node = paths["ru"].get(row_id)
-                target = "" if ru_node is None else (ru_node.text or "").split("<tab>")[column]
+                ru_fields = [] if ru_node is None else (ru_node.text or "").split("<tab>")
+                target = ru_fields[column] if column < len(ru_fields) else ""
                 override = overrides.get(key, {}).get(str(row_id))
                 if override:
                     if source != override["source"]:

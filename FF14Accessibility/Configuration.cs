@@ -43,6 +43,7 @@ public sealed class Configuration : IPluginConfiguration
     public string KeyGotoCoords   = "Strg+Umschalt+F1"; // Zu Koordinaten aus der Zwischenablage laufen (z.B. "24.1 21.0" kopieren, dann Taste). Alle Strg+F/Umschalt+F sind belegt; Strg+F* ist laut Keybind-Dump spielfrei, also ist Strg+Umschalt+F* erst recht frei.
     public string KeyCopyCoords   = "Strg+Umschalt+F2"; // Eigene aktuelle Karten-Koordinaten in die Zwischenablage kopieren (zum Weitergeben im Chat). Gegenstueck zu KeyGotoCoords; Strg+Umschalt+F* laut Keybind-Dump spielfrei.
     public string KeyReadUI       = "Strg+F10";         // Aktuelles Menü vorlesen
+    public string KeyReadTable    = "Strg+Alt+F10";
     public string KeySilence      = "Strg+F11";         // Sprache stoppen
     public string KeyCombatStatus = "Strg+Entf";        // HP/MP ansagen. NICHT Strg+H: das Spiel oeffnete trotz Strg das Handwerker-Notizbuch (MENU_CRAFT=H), dessen Ansage die HP-Ansage abschnitt (Log 2026-07-19 19:19:00). Entf ist im Keybind-Dump gar nicht belegt
     public string KeyTargetStatus = "Entf";             // NUR die HP des anvisierten Ziels (Spielerwunsch 2026-08-31). Bare Entf, weil der Keybind-Dump Entf gar nicht belegt - dieselbe Feststellung, die schon Strg+Entf traegt. Im Kampf will man die Gegner-HP OHNE die eigene HP/MP-Litanei davor, deshalb eine eigene Taste statt eines Anhangs an KeyCombatStatus.
@@ -246,6 +247,7 @@ public sealed class Configuration : IPluginConfiguration
         KeyGotoCoords   = defaults.KeyGotoCoords;
         KeyCopyCoords   = defaults.KeyCopyCoords;
         KeyReadUI       = defaults.KeyReadUI;
+        KeyReadTable    = defaults.KeyReadTable;
         KeySilence      = defaults.KeySilence;
         KeyCombatStatus = defaults.KeyCombatStatus;
         KeyTargetStatus = defaults.KeyTargetStatus;

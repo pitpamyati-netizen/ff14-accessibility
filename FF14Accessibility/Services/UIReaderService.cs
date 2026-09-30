@@ -1469,6 +1469,7 @@ public sealed partial class UIReaderService : IDisposable
 
     private unsafe void OnAnyAddonUpdate(AddonEvent type, AddonArgs args)
     {
+        if (IsTableReading) return;
         if (InLoginQuiet) return;
         var name = args.AddonName;
         if (IsShopQuantityEditing && name == "Shop") return;
@@ -1612,6 +1613,7 @@ public sealed partial class UIReaderService : IDisposable
 
     private unsafe void OnAnyAddonReceive(AddonEvent type, AddonArgs args)
     {
+        if (IsTableReading) return;
         var name = args.AddonName;
         if (IsShopQuantityEditing && name == "Shop") return;
         if (SpecialUpdateAddons.Contains(name)) return;
@@ -3106,7 +3108,8 @@ public sealed partial class UIReaderService : IDisposable
         if (string.IsNullOrWhiteSpace(label))
             label = AccessibilityStrings.CharacterTabFallback(tabIndex);
 
-        var spoken = AccessibilityStrings.CharacterTabHeader(label, tabIndex + 1, character->TabCount);
+        var spoken = AccessibilityStrings.CharacterTabHeader(label, tabIndex + 1, character->TabCount)
+            + ". " + AccessibilityStrings.TableHint(AccessibilityStrings.SpokenKeyLabel(_config.KeyReadTable));
         _log.Info($"[Character] Registerkarte: '{spoken}'");
         _tolk.SpeakInterrupt(spoken);
 
@@ -3439,7 +3442,7 @@ public sealed partial class UIReaderService : IDisposable
 
     public unsafe void UpdateGlobalFocus(bool navKeyHeld = false)
     {
-        if (IsShopQuantityEditing) return;
+        if (IsShopQuantityEditing || IsTableReading) return;
         // While the HUD builds after login the game moves focus across freshly
         // created windows on its own; reading that is noise, not navigation.
         if (InLoginQuiet) return;
@@ -3589,7 +3592,11 @@ public sealed partial class UIReaderService : IDisposable
         // on a duty-finder setting, so leaving that window ends the help dwell by
         // itself instead of leaving a stale control behind.
         _settingHelpOwner = 0;
-        if (TryReadShopQuantityFocus(node, out var quantityText))
+        if (TryReadCharacterStat(node, out var statText))
+        {
+            text = statText;
+        }
+        else if (TryReadShopQuantityFocus(node, out var quantityText))
         {
             text = quantityText;
         }
@@ -6126,7 +6133,7 @@ public sealed partial class UIReaderService : IDisposable
     {
         // BuddySkill/BuddyAction use Text tooltips (no Action binding) — see
         // HandleBuddySkillDwell. Only the real skill window uses Action ids here.
-        var inActionMenu = IsAddonVisible("ActionMenu") && FocusIsActionSlot(node);
+        var inActionMenu = IsActionMenuEntry(node);
         if (!inActionMenu)
         {
             _actionDwellId = 0;
@@ -6161,43 +6168,31 @@ public sealed partial class UIReaderService : IDisposable
             _actionDwellDescSpoken = true; // one-shot per dwell, even if desc is empty
             var desc = ActionMenuDescription(action.Value.Kind, id);
             // Keep the visible panel as the fallback for unresolved descriptions.
-            if (string.IsNullOrEmpty(desc) && TryReadActionDetailPanel(out _, out _, out var panelDesc))
+            if (string.IsNullOrEmpty(desc) && TryReadActionDetailPanel(out var panelName, out _, out var panelDesc)
+                && ActionMenuText.Matches(panelName, GetActionMenuSlotLabel(node)))
                 desc = panelDesc;
             if (!string.IsNullOrEmpty(desc)) _tolk.Speak(desc);
             return;
         }
 
-        // Unbound traits: dwell on the ActionDetail panel name/description.
+        // Unbound rows use their own label, even when keyboard focus does not
+        // open ActionDetail. Pointer + label distinguish recycled renderers.
         _actionDwellId = 0;
-        if (!TryReadActionDetailPanel(out var panelName, out var panelLevel, out var unboundDesc)
-            || string.IsNullOrWhiteSpace(panelName))
+        var key = ((nint)node).ToString() + ":" + GetActionMenuSlotLabel(node);
+        if (key != _actionDetailDwellKey)
         {
-            _actionDetailDwellKey = string.Empty;
-            return;
-        }
-
-        if (!ActionDetailNamesMatch(panelName, GetActionMenuSlotLabel(node)))
-        {
-            _actionDetailDwellKey = string.Empty;
-            return;
-        }
-
-        if (panelName != _actionDetailDwellKey)
-        {
-            _actionDetailDwellKey  = panelName;
-            _actionDwellTick       = System.Diagnostics.Stopwatch.GetTimestamp();
+            _actionDetailDwellKey = key;
+            _actionDwellTick = System.Diagnostics.Stopwatch.GetTimestamp();
             _actionDwellDescSpoken = false;
             return;
         }
-
         if (_actionDwellDescSpoken) return;
         var elapsedU = (double)(System.Diagnostics.Stopwatch.GetTimestamp() - _actionDwellTick)
-                       / System.Diagnostics.Stopwatch.Frequency;
+            / System.Diagnostics.Stopwatch.Frequency;
         if (elapsedU < ActionDescDwellSeconds) return;
-
         _actionDwellDescSpoken = true;
-        unboundDesc = FlattenDescription(_descriptions.TraitFromPanel(panelName, panelLevel, unboundDesc));
-        if (!string.IsNullOrEmpty(unboundDesc)) _tolk.Speak(unboundDesc);
+        var entry = ReadUnboundAction(node);
+        if (!string.IsNullOrWhiteSpace(entry.Description)) _tolk.Speak(FlattenDescription(entry.Description));
     }
 
     // Mitstreiter Kunststücke: Text-Tooltip name → BuddyAction sheet description.
@@ -6439,9 +6434,7 @@ public sealed partial class UIReaderService : IDisposable
     {
         text = string.Empty;
         defer = false;
-        if (!IsAddonVisible("ActionMenu")) return false;
-
-        if (!FocusIsActionSlot(node)) return false;
+        if (!IsActionMenuEntry(node)) return false;
 
         // Source the action from the tooltip binding the game creates for the
         // slot, NOT from AgentActionDetail: the agent stays at ActionId 0 under
@@ -6470,43 +6463,23 @@ public sealed partial class UIReaderService : IDisposable
             return true;
         }
 
-        // Traits without an Action tooltip: Name+Stufe from the ActionDetail
-        // panel (nodes id=5 / id=26, Log 2026-09-14). Wait until the panel
-        // matches this row so we do not attach the previous trait's level.
         var slotLabel = GetActionMenuSlotLabel(node);
-        if (TryReadActionDetailPanel(out var panelName, out var panelLevel, out _)
-            && !string.IsNullOrWhiteSpace(panelName)
-            && (string.IsNullOrWhiteSpace(slotLabel) || ActionDetailNamesMatch(panelName, slotLabel)))
+        if (!string.IsNullOrWhiteSpace(slotLabel))
         {
             _actionDetailDeferNode = 0;
             _actionDetailDeferFrames = 0;
-            var spokenName = _descriptions.TraitNameFromPanel(panelName, panelLevel);
-            text = panelLevel > 0
-                ? AccessibilityStrings.NameWithLevel(spokenName, panelLevel)
-                : spokenName;
-            _log.Info($"[ActionDetail] Panel-Fallback node id={node->NodeId} -> '{text}'");
+            var entry = ReadUnboundAction(node);
+            var level = ActionMenuText.ParseLabel(slotLabel).Level;
+            text = level > 0 ? AccessibilityStrings.NameWithLevel(entry.Name, level) : entry.Name;
             return true;
         }
-
         if ((nint)node != _actionDetailDeferNode)
         {
-            _actionDetailDeferNode   = (nint)node;
+            _actionDetailDeferNode = (nint)node;
             _actionDetailDeferFrames = 0;
         }
-
-        if (_actionDetailDeferFrames < ActionDetailDeferMaxFrames)
-        {
-            _actionDetailDeferFrames++;
-            defer = true;
-            return true;
-        }
-
-        // Panel never matched — speak the row label alone rather than stay silent.
-        _actionDetailDeferNode = 0;
-        _actionDetailDeferFrames = 0;
-        if (string.IsNullOrWhiteSpace(slotLabel)) return false;
-        text = slotLabel;
-        return true;
+        if (_actionDetailDeferFrames++ < ActionDetailDeferMaxFrames) { defer = true; return true; }
+        return false;
     }
 
     /// <summary>
@@ -6685,16 +6658,6 @@ public sealed partial class UIReaderService : IDisposable
         return FlattenDescription(text);
     }
 
-    private static bool ActionDetailNamesMatch(string panelName, string slotLabel)
-    {
-        if (string.IsNullOrWhiteSpace(panelName) || string.IsNullOrWhiteSpace(slotLabel))
-            return false;
-        var a = FlattenDescription(panelName);
-        var b = FlattenDescription(slotLabel);
-        return a.Equals(b, StringComparison.OrdinalIgnoreCase)
-               || a.Contains(b, StringComparison.OrdinalIgnoreCase)
-               || b.Contains(a, StringComparison.OrdinalIgnoreCase);
-    }
 
     /// <summary>
     /// Action tooltip on a child of the focused slot component (traits often
@@ -6702,21 +6665,29 @@ public sealed partial class UIReaderService : IDisposable
     /// </summary>
     private unsafe TooltipService.ActionRef? TryFindActionBindingNear(AtkResNode* node)
     {
-        var cur = node;
-        for (var up = 0; up < 4 && cur != null; up++, cur = cur->ParentNode)
+        // Stop at this slot's first component. Climbing into a shared list and
+        // taking its first tooltip can describe a neighbour instead of the focus.
+        for (var up = 0; node != null && up < 6; up++, node = node->ParentNode)
         {
-            if ((int)cur->Type < 1000) continue;
-            var comp = ((AtkComponentNode*)cur)->Component;
-            if (comp == null) continue;
-            for (var j = 0; j < comp->UldManager.NodeListCount; j++)
-            {
-                var child = comp->UldManager.NodeList[j];
-                if (child == null) continue;
-                var a = _tooltips.TryGetActionDeep(child, maxDepth: 2);
-                if (a != null) return a;
-            }
+            if ((int)node->Type < 1000) continue;
+            var bindings = new HashSet<TooltipService.ActionRef>();
+            CollectActionBindings(node, bindings, new HashSet<nint>(), 0);
+            return bindings.Count == 1 ? bindings.First() : null;
         }
         return null;
+    }
+
+    private unsafe void CollectActionBindings(AtkResNode* node, HashSet<TooltipService.ActionRef> bindings,
+        HashSet<nint> visited, int depth)
+    {
+        if (node == null || depth > 6 || visited.Count >= 256 || !visited.Add((nint)node)) return;
+        var binding = _tooltips.TryGetActionDeep(node, 0);
+        if (binding is { } action) bindings.Add(action);
+        if ((int)node->Type < 1000) return;
+        var component = ((AtkComponentNode*)node)->Component;
+        if (component == null) return;
+        for (var i = 0; i < component->UldManager.NodeListCount; i++)
+            CollectActionBindings(component->UldManager.NodeList[i], bindings, visited, depth + 1);
     }
 
     /// <summary>
@@ -6787,14 +6758,15 @@ public sealed partial class UIReaderService : IDisposable
     private static unsafe bool FocusIsActionSlot(AtkResNode* node)
     {
         var cur = node;
-        for (var up = 0; up < 3 && cur != null; up++)
+        for (var up = 0; up < 6 && cur != null; up++)
         {
             if ((int)cur->Type >= 1000)
             {
                 var comp = ((AtkComponentNode*)cur)->Component;
                 if (comp == null) return false;
                 var ct = comp->GetComponentType();
-                return ct is ComponentType.DragDrop or ComponentType.Icon;
+                if (ct is ComponentType.DragDrop or ComponentType.Icon) return true;
+                if (ct is ComponentType.Button or ComponentType.RadioButton or ComponentType.CheckBox) return false;
             }
             cur = cur->ParentNode;
         }
@@ -6809,7 +6781,7 @@ public sealed partial class UIReaderService : IDisposable
         DetailKind.Action                              => DescribeAction(id),
         DetailKind.CraftingAction                      => DescribeCraftAction(id),
         DetailKind.Trait                               => DescribeTrait(id),
-        _                                              => string.Empty,
+        _ => _descriptions.MenuName(kind, id),
     };
 
     /// <summary>"Name, Stufe X" for an action - the short line spoken the instant
@@ -6838,13 +6810,7 @@ public sealed partial class UIReaderService : IDisposable
     /// Spoken separately, and only after
     /// the focus dwells - see HandleActionMenuDwell.</summary>
     private string ActionMenuDescription(DetailKind kind, uint id)
-        => FlattenDescription(kind switch
-        {
-            DetailKind.Action => _descriptions.Action(id),
-            DetailKind.CraftingAction => _descriptions.CraftAction(id),
-            DetailKind.Trait => _descriptions.Trait(id),
-            _ => string.Empty,
-        });
+        => FlattenDescription(_descriptions.MenuDescription(kind, id));
 
     private string DescribeCraftAction(uint id)
     {
@@ -8224,6 +8190,7 @@ public sealed partial class UIReaderService : IDisposable
     // counts is only visible on screen.
     private unsafe void ScanAddonTexts(string addonName, AtkUnitBase* addon, bool isInit)
     {
+        if (IsTableReading) return;
         if (!_genericTextCache.TryGetValue(addonName, out var cache))
         {
             cache = new Dictionary<uint, string>();
@@ -10444,6 +10411,18 @@ public sealed partial class UIReaderService : IDisposable
 
     public void AnnounceContextHelp()
     {
+        if (IsTableReading)
+        {
+            _tolk.SpeakInterrupt(AccessibilityStrings.TableInstructions);
+            return;
+        }
+        if (IsAddonVisible("Character") || IsAddonVisible("ActionMenu"))
+        {
+            _tolk.SpeakInterrupt(AccessibilityStrings.TableHint(AccessibilityStrings.SpokenKeyLabel(_config.KeyReadTable))
+                + " " + AccessibilityStrings.TableInstructions
+                + (IsAddonVisible("ActionMenu") ? " " + AccessibilityStrings.ActionReadHint(AccessibilityStrings.SpokenKeyLabel(_config.KeyReadUI)) : ""));
+            return;
+        }
         if (IsAddonVisible("Shop"))
         {
             _tolk.SpeakInterrupt(AccessibilityStrings.ShopQuantityHint(AccessibilityStrings.SpokenKeyLabel(_config.KeyShopQuantity))
@@ -11350,6 +11329,7 @@ public sealed partial class UIReaderService : IDisposable
 
     public unsafe void ReadCurrentFocus()
     {
+        if (TryReadSelectedActionDescription()) return;
         if (TryReadSupplyPaneDetail()) return;
         // Quest-Journal offen? Dann will der User die QUEST lesen, nicht die Liste.
         if (TryReadQuestDetail()) return;
