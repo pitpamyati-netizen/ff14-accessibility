@@ -3900,12 +3900,12 @@ public static partial class AccessibilityStrings
     /// 2026-08-08): HQ material raises starting quality, so a silent zero would
     /// hide a real choice.</summary>
     public static string RecipeMaterial(string name, string needed, string nq, string hq) =>
-        L($"{name}, {needed} benötigt, {nq} NQ, {hq} HQ", $"{name}, {needed} needed, {nq} NQ, {hq} HQ", $"{name}, нужно {needed}, {nq} NQ, {hq} HQ");
+        MaterialWithStock(name, needed, nq, hq);
     /// <summary>A crystal row. The window shows crystals as icons only - it
     /// carries no name node (ilspycmd 2026-08-08: CrystalNodes has Image but no
     /// Name), so the element stays unnamed rather than guessed.</summary>
     public static string RecipeCrystal(string needed, string owned) =>
-        L($"Kristall, {needed} benötigt, {owned} im Beutel", $"Crystal, {needed} needed, {owned} in bag", $"Кристалл, нужно {needed}, в сумке {owned}");
+        L($"Kristall, {CraftingCount(needed)} benötigt, vorhanden {CraftingCount(owned)}", $"Crystal, need {CraftingCount(needed)}, have {CraftingCount(owned)}", $"Кристалл, нужно {CraftingCount(needed)}, есть {CraftingCount(owned)}");
     /// <summary>Said instead of the values when no recipe is selected yet.</summary>
     public static string RecipeNoSelection =>
         L("Kein Rezept ausgewählt.", "No recipe selected.", "Рецепт не выбран.");

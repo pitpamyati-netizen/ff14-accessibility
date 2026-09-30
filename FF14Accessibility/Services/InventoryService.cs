@@ -174,8 +174,8 @@ public sealed class InventoryService
 
     /// <summary>
     /// How many of an item the player holds, or -1 when the inventory is not
-    /// readable yet. Counts NQ only (<c>isHq: false</c> default) — for crafting
-    /// materials that accept either quality use <see cref="CountOfNqAndHq"/>.
+    /// readable yet. Counts NQ by default, or HQ when highQuality is true.
+    /// For both qualities together use <see cref="CountOfNqAndHq"/>.
     ///
     /// Uses the GAME'S OWN count (<c>InventoryManager.GetInventoryItemCount</c>),
     /// not a sum over containers: a currency like an achievement certificate
@@ -184,7 +184,7 @@ public sealed class InventoryService
     /// pieces are included for the same reason the game includes them when it
     /// decides whether a trade is affordable.
     /// </summary>
-    public unsafe int CountOf(uint itemId)
+    public unsafe int CountOf(uint itemId, bool highQuality = false)
     {
         if (itemId == 0) return -1;
 
@@ -193,7 +193,7 @@ public sealed class InventoryService
 
         try
         {
-            return manager->GetInventoryItemCount(itemId);
+            return manager->GetInventoryItemCount(itemId, isHq: highQuality);
         }
         catch (Exception ex)
         {

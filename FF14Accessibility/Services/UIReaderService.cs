@@ -13310,6 +13310,10 @@ public sealed partial class UIReaderService : IDisposable
 
         var parts = new List<string> { _inventory.TranslateItemLabel(name) };
 
+        var player = _objectTable.LocalPlayer;
+        if (player != null && player.MaxCp > 0)
+            parts.Add(AccessibilityStrings.CraftingPoints(player.CurrentCp, player.MaxCp).TrimEnd('.'));
+
         var job   = AtkText.ReadClean(addon->CurrentJobName).Trim();
         var level = AtkText.ReadClean(addon->CurrentJobLevel).Trim();
         if (job.Length > 0) parts.Add(level.Length > 0 ? $"{job} {level}" : job);
@@ -13356,61 +13360,14 @@ public sealed partial class UIReaderService : IDisposable
     /// </summary>
     private unsafe List<string> ReadRecipeMaterials(AddonRecipeNote* addon)
     {
-        var lines = new List<string>();
         var game = FFXIVClientStructs.FFXIV.Client.Game.UI.RecipeNote.Instance();
-        var recipe = game != null && game->RecipeList != null ? game->RecipeList->SelectedRecipe : null;
-        var selectedName = AtkText.ReadClean(addon->SelectedRecipeName).Trim();
-        var runtimeName = recipe != null ? AtkText.ReadClean(&recipe->ItemName).Trim() : string.Empty;
-        var useRuntime = selectedName.Length > 0
-            && string.Equals(selectedName, runtimeName, StringComparison.OrdinalIgnoreCase);
-
-        if (useRuntime)
-        {
-            var runtimeLines = new List<string>();
-            var complete = true;
-            for (var i = 0; i < recipe->Ingredients.Length; i++)
-            {
-                var ing = recipe->Ingredients[i];
-                if (ing.ItemId == 0 || ing.Amount == 0) continue;
-                var matName = AtkText.ReadClean(&ing.Name).Trim();
-                if (matName.Length == 0)
-                {
-                    complete = false;
-                    break;
-                }
-                runtimeLines.Add(AccessibilityStrings.RecipeMaterial(
-                    _inventory.ResolveItemName(ing.ItemId), ing.Amount.ToString(), ing.NQCount.ToString(), ing.HQCount.ToString()));
-            }
-            if (complete) lines.AddRange(runtimeLines);
-        }
-
-        if (lines.Count == 0)
-        {
-            foreach (var ing in addon->Ingredients)
-            {
-                var matName = AtkText.ReadClean(ing.Name).Trim();
-                if (matName.Length == 0) continue;
-                lines.Add(AccessibilityStrings.RecipeMaterial(
-                    _inventory.TranslateItemLabel(matName),
-                    AtkText.Read(ing.QuantityRequiredForCraft).Trim(),
-                    AtkText.Read(ing.QuantityInInventoryNq).Trim(),
-                    AtkText.Read(ing.QuantityInInventoryHq).Trim()));
-            }
-        }
-
-        // Crystals are icon-only in this window - CrystalNodes carries Image but
-        // no name node, so the element is announced unnamed rather than guessed.
-        for (var i = 0; i < addon->Crystals.Length; i++)
-        {
-            var crystal = addon->Crystals[i];
-            var needed = AtkText.Read(crystal.QuantityRequiredForCraft).Trim();
-            if (useRuntime && i < recipe->Crystals.Length && recipe->Crystals[i].Amount > 0)
-                needed = recipe->Crystals[i].Amount.ToString();
-            if (needed.Length == 0 || needed == "0") continue;
-            lines.Add(AccessibilityStrings.RecipeCrystal(
-                needed, AtkText.Read(crystal.QuantityInInventory).Trim()));
-        }
-
+        var data = game != null && game->IsRecipeListReady ? game->RecipeList : null;
+        var recipe = data != null && data->Recipes != null && data->SelectedIndex < data->RecipeCount
+            ? data->Recipes + data->SelectedIndex : null;
+        var lines = RecipeMaterialReader.Read(addon, recipe, _inventory.ResolveItemName,
+            _inventory.TranslateItemLabel, (id, hq) => _inventory.CountOf(id, hq));
+        _log.Info($"[Recipe] Materials: visible='{AtkText.ReadClean(addon->SelectedRecipeName)}', "
+            + $"runtime='{(recipe != null ? AtkText.ReadClean(&recipe->ItemName) : string.Empty)}', lines={lines.Count}");
         return lines;
     }
 

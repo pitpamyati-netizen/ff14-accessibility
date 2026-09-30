@@ -211,7 +211,7 @@ public sealed partial class Plugin : IDalamudPlugin
     // 6.08.18 lokal: Chat-Absender Kontextmenü (Strg+Umschalt+BildAuf) + Numpad3-Ziel.
     // 6.08.19: Charakterauswahl — eine Ansage (Name, Job, Ort) statt Scan-Sturm.
     // 6.08.20: Mitstreiter-Taste (PR 27 Port) — Strg+Umschalt+C öffnet/vorliest.
-    private const string PluginVersion    = "6.08.75";
+    private const string PluginVersion    = "6.08.76";
     // Der Tag nennt, was diese Fassung MITBRINGT, nicht woher sie stammt: die
     // russische Schicht auf dem Stand des Autors 6.08.34 (Auftragstext im
     // Quest-Tracker des Autors, siehe package-Schritt).
@@ -567,7 +567,7 @@ public sealed partial class Plugin : IDalamudPlugin
         _uiReader   = new UIReaderService(AddonLifecycle, GameGui, _tolk, Log, ObjectTable, _inventoryReader, _gearInfo, _bestiary, _huntingLog, _history, _config, DataManager, _tooltips, _charaMake, _lootRolls, _itemSlots, _gatherLog, descriptions);
         _armouryTransfer = new ArmouryTransferService(DataManager, ClientState, GameGui, _uiReader, _tolk, Log);
         _chatPlayer = new ChatPlayerService(ObjectTable, DataManager, GameGui, _navigation, _tolk, Log);
-        _synthesis   = new SynthesisService(GameGui, _tolk, Log);
+        _synthesis   = new SynthesisService(GameGui, _tolk, Log, ObjectTable);
         // [Handwerker-Notizbuch] Die Frage, die das Spiel nur fuer das ausgewaehlte
         // Rezept beantwortet: was ist mit dem Beutelinhalt jetzt herstellbar. Der
         // Bestandsleser liefert die Mengen, die Sheets die fehlenden Kristall-Ids.
@@ -974,6 +974,14 @@ public sealed partial class Plugin : IDalamudPlugin
         _tolk.SpeakInterrupt(AccessibilityStrings.DiagnoseSaved(className, path, entries));
     }
 
+    private void ReadCraftOrCurrentFocus()
+    {
+        if (_synthesis.IsWindowOpen())
+            _tolk.SpeakInterrupt(_synthesis.DescribeNow());
+        else
+            _uiReader.ReadCurrentFocus();
+    }
+
     private void OnCommand(string command, string args)
     {
         var trimmed = args.Trim();
@@ -1048,7 +1056,7 @@ public sealed partial class Plugin : IDalamudPlugin
                 _combat.AnnounceStatus();
                 break;
             case "ui":
-                _uiReader.ReadCurrentFocus();
+                ReadCraftOrCurrentFocus();
                 break;
             case "win":
                 _uiReader.AnnounceActiveWindow();
@@ -2488,7 +2496,7 @@ public sealed partial class Plugin : IDalamudPlugin
             // und keine neue Einstellung - "aktuelles Menue vorlesen" heisst hier eben
             // das.
             if (_charaMake.IsActive) _charaMake.ReadSummary();
-            else                     _uiReader.ReadCurrentFocus();
+            else                     ReadCraftOrCurrentFocus();
         }
         // [Chatstimme] Die Stopptaste leert auch deren Warteschlange - sonst liefe
         // eine lange Reihe Chatzeilen nach dem Druck einfach weiter.
