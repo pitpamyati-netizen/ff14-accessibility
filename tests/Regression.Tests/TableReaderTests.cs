@@ -69,7 +69,9 @@ public unsafe sealed class TableReaderTests : IDisposable
     {
         var reader = new TableReader();
         reader.Refresh(TableReader.Arrange("", [Cell("a", "Сила", 0, 0), Cell("b", "21", 20, 0), Cell("c", "Ловкость", 40, 0), Cell("d", "45", 60, 0)]));
-        reader.MoveColumn(3);
+        Assert.Equal(2, reader.Rows.Count);
+        reader.MoveRow(1);
+        reader.MoveColumn(1);
         Assert.EndsWith("Ловкость: 45", reader.SpeakCell());
         Assert.DoesNotContain("Сила", reader.SpeakCell());
     }
@@ -93,6 +95,52 @@ public unsafe sealed class TableReaderTests : IDisposable
             .Concat(TableReader.Arrange("B", [Cell("b1", "B1", 0, 0)])).ToArray());
         reader.MoveSection(1); Assert.Equal(2, reader.RowIndex);
         reader.MoveSection(-1); Assert.Equal(0, reader.RowIndex);
+    }
+    [Fact]
+    public void RecordedIndependentLabelsAreNeverUsedAsEachOthersContext()
+    {
+        var reader = new TableReader();
+        reader.Refresh(TableReader.Arrange("Персонаж", [Cell("a", "Рекомендованное снаряжение", 0, 0),
+            Cell("b", "Список комплектов снаряжения", 100, 0)]));
+        Assert.Equal(2, reader.Rows.Count);
+        reader.MoveRow(1);
+        Assert.DoesNotContain("Рекомендованное", reader.SpeakCell());
+        // Even an explicitly provided multi-field row must not turn labels into values.
+        reader.Refresh([new("", [Cell("hp", "ОЗ", 0, 0), Cell("n", "248", 100, 0), Cell("mp", "ОМ", 200, 0)])]);
+        reader.MoveColumn(2);
+        Assert.EndsWith("ОМ", reader.SpeakCell());
+        Assert.DoesNotContain("ОЗ:", reader.SpeakCell());
+    }
+    [Fact]
+    public void SectionIsSpokenOnlyOnEntryIncludingRepeatRefreshAndReturn()
+    {
+        var rows = new TableReader.Row[] {
+            new("Атака", [Cell("a", "Крит. удар", 0, 0), Cell("v", "96", 100, 0)]),
+            new("Атака", [Cell("b", "Решительность", 0, 20), Cell("w", "47", 100, 20)]),
+            new("Защита", [Cell("c", "Физическая", 200, 0), Cell("z", "56", 300, 0)]) };
+        var reader = new TableReader(); reader.Refresh(rows);
+        Assert.StartsWith("Атака. Крит. удар: 96", reader.SpeakRow());
+        Assert.DoesNotContain("Атака", reader.SpeakRow());
+        reader.Refresh(rows); reader.MoveRow(1);
+        Assert.DoesNotContain("Атака", reader.SpeakRow());
+        reader.MoveSection(1); Assert.StartsWith("Защита.", reader.SpeakRow());
+        reader.MoveSection(-1); Assert.StartsWith("Атака.", reader.SpeakRow());
+    }
+    [Fact]
+    public void NumericControlCannotBorrowLabelFromAnotherControl()
+    {
+        var rows = TableReader.Arrange("", [Cell("label", "Сила", 0, 0) with { Group = "first" },
+            Cell("value", "64", 100, 0) with { Group = "other" }]);
+        Assert.Equal(2, rows.Count);
+        var reader = new TableReader(); reader.Refresh(rows); reader.MoveRow(1);
+        Assert.DoesNotContain("Сила", reader.SpeakCell());
+    }
+    [Fact]
+    public void WindowTitleIsNotRepeatedAsBothSectionAndContent()
+    {
+        var reader = new TableReader();
+        reader.Refresh(TableReader.Arrange("Персонаж", [Cell("title", "Персонаж", 0, 0)]));
+        Assert.Equal("Персонаж. Строка 1 из 1.", reader.SpeakRow());
     }
     [Fact]
     public void HiddenAncestorsAndCyclicTreesCannotLeakOtherTabs()

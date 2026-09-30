@@ -2428,7 +2428,7 @@ public static partial class AccessibilityStrings
         L("Achtung, nicht anvisiert.", "Warning, not targeted.", "Внимание, цель не выбрана.");
 
     /// <summary>The full "/acc help" readout: every plugin hotkey and command.
-    /// Keys are the current defaults (Page keys, Numpad 3, Plus - kept in sync
+    /// Keys are the current defaults (Page keys, Numpad 3, Alt+F - kept in sync
     /// with <see cref="Configuration"/>).</summary>
     public static string HelpFull => L(
         "Tasten: " +
@@ -2438,7 +2438,7 @@ public static partial class AccessibilityStrings
           "Strg+Bild auf, Kategorie zurück. " +
           "Strg+Nummernblock 3, Gehhilfe an oder aus, folgt dem Wegenetz um Hindernisse. " +
           "Nummernblock 3, automatisch zum Ziel laufen. " +
-          "Plus, dem anvisierten Ziel folgen an oder aus. " +
+          "Alt+F, dem anvisierten Ziel folgen an oder aus. " +
           "Strg+Nummernblock 5, Weg zum Ziel ansagen ohne zu laufen. " +
           "F, zum Ziel hindrehen. W, laufen. " +
           "Strg+F1, diese Hilfe. " +
@@ -2480,7 +2480,7 @@ public static partial class AccessibilityStrings
           "Ctrl+Page Up, previous category. " +
           "Ctrl+Numpad 3, walk guide on or off, follows the navmesh around obstacles. " +
           "Numpad 3, walk to the target automatically. " +
-          "Plus, follow the current target on or off. " +
+          "Alt+F, follow the current target on or off. " +
           "Ctrl+Numpad 5, describe the route to the target without walking. " +
           "F, turn toward the target. W, move forward. " +
           "Ctrl+F1, this help. " +
@@ -2526,7 +2526,7 @@ public static partial class AccessibilityStrings
           "Ctrl+Page Up, предыдущая категория. " +
           "Ctrl+Numpad 3, проводник ходьбы включить или выключить, идёт по навигационной сетке в обход препятствий. " +
           "Numpad 3, автоматически идти к цели. " +
-          "Plus, следовать за выбранной целью включить или выключить. " +
+          "Alt+F, следовать за выбранной целью включить или выключить. " +
           "Ctrl+Numpad 5, описать путь к цели, не идя. " +
           "F, повернуться к цели. W, идти вперёд. " +
           "Ctrl+F1, эта справка. " +

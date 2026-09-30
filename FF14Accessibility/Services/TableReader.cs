@@ -4,11 +4,12 @@ namespace FF14Accessibility.Services;
 /// so changing a quantity does not move the reader to a different row.</summary>
 internal sealed class TableReader
 {
-    internal sealed record Cell(string Key, string Text, float X, float Y, float Height);
+    internal sealed record Cell(string Key, string Text, float X, float Y, float Height, string Group = "", string Label = "");
     internal sealed record Row(string Section, IReadOnlyList<Cell> Cells);
     internal IReadOnlyList<Row> Rows { get; private set; } = [];
     internal int RowIndex { get; private set; }
     internal int ColumnIndex { get; private set; }
+    private string? spokenSection;
 
     internal static IReadOnlyList<Row> Arrange(string section, IEnumerable<Cell> cells)
     {
@@ -29,12 +30,29 @@ internal sealed class TableReader
             }
             else
             {
-                result.Add(new Row(section, line.OrderBy(c => c.X).ToArray()));
+                AddLine(section, line, result);
                 line = [cell]; top = cell.Y; tolerance = Math.Clamp(cell.Height * .35f, 2, 10);
             }
         }
-        if (line.Count > 0) result.Add(new Row(section, line.OrderBy(c => c.X).ToArray()));
+        if (line.Count > 0) AddLine(section, line, result);
         return result;
+    }
+
+    private static void AddLine(string section, List<Cell> line, List<Row> result)
+    {
+        // A visual line can contain independent controls or several label/value
+        // pairs. Neither the screen Y nor the previous text proves ownership.
+        var fields = new List<Cell>();
+        foreach (var cell in line.OrderBy(c => c.X))
+        {
+            if (fields.Count > 0 && (cell.Group != fields[0].Group || !IsNumber(cell.Text)))
+            {
+                result.Add(new Row(section, fields.ToArray()));
+                fields.Clear();
+            }
+            fields.Add(cell);
+        }
+        if (fields.Count > 0) result.Add(new Row(section, fields.ToArray()));
     }
 
     internal bool Refresh(IReadOnlyList<Row> rows)
@@ -69,12 +87,43 @@ internal sealed class TableReader
                 RowIndex = i; ColumnIndex = 0; return;
             }
     }
-    internal string SpeakRow() => Rows.Count == 0 ? AccessibilityStrings.TableEmpty
-        : AccessibilityStrings.TableRow(Rows[RowIndex].Section, RowIndex + 1, Rows.Count,
-            string.Join("; ", Rows[RowIndex].Cells.Select(c => c.Text)));
-    internal string SpeakCell() => Rows.Count == 0 ? AccessibilityStrings.TableEmpty
-        : AccessibilityStrings.TableCell(ColumnIndex + 1, Rows[RowIndex].Cells.Count,
-            Rows[RowIndex].Cells.Take(ColumnIndex).LastOrDefault(c => !IsNumber(c.Text))?.Text ?? "",
-            Rows[RowIndex].Cells[ColumnIndex].Text);
-    private static bool IsNumber(string text) => text.All(c => char.IsDigit(c) || char.IsWhiteSpace(c) || ",.%/+-".Contains(c));
+    internal string SpeakRow()
+    {
+        if (Rows.Count == 0) return AccessibilityStrings.TableEmpty;
+        var row = Rows[RowIndex];
+        var parts = row.Cells.Select((cell, i) => i == 0 ? cell.Text
+            : (LabelFor(row, i) == row.Cells[i - 1].Text ? ": " : "; ") + cell.Text);
+        var section = SectionToSpeak();
+        if (row.Cells.Count == 1 && row.Cells[0].Text == section) section = "";
+        return AccessibilityStrings.TableRow(section, RowIndex + 1, Rows.Count, string.Concat(parts));
+    }
+
+    internal string SpeakCell()
+    {
+        if (Rows.Count == 0) return AccessibilityStrings.TableEmpty;
+        var row = Rows[RowIndex];
+        var section = SectionToSpeak();
+        return (section.Length == 0 ? "" : section + ". ")
+            + AccessibilityStrings.TableCell(ColumnIndex + 1, row.Cells.Count,
+                LabelFor(row, ColumnIndex), row.Cells[ColumnIndex].Text);
+    }
+
+    private string SectionToSpeak()
+    {
+        var section = Rows[RowIndex].Section;
+        if (section == spokenSection) return "";
+        spokenSection = section;
+        return section;
+    }
+
+    private static string LabelFor(Row row, int index)
+    {
+        var cell = row.Cells[index];
+        if (cell.Label.Length > 0) return cell.Label;
+        if (!IsNumber(cell.Text)) return "";
+        return row.Cells.Take(index).LastOrDefault(c => c.Group == cell.Group && !IsNumber(c.Text))?.Text ?? "";
+    }
+
+    private static bool IsNumber(string text) => text.Any(char.IsDigit)
+        && text.All(c => char.IsDigit(c) || char.IsWhiteSpace(c) || ",.%/+-−".Contains(c));
 }

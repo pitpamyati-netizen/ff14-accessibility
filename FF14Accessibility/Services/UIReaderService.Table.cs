@@ -37,7 +37,7 @@ public sealed partial class UIReaderService
         var owner = TableOwner();
         if (owner == null) { _tolk.SpeakInterrupt(AccessibilityStrings.TableEmpty); return false; }
         var reader = new TableReader();
-        if (!reader.Refresh(ReadTableRows(owner))) { _tolk.SpeakInterrupt(AccessibilityStrings.TableEmpty); return false; }
+        if (!reader.Refresh(ReadTableRows(owner, trace: true))) { _tolk.SpeakInterrupt(AccessibilityStrings.TableEmpty); return false; }
         _tableReader = reader;
         _tableAddonName = owner->NameString;
         _tableAddonAddress = (nint)owner;
@@ -46,6 +46,11 @@ public sealed partial class UIReaderService
         _actionDwellDescSpoken = true;
         _tolk.SpeakInterrupt(AccessibilityStrings.TableInstructions + " " + reader.SpeakRow());
         _log.Info($"[TableReader] Open {_tableAddonName}: {reader.Rows.Count} rows, read-only.");
+        for (var i = 0; i < reader.Rows.Count; i++)
+        {
+            var row = reader.Rows[i];
+            _log.Info($"[TableReader] Row {i + 1}: section='{row.Section}' fields=[{string.Join(" | ", row.Cells.Select(c => c.Text))}]");
+        }
         return true;
     }
 
@@ -91,10 +96,11 @@ public sealed partial class UIReaderService
         _tolk.SpeakInterrupt(text);
     }
 
-    private unsafe IReadOnlyList<TableReader.Row> ReadTableRows(AtkUnitBase* owner)
+    private unsafe IReadOnlyList<TableReader.Row> ReadTableRows(AtkUnitBase* owner, bool trace = false)
     {
         var rows = new List<TableReader.Row>();
-        AddTableRows(owner, rows);
+        // In C the requested attributes come first; window controls follow them.
+        if (owner->NameString != "Character") AddTableRows(owner, rows, trace);
         // Character attributes/profile are separate addons. Include only actual
         // visible children, or the known Character panels, never another window.
         var manager = RaptureAtkUnitManager.Instance();
@@ -107,13 +113,14 @@ public sealed partial class UIReaderService
                     || (owner->NameString == "Character" && IsCharacterPanel(child->NameString)))
                 {
                     if (child->NameString is "ActionDetail" or "ItemDetail" or "Tooltip") continue;
-                    AddTableRows(child, rows);
+                    AddTableRows(child, rows, trace);
                 }
             }
+        if (owner->NameString == "Character") AddTableRows(owner, rows, trace);
         return rows;
     }
 
-    private unsafe void AddTableRows(AtkUnitBase* addon, List<TableReader.Row> rows)
+    private unsafe void AddTableRows(AtkUnitBase* addon, List<TableReader.Row> rows, bool trace = false)
     {
         var title = ReadWindowTitle(addon);
         if (string.IsNullOrWhiteSpace(title)) title = addon->NameString switch
@@ -124,6 +131,16 @@ public sealed partial class UIReaderService
             "CharacterRepute" => AccessibilityStrings.CharacterTabFallback(3),
             _ => AccessibilityStrings.TableWindow,
         };
+        if (addon->NameString == "CharacterStatus"
+            && CharacterStatusTable.TryRead(addon, title,
+                ptr => FlattenDescription(AtkText.Read((AtkTextNode*)ptr)), out var statusRows))
+        {
+            if (trace) _log.Info("[TableReader] CharacterStatus: verified container layout.");
+            rows.AddRange(statusRows);
+            return;
+        }
+        if (trace && addon->NameString == "CharacterStatus")
+            _log.Info("[TableReader] CharacterStatus: layout unavailable; reading separate visible controls.");
         var cells = new List<TableReader.Cell>();
         var visited = new HashSet<nint>();
         for (var i = 0; i < addon->UldManager.NodeListCount; i++)
@@ -143,6 +160,12 @@ public sealed partial class UIReaderService
         for (var i = 0; node != null && i < 6; i++, node = node->ParentNode)
         {
             if ((int)node->Type < 1000) continue;
+            if (CharacterStatusTable.TryStat(node,
+                ptr => FlattenDescription(AtkText.Read((AtkTextNode*)ptr)), out var stat))
+            {
+                text = $"{stat[0].Text}: {stat[1].Text}";
+                return true;
+            }
             var cells = new List<TableReader.Cell>();
             CollectTableCells(node, cells, [], 0);
             if (cells.Count < 2) return false;

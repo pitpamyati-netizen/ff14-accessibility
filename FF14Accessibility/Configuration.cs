@@ -37,7 +37,7 @@ public sealed class Configuration : IPluginConfiguration
     // CAMERA_ZOOMOUT). Nur Strg+Numpad-Kombis sind zuverlaessig.
     public string KeyWalkGuide    = "Strg+Numpad3";     // Gehhilfe an/aus (neben Auto-Lauf Numpad3; Strg+Numpad3 laut Keybind-Dump frei)
     public string KeyAutoWalk     = "Numpad3";          // Auto-Lauf zum Ziel an/aus (braucht vnavmesh)
-    public string KeyFollowTarget = "+";                // Anvisiertem Ziel fortlaufend folgen an/aus (braucht vnavmesh). BARE + (VK_OEM_PLUS, NICHT Numpad+), im Keybind-Dump 2026-07-26 spielfrei
+    public string KeyFollowTarget = "Alt+F";            // Follow target (vnavmesh). The old OEM_PLUS key is also '=' on the hotbar.
     public string KeyRoutePreview = "Strg+Numpad5";     // Routen-Vorschau: Weg ansagen ohne zu laufen (Numpad5 hat die tastbare Erhebung; bare Numpad5=CAMERA_FOCUS, Strg+Numpad5 frei)
     public string KeyFaceWaypoint = "Numpad5";          // Einmal zur Wegrichtung der Gehhilfe drehen. Bare Numpad5 ist im Keybind-Dump CAMERA_FOCUS - vom User bewusst geopfert (rein visuell), das Plugin SCHLUCKT die Taste, damit die Kamera nicht zusaetzlich springt.
     public string KeyGotoCoords   = "Strg+Umschalt+F1"; // Zu Koordinaten aus der Zwischenablage laufen (z.B. "24.1 21.0" kopieren, dann Taste). Alle Strg+F/Umschalt+F sind belegt; Strg+F* ist laut Keybind-Dump spielfrei, also ist Strg+Umschalt+F* erst recht frei.
@@ -230,6 +230,16 @@ public sealed class Configuration : IPluginConfiguration
     // Dreifachgriff hier richtig.
     public string KeyPartyMonitor   = "Strg+Umschalt+F11"; // Heilmonitor an/aus
     public string KeyPartyRoster    = "Strg+Umschalt+F12"; // Gruppe mit Nummern vorlesen (welche Nummer ist wer)
+
+    /// <summary>Move the old follow default off the hotbar's equals key once.</summary>
+    public bool MigrateFollowTargetKey()
+    {
+        // Local saved configurations already use versions 15/16.
+        if (Version >= 17) return false;
+        if (KeyFollowTarget?.Trim() is "+" or "=") KeyFollowTarget = "Alt+F";
+        Version = 17;
+        return true;
+    }
 
     /// <summary>Resets all hotkeys to the current defaults (used by config migration).</summary>
     public void ResetKeysToDefaults()

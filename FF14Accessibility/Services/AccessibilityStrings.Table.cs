@@ -12,8 +12,11 @@ public static partial class AccessibilityStrings
     public static string TableChanged => L("Fenster gewechselt. Lesemodus beendet.", "Window changed. Reading mode closed.", "Окно изменилось. Режим чтения закрыт.");
     public static string TableWindow => L("Fenster", "Window", "Окно");
     public static string TableRow(string section, int index, int total, string text) => L(
-        $"{section}. Zeile {index} von {total}. {text}", $"{section}. Row {index} of {total}. {text}",
-        $"{section}. Строка {index} из {total}. {text}");
+        $"{(section.Length > 0 ? section + ". " : "")}{text}. Zeile {index} von {total}.",
+        $"{(section.Length > 0 ? section + ". " : "")}{text}. Row {index} of {total}.",
+        $"{(section.Length > 0 ? section + ". " : "")}{text}. Строка {index} из {total}.");
+    public static string TableCurrentMaximum(string current, string maximum) => L(
+        $"{current} von {maximum}", $"{current} of {maximum}", $"{current} из {maximum}");
     public static string TableCell(int index, int total, string context, string text) => L(
         $"Feld {index} von {total}. {(context.Length > 0 ? context + ": " : "")}{text}",
         $"Field {index} of {total}. {(context.Length > 0 ? context + ": " : "")}{text}",

@@ -213,7 +213,7 @@ public sealed partial class Plugin : IDalamudPlugin
     // 6.08.18 lokal: Chat-Absender Kontextmenü (Strg+Umschalt+BildAuf) + Numpad3-Ziel.
     // 6.08.19: Charakterauswahl — eine Ansage (Name, Job, Ort) statt Scan-Sturm.
     // 6.08.20: Mitstreiter-Taste (PR 27 Port) — Strg+Umschalt+C öffnet/vorliest.
-    private const string PluginVersion    = "6.08.79";
+    private const string PluginVersion    = "6.08.81";
     // Der Tag nennt, was diese Fassung MITBRINGT, nicht woher sie stammt: die
     // russische Schicht auf dem Stand des Autors 6.08.34 (Auftragstext im
     // Quest-Tracker des Autors, siehe package-Schritt).
@@ -378,6 +378,9 @@ public sealed partial class Plugin : IDalamudPlugin
             _config.Version = 14;
             PluginInterface.SavePluginConfig(_config);
         }
+        if (_config.MigrateFollowTargetKey())
+            PluginInterface.SavePluginConfig(_config);
+
         // Language for all mod announcements (Auto = follow Windows). Must be set
         // before the first Speak below.
         Loc.Mode = _config.Language;
@@ -1520,7 +1523,7 @@ public sealed partial class Plugin : IDalamudPlugin
         return parsed;
     }
 
-    private bool IsJustPressed(string keySpec, bool allowTextInput = false)
+    private bool IsJustPressed(string keySpec, bool allowTextInput = false, bool consume = false)
     {
         // While a game text field has focus (chat, search box, name entry, ...)
         // every keystroke belongs to that field. Standing down here suppresses
@@ -1533,12 +1536,18 @@ public sealed partial class Plugin : IDalamudPlugin
         if (_textInputActive && !allowTextInput) return false;
 
         var (vk, ctrl, shift, alt) = ParseKeySpec(keySpec);
-        if (vk < 0 || !_keyJustPressed[vk]) return false;
+        if (vk < 0 || (!_keyJustPressed[vk] && (!consume || !_keyWasDown[vk]))) return false;
         // Exact modifier match: bare "N" must NOT fire while Alt is held,
         // because the game binds Alt+N (Neulingschat) itself.
-        return KeyState[Dalamud.Game.ClientState.Keys.VirtualKey.CONTROL] == ctrl
-            && KeyState[Dalamud.Game.ClientState.Keys.VirtualKey.SHIFT]   == shift
-            && KeyState[Dalamud.Game.ClientState.Keys.VirtualKey.MENU]    == alt;
+        if (KeyState[Dalamud.Game.ClientState.Keys.VirtualKey.CONTROL] != ctrl
+            || KeyState[Dalamud.Game.ClientState.Keys.VirtualKey.SHIFT] != shift
+            || KeyState[Dalamud.Game.ClientState.Keys.VirtualKey.MENU] != alt) return false;
+
+        // Follow owns its chord, including held frames, so Alt+F cannot also
+        // activate a game shortcut. Text input and other modifiers still pass through.
+        if (consume && _keyWasDown[vk])
+            KeyState[(Dalamud.Game.ClientState.Keys.VirtualKey)vk] = false;
+        return _keyJustPressed[vk];
     }
 
     // Numpad keys that drive the modal assignment menu. All are game-bound
@@ -2504,7 +2513,7 @@ public sealed partial class Plugin : IDalamudPlugin
                 case MarkerResolve.Failed:   break; // reason already announced
             }
         }
-        if (IsJustPressed(_config.KeyFollowTarget))
+        if (IsJustPressed(_config.KeyFollowTarget, consume: true))
         {
             // Follow the current game target continuously (own vnavmesh follow -
             // FFXIV has no plugin-callable native follow). A walk guide would fight
