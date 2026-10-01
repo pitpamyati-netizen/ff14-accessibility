@@ -4,6 +4,22 @@
 возможностей, заново проверенных в игре. Сравнение сохранено в Git; исходный локальный
 снимок помечен `recovery/local-6.08.61`.
 
+## Отключение русского перевода предметов и умений — 6.08.85
+
+- `Configuration.TranslateItemsAndActions`, `Loc`, `GameTextTranslation`,
+  `AccessibilityStrings.Translation`: отдельная сохранённая настройка и команды
+  `/acc translate off/on`, `/acc перевод выкл/вкл`; без аргумента — состояние.
+  Старые настройки сохраняют перевод. Неверные аргументы не меняют настройку.
+- `GameDescriptionService`, `RussianGameText`: единое условие для названий
+  и описаний предметов/умений; при отключении — текст игровых данных.
+  Русские подсказки, классы, места и внешняя локализация игры не переключаются.
+- `InventoryService`, `SpecialShopService`, `AozNotebookService`,
+  `AozSpellSourceService`, `GameDescriptionService.ActionMenu`: списки и
+  сопоставление имён учитывают настройку при следующем чтении.
+- `GameTextTranslationTests`, `TranslationToggleChecks`: сохранение и обратное
+  включение, языки, старые настройки, точный текст из реальных игровых таблиц,
+  уже заполненные списки синей магии и меню. Живая речь остаётся непроверенной.
+
 ## Исправления после проверки 6.08.78–6.08.83 — 6.08.84
 
 - `AccessibilityStrings.CharaMakeClasses`, `RussianCharaMakeClasses.json`,

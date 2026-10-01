@@ -45,11 +45,13 @@ if (!service.GeneralAction(30).Contains("питомца")) throw new Exception("
 if (!service.MainCommand(1).Contains("оружие")) throw new Exception("Missing main-command description.");
 data.Language = ClientLanguage.English; Loc.Mode = LanguageMode.English;
 if (service.GeneralAction(30) != "Change the order of hotbar-assigned actions.") throw new Exception("English fallback changed.");
+var translationAssertions = TranslationToggleChecks.Run(game, data, service, log);
 var report = new { CheckedAt = DateTimeOffset.Now, Cases = results, AdditionalAssertions = 3,
+    TranslationToggleAssertions = translationAssertions,
     InGameVerified = false, DynamicNumbersEvaluated = false };
 File.WriteAllText(args[1], JsonSerializer.Serialize(report, new JsonSerializerOptions { WriteIndented = true,
     Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }));
-Console.WriteLine($"Passed {results.Count * 2 + 3} assertions using real game sheets and recorded skill labels. Dynamic formulas and native focus require the game.");
+Console.WriteLine($"Passed {results.Count * 2 + 3} menu assertions and {translationAssertions} translation-toggle assertions using real game sheets. Dynamic formulas and native focus require the game.");
 
 public class SilentLog : DispatchProxy
 {

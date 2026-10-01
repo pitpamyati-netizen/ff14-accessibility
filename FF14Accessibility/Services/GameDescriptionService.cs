@@ -58,7 +58,7 @@ public sealed partial class GameDescriptionService
 
     public string BuddyActionNameFromPanel(string fallback)
     {
-        if (!Loc.IsRussian) return fallback;
+        if (!Loc.IsRussianItemActionText) return fallback;
         string? translated = null;
         foreach (var row in _data.GetExcelSheet<BuddyAction>())
         {
@@ -74,7 +74,7 @@ public sealed partial class GameDescriptionService
 
     public string TraitFromPanel(string name, int level, string fallback)
     {
-        if (!Loc.IsRussian) return fallback;
+        if (!Loc.IsRussianItemActionText) return fallback;
         string? resolved = null;
         foreach (var row in _data.GetExcelSheet<Trait>())
         {
@@ -92,7 +92,7 @@ public sealed partial class GameDescriptionService
 
     public string TraitNameFromPanel(string name, int level)
     {
-        if (!Loc.IsRussian) return name;
+        if (!Loc.IsRussianItemActionText) return name;
         string? resolved = null;
         foreach (var row in _data.GetExcelSheet<Trait>())
         {
@@ -112,7 +112,7 @@ public sealed partial class GameDescriptionService
         if (id == 0 || !_data.GetExcelSheet<T>().TryGetRow(id, out var row)) return string.Empty;
         var original = field(row);
         var catalog = names ? _russianNames : _russian;
-        if (Loc.IsRussian && catalog != null)
+        if (GameTextTranslation.ShouldTranslate(typeof(T).Name) && catalog != null)
         {
             try
             {

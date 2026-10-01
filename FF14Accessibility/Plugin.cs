@@ -213,7 +213,7 @@ public sealed partial class Plugin : IDalamudPlugin
     // 6.08.18 lokal: Chat-Absender Kontextmenü (Strg+Umschalt+BildAuf) + Numpad3-Ziel.
     // 6.08.19: Charakterauswahl — eine Ansage (Name, Job, Ort) statt Scan-Sturm.
     // 6.08.20: Mitstreiter-Taste (PR 27 Port) — Strg+Umschalt+C öffnet/vorliest.
-    private const string PluginVersion    = "6.08.84";
+    private const string PluginVersion    = "6.08.85";
     // Der Tag nennt, was diese Fassung MITBRINGT, nicht woher sie stammt: die
     // russische Schicht auf dem Stand des Autors 6.08.34 (Auftragstext im
     // Quest-Tracker des Autors, siehe package-Schritt).
@@ -384,6 +384,7 @@ public sealed partial class Plugin : IDalamudPlugin
         // Language for all mod announcements (Auto = follow Windows). Must be set
         // before the first Speak below.
         Loc.Mode = _config.Language;
+        Loc.TranslateItemsAndActions = _config.TranslateItemsAndActions;
 
         TolkNative.Initialize(PluginInterface.AssemblyLocation.DirectoryName!);
         // Das Dalamud-Log ist eine wachsende Datei (heute 4,7 MB im eigenen
@@ -942,7 +943,7 @@ public sealed partial class Plugin : IDalamudPlugin
         // /acc diag â†’ Diagnosedatei auf den Desktop (Fehlerbericht)
         CommandManager.AddHandler("/acc", new CommandInfo(OnCommand)
         {
-            HelpMessage = "FF14 Accessibility: nav, set, near, mods, fps, perform, spawn, keys, diag, stop, help"
+            HelpMessage = "FF14 Accessibility: nav, set, near, translate, mods, fps, perform, spawn, keys, diag, stop, help"
         });
     }
 
@@ -992,6 +993,14 @@ public sealed partial class Plugin : IDalamudPlugin
     private void OnCommand(string command, string args)
     {
         var trimmed = args.Trim();
+
+        var translationReply = GameTextTranslation.HandleCommand(trimmed, _config,
+            () => PluginInterface.SavePluginConfig(_config));
+        if (translationReply != null)
+        {
+            _tolk.SpeakInterrupt(translationReply);
+            return;
+        }
 
         // "dump" nimmt einen optionalen Addon-Namen â€” muss vor dem switch geprüft werden
         if (trimmed.StartsWith("dump", StringComparison.OrdinalIgnoreCase))

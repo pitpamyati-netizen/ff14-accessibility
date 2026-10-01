@@ -30,6 +30,12 @@ public static class Loc
     /// <summary>The active language selection (mirrors Configuration.Language).</summary>
     public static LanguageMode Mode { get; set; } = LanguageMode.Auto;
 
+    /// <summary>Saved separately from the language of plugin announcements.</summary>
+    public static bool TranslateItemsAndActions { get; set; } = true;
+
+    /// <summary>Current translation state for item/ability speech and its caches.</summary>
+    public static bool IsRussianItemActionText => IsRussian && TranslateItemsAndActions;
+
     /// <summary>Two-letter code of the Windows UI language, lower case.</summary>
     private static string OsLanguage =>
         CultureInfo.CurrentUICulture.TwoLetterISOLanguageName.ToLowerInvariant();

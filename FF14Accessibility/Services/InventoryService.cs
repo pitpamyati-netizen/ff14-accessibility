@@ -671,10 +671,10 @@ public sealed class InventoryService
         if (BuildOwnedIconMap().TryGetValue(iconId, out var owned))
             return (owned.ItemId == 0 ? owned.Name : ResolveItemLabel(owned.ItemId), owned.ItemId);
 
-        if (_iconSheetCache == null || _iconSheetRussian != Loc.IsRussian)
+        if (_iconSheetCache == null || _iconSheetRussian != Loc.IsRussianItemActionText)
         {
             _iconSheetCache = BuildIconSheetCache();
-            _iconSheetRussian = Loc.IsRussian;
+            _iconSheetRussian = Loc.IsRussianItemActionText;
         }
         return _iconSheetCache.TryGetValue(iconId, out var sheet)
             ? (sheet.ItemId == 0 ? sheet.Name : ResolveItemLabel(sheet.ItemId), sheet.ItemId)

@@ -15,6 +15,10 @@ public sealed class Configuration : IPluginConfiguration
     // kommen bereits in der Spielsprache vom Spiel. Siehe Loc / AccessibilityStrings.
     public LanguageMode Language = LanguageMode.Auto;
 
+    // Russian item/ability names and descriptions in speech. Missing fields in
+    // older settings keep the existing translation behaviour.
+    public bool TranslateItemsAndActions = true;
+
     // Tastaturbelegung. Standard ab V4.21 kollisionsfrei laut Live-Keybind-Dump
     // (2026-07-10): N ist der einzige freie Buchstabe, Strg+F1..F12 sind frei.
     // Format: "Taste" oder "Strg+Umschalt+Taste" (Modifier: Strg, Umschalt, Alt).

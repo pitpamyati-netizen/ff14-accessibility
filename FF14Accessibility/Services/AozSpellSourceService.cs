@@ -102,13 +102,14 @@ public sealed unsafe class AozSpellSourceService
     }
 
     /// <summary>Alle 124 Zauber mit ihrem Fundort, unabhaengig vom Fortschritt.</summary>
-    private bool _namesRussian;
+    private (bool Russian, bool Translate) _namesLanguage;
     public IReadOnlyList<AozSpellTarget> GetAll()
     {
-        if (_all == null || _namesRussian != Loc.IsRussian)
+        var language = (Loc.IsRussian, Loc.TranslateItemsAndActions);
+        if (_all == null || _namesLanguage != language)
         {
             _all = Build();
-            _namesRussian = Loc.IsRussian;
+            _namesLanguage = language;
         }
         return _all;
     }

@@ -22,7 +22,7 @@ internal static class RussianGameText
         where T : struct, IExcelRow<T>
     {
         var original = field(row);
-        if (!Loc.IsRussian || Names.Value == null) return original;
+        if (!GameTextTranslation.ShouldTranslate(typeof(T).Name) || Names.Value == null) return original;
         try
         {
             if (data.GetExcelSheet<T>(ClientLanguage.English).TryGetRow(row.RowId, out var english))

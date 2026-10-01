@@ -8,12 +8,12 @@ namespace FF14Accessibility.Services;
 
 public sealed partial class GameDescriptionService
 {
-    private readonly Dictionary<(string Name, int Level, LanguageMode Mode), (DetailKind Kind, uint Id)[]> _menuMatches = new();
+    private readonly Dictionary<(string Name, int Level, LanguageMode Mode, bool Translate), (DetailKind Kind, uint Id)[]> _menuMatches = new();
 
     internal ActionMenuText.Entry FromActionMenuLabel(string label, string panelDescription = "", IReadOnlySet<uint>? menuTraitIds = null)
     {
         var (name, level) = ActionMenuText.ParseLabel(label);
-        var key = (name, level, Loc.Mode);
+        var key = (name, level, Loc.Mode, Loc.TranslateItemsAndActions);
         if (!_menuMatches.TryGetValue(key, out var matches))
         {
             var found = new List<(DetailKind, uint)>();
@@ -46,7 +46,7 @@ public sealed partial class GameDescriptionService
                 || (english.TryGetRow(row.RowId, out var en) && nameField(en).ExtractText().Trim().Equals(name, StringComparison.OrdinalIgnoreCase));
             if (match) found.Add((kind, row.RowId));
         }
-        if (Loc.IsRussian && _russianNames != null)
+        if (GameTextTranslation.ShouldTranslate(typeof(T).Name) && _russianNames != null)
             foreach (var id in _russianNames.FindNameCandidates(typeof(T).Name + "Name", name))
                 if (current.TryGetRow(id, out var row) && (level == 0 || levelField(row) == level)
                     && MenuName(kind, id).Equals(name, StringComparison.OrdinalIgnoreCase))

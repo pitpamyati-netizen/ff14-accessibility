@@ -2466,6 +2466,7 @@ public static partial class AccessibilityStrings
           "/acc ui, Menü vorlesen. " +
           "/acc win, Aktives Fenster ansagen. " +
           "/acc keys, Spiel-Tastenbelegung auf den Desktop speichern. " +
+          "/acc translate off oder on, russische Gegenstands- und Faehigkeitsuebersetzung aus oder an. " +
           "/acc cooldowns, Fähigkeit-bereit-Ansage an oder aus. " +
           "/acc fly, Fliegen beim Auto-Lauf an oder aus, und sagt ob es hier geht. " +
           "/acc gegner, alle Gegner im Kampf mit Farbe, Leben und wer auf dir ist. " +
@@ -2508,6 +2509,7 @@ public static partial class AccessibilityStrings
           "/acc ui, read the current menu. " +
           "/acc win, announce the active window. " +
           "/acc keys, save the game's key bindings to the desktop. " +
+          "/acc translate off or on, Russian item and ability translation off or on. " +
           "/acc cooldowns, ability-ready announcements on or off. " +
           "/acc fly, flying during auto-walk on or off, and whether it works here. " +
           "/acc enemies, every engaged enemy with colour, health and who is on you. " +
@@ -2555,6 +2557,7 @@ public static partial class AccessibilityStrings
           "/acc ui, прочитать текущее меню. " +
           "/acc win, назвать активное окно. " +
           "/acc keys, сохранить игровые привязки клавиш на рабочий стол. " +
+          "/acc translate off или on, отключить или включить русский перевод предметов и умений. " +
           "/acc cooldowns, оповещение о готовности умений включить или выключить. " +
           "/acc fly, полёт при автопередвижении включить или выключить, и говорит, можно ли здесь. " +
           "/acc enemies, все противники в бою с цветом, жизнью и тем, кто на тебе. " +
