@@ -339,7 +339,7 @@ instead of sixteen world categories there are five answers.
 
 ## Installation of the Russian edition
 
-This fork publishes plugin **6.08.74** and Russian-language installer **1.1.2**.
+This fork publishes plugin **6.08.86** and Russian-language installer **1.1.2**.
 Requirements: Windows x64, FFXIV, XIVLauncher with compatible Dalamud API 15,
 and a configured screen reader. Launch the game with Dalamud once before the
 first installation, then close both the game and XIVLauncher.
@@ -356,7 +356,7 @@ An installed newer version is preserved. Existing vnavmesh is not updated by thi
 Keyboard controls are provided through standard Windows controls; actual NVDA
 speech and keyboard traversal still need confirmation.
 
-For manual installation, download the [plugin ZIP](https://github.com/pitpamyati-netizen/ff14-accessibility/releases/latest/download/FF14Accessibility-6.08.74-RU-no-source.zip), back up the old
+For manual installation, download the [plugin ZIP](https://github.com/pitpamyati-netizen/ff14-accessibility/releases/latest/download/FF14Accessibility-6.08.86-RU-no-source.zip), back up the old
 plugin directory with the game closed, and copy the entire contents of `plugin`
 to `%APPDATA%\XIVLauncher\devPlugins\FF14Accessibility`. On first installation,
 register the full DLL path in Dalamud Settings → Experimental → Dev Plugin Locations,

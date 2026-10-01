@@ -9,6 +9,22 @@ namespace Regression.Tests;
 
 public class ModSwitchTests
 {
+    [Theory]
+    [InlineData(2)] // CollectionMissing
+    [InlineData(3)] // ModMissing
+    [InlineData(255)] // UnknownError
+    public void ExplicitReadErrorsAreUnknownRatherThanDisabled(int status)
+    {
+        var fake = new FakePenumbra();
+        fake.Enabled["a"] = true;
+        fake.ReadStatus = status;
+        Assert.Equal(2, fake.Service.Read().Unreadable);
+        var result = fake.Service.AllOff();
+        Assert.Equal(2, result.Skipped);
+        Assert.True(fake.Enabled["a"]);
+        Assert.Equal(0, result.Changed);
+    }
+
     [Fact]
     public void RepeatedDisableKeepsEveryModStillWaitingForRestore()
     {
@@ -65,6 +81,7 @@ public class ModSwitchTests
         internal readonly ModSwitchService Service;
         internal string? FailRestore;
         internal bool FailModList, FailCollections;
+        internal int ReadStatus;
 
         internal FakePenumbra()
         {
@@ -77,7 +94,8 @@ public class ModSwitchTests
                 FailCollections ? throw new InvalidOperationException("unavailable") : new Dictionary<Guid, string> { [Guid.Empty] = "test" }));
             Set(ipc, "_getCurrentModSettings", Gate.Of<ICallGateSubscriber<Guid, string, string, bool,
                 (int, (bool, int, Dictionary<string, List<string>>, bool)?)>>((_, args) =>
-                (0, ((bool, int, Dictionary<string, List<string>>, bool)?)(Enabled[(string)args![1]!], 0, new(), false))));
+                ReadStatus != 0 ? (ReadStatus, ((bool, int, Dictionary<string, List<string>>, bool)?)null)
+                    : (0, ((bool, int, Dictionary<string, List<string>>, bool)?)(Enabled[(string)args![1]!], 0, new(), false))));
             Set(ipc, "_trySetMod", Gate.Of<ICallGateSubscriber<Guid, string, string, bool, int>>((_, args) =>
             {
                 var key = (string)args![1]!;

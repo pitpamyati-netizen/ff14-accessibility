@@ -162,6 +162,13 @@ public unsafe sealed class ShopQuantityTests : IDisposable
     [InlineData(0x1B)] // cancelling the draft must not also close the store
     [InlineData(0x60)] // numpad zero is a digit while editing, not game Confirm
     [InlineData(0x35)] // hotbar digit
+    [InlineData(0x70)] // F1 can also be a reassigned editor opening key
+    [InlineData(0x7B)] // F12
+    [InlineData(0xBB)] // =/+
+    [InlineData(0xBD)] // -/_
+    [InlineData(0xBC)] // comma
+    [InlineData(0xBE)] // period
+    [InlineData(0xE2)] // additional key on international keyboards
     public void EditorKeysAreConsumedOnPressAndWhileHeld(int vk)
     {
         var keys = DispatchProxy.Create<IKeyState, KeyStateProxy>();

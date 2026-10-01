@@ -165,6 +165,7 @@ public unsafe sealed class TableReaderTests : IDisposable
     }
     [Theory]
     [InlineData(0x0D)] [InlineData(0x60)] [InlineData(0x1B)] [InlineData(0x68)] [InlineData(0x57)]
+    [InlineData(0x70)] [InlineData(0x7B)] [InlineData(0xBB)] [InlineData(0xBD)] [InlineData(0x0C)]
     public void ReadModeConsumesConfirmMovementAndHeldExitKeys(int vk)
     {
         var keys = DispatchProxy.Create<IKeyState, ShopQuantityTests.KeyStateProxy>();

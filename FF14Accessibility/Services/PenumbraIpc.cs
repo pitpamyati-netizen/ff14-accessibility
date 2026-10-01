@@ -49,10 +49,18 @@ public sealed class PenumbraIpc
     {
         try
         {
-            return _getCurrentModSettings.InvokeFunc(collectionId, directory, name, false).Item2?.Item1 ?? false;
+            var result = _getCurrentModSettings.InvokeFunc(collectionId, directory, name, false);
+            LastCallFailed = result.Item1 != 0;
+            if (LastCallFailed)
+            {
+                _log.Verbose($"[Penumbra] GetCurrentModSettings failed: status={result.Item1}");
+                return null;
+            }
+            return result.Item2?.Item1 ?? false;
         }
         catch (Exception ex)
         {
+            LastCallFailed = true;
             _log.Verbose(ex, "[Penumbra] IPC 'GetCurrentModSettings' nicht erreichbar");
             return null;
         }

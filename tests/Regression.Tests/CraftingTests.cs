@@ -42,7 +42,8 @@ public unsafe sealed class CraftingTests : IDisposable
         var requests = new List<(uint, bool)>();
         var result = RecipeMaterialReader.Read(&addon, &recipe,
             id => id == 100 ? "Кленовый пиломатериал" : "Кленовое бревно", s => s,
-            (id, hq) => { requests.Add((id, hq)); return hq ? 7 : 1200; });
+            (id, hq) => { requests.Add((id, hq)); return hq ? 7 : 1200; },
+            new(100, [(200, 3)], []));
         Assert.Equal("Кленовое бревно, нужно 3, есть 1207, из них обычных 1200, высокого качества 7", Assert.Single(result));
         Assert.Equal(new[] { (200u, false), (200u, true) }, requests);
     }
@@ -65,7 +66,8 @@ public unsafe sealed class CraftingTests : IDisposable
         recipe.Ingredients[0].Amount = 99;
         recipe.Crystals[0].Amount = 99;
         var result = RecipeMaterialReader.Read(&addon, &recipe, _ => "Old recipe", s => s,
-            (_, _) => throw new InvalidOperationException("Stale recipe stock must not be read"));
+            (_, _) => throw new InvalidOperationException("Stale recipe stock must not be read"),
+            new(100, [(200, 99)], [(2, 99)]));
         Assert.Equal("New material, нужно 4, есть 12, из них обычных 12, высокого качества 0", result[0]);
         Assert.Equal("Кристалл, нужно 2, есть 9999", result[1]);
     }
@@ -81,6 +83,28 @@ public unsafe sealed class CraftingTests : IDisposable
     }
 
     [Fact]
+    public void CompletelyBlankRuntimeSlotMustNotHideAVisibleRequiredMaterial()
+    {
+        AddonRecipeNote addon = default;
+        addon.SelectedRecipeName = Text("Recipe");
+        addon.Ingredients[0].Name = Text("First material");
+        addon.Ingredients[0].QuantityRequiredForCraft = Text("3");
+        addon.Ingredients[1].Name = Text("Second material");
+        addon.Ingredients[1].QuantityRequiredForCraft = Text("4");
+        RecipeNote.RecipeEntry recipe = default;
+        recipe.ItemName = Text("Recipe")->NodeText;
+        recipe.ItemId = 100;
+        recipe.Ingredients[0].ItemId = 200;
+        recipe.Ingredients[0].Amount = 3;
+        // The second slot has not loaded: both ID and amount are zero.
+        var result = RecipeMaterialReader.Read(&addon, &recipe, _ => "First material", s => s,
+            (_, _) => throw new InvalidOperationException("Incomplete recipe must use the whole UI"),
+            new(100, [(200, 3), (201, 4)], []));
+        Assert.Equal(2, result.Count);
+        Assert.StartsWith("Second material, нужно 4", result[1]);
+    }
+
+    [Fact]
     public void IncompleteRuntimeListFallsBackAsAWhole()
     {
         AddonRecipeNote addon = default;
@@ -89,11 +113,13 @@ public unsafe sealed class CraftingTests : IDisposable
         addon.Ingredients[0].QuantityRequiredForCraft = Text("4");
         RecipeNote.RecipeEntry recipe = default;
         recipe.ItemName = Text("Recipe")->NodeText;
+        recipe.ItemId = 200;
         recipe.Ingredients[0].ItemId = 100;
         recipe.Ingredients[0].Amount = 3;
         recipe.Ingredients[1].Amount = 4; // ID not filled yet
         var result = RecipeMaterialReader.Read(&addon, &recipe, _ => "Runtime material", s => s,
-            (_, _) => throw new InvalidOperationException("Partial list must not be used"));
+            (_, _) => throw new InvalidOperationException("Partial list must not be used"),
+            new(200, [(100, 3), (101, 4)], []));
         Assert.StartsWith("Visible material, нужно 4", Assert.Single(result));
     }
 
@@ -105,10 +131,12 @@ public unsafe sealed class CraftingTests : IDisposable
         addon.SelectedRecipeName = Text("Русское название");
         RecipeNote.RecipeEntry recipe = default;
         recipe.ItemName = Text("English name")->NodeText;
+        recipe.ItemId = 200;
         recipe.Ingredients[0].ItemId = 100;
         recipe.Ingredients[0].Amount = 3;
         Assert.Empty(RecipeMaterialReader.Read(&addon, &recipe, _ => "Русское название", s => s,
-            (_, _) => throw new InvalidOperationException("Wrong language match")));
+            (_, _) => throw new InvalidOperationException("Wrong language match"),
+            new(200, [(100, 3)], [])));
     }
 
     [Fact]
@@ -123,9 +151,43 @@ public unsafe sealed class CraftingTests : IDisposable
         recipe.Ingredients[0].ItemId = 200;
         recipe.Ingredients[0].Amount = 3;
         recipe.Crystals[0].Amount = 2;
-        var result = RecipeMaterialReader.Read(&addon, &recipe, _ => "Material", s => s, (_, _) => -1);
+        var result = RecipeMaterialReader.Read(&addon, &recipe, id => id == 2 ? "Огненный осколок" : "Material", s => s,
+            (id, _) => id == 2 ? 5000 : -1, new(100, [(200, 3)], [(2, 2)]));
         Assert.Contains("нужно 3, есть неизвестно", result[0]);
-        Assert.Equal("Кристалл, нужно 2, есть 300", result[1]);
+        Assert.Equal("Огненный осколок, нужно 2, есть 5000", result[1]);
+    }
+
+    [Theory]
+    [InlineData(100, 3, 2, true)]
+    [InlineData(101, 3, 2, false)] // Same visible name, different result ID.
+    [InlineData(100, 4, 2, false)] // Recipe for same item with different amount.
+    [InlineData(100, 3, 0, false)] // Crystals are still loading.
+    [InlineData(100, 3, 9, false)] // Crystal requirement from previous recipe.
+    public void RuntimeRequiresEveryMaterialAndCrystalFromItsOwnRecipe(uint result, byte amount, byte crystals, bool expected)
+    {
+        RecipeNote.RecipeEntry recipe = default;
+        recipe.ItemId = result;
+        recipe.Ingredients[0].ItemId = 200;
+        recipe.Ingredients[0].Amount = amount;
+        recipe.Crystals[0].Amount = crystals;
+        Assert.Equal(expected, RecipeMaterialReader.IsComplete(&recipe, new(100, [(200, 3)], [(2, 2)])));
+        Assert.False(RecipeMaterialReader.IsComplete(&recipe, null));
+    }
+
+    [Fact]
+    public void MissingRecipeDefinitionKeepsVisibleValuesWithoutTrustingRuntime()
+    {
+        AddonRecipeNote addon = default;
+        addon.SelectedRecipeName = Text("Recipe");
+        addon.Ingredients[0].Name = Text("Visible material");
+        addon.Ingredients[0].QuantityRequiredForCraft = Text("4");
+        RecipeNote.RecipeEntry recipe = default;
+        recipe.ItemId = 100;
+        recipe.ItemName = Text("Recipe")->NodeText;
+        recipe.Ingredients[0].ItemId = 200;
+        recipe.Ingredients[0].Amount = 3;
+        Assert.StartsWith("Visible material, нужно 4", Assert.Single(RecipeMaterialReader.Read(&addon, &recipe,
+            _ => "Runtime material", s => s, (_, _) => throw new InvalidOperationException("Unverified runtime"))));
     }
 
     [Theory]

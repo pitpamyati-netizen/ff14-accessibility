@@ -13399,7 +13399,8 @@ public sealed partial class UIReaderService : IDisposable
         var recipe = data != null && data->Recipes != null && data->SelectedIndex < data->RecipeCount
             ? data->Recipes + data->SelectedIndex : null;
         var lines = RecipeMaterialReader.Read(addon, recipe, _inventory.ResolveItemName,
-            _inventory.TranslateItemLabel, (id, hq) => _inventory.CountOf(id, hq));
+            _inventory.TranslateItemLabel, (id, hq) => _inventory.CountOf(id, hq),
+            recipe == null ? null : RecipeMaterialReader.FromSheet(_data, recipe->RecipeId));
         _log.Info($"[Recipe] Materials: visible='{AtkText.ReadClean(addon->SelectedRecipeName)}', "
             + $"runtime='{(recipe != null ? AtkText.ReadClean(&recipe->ItemName) : string.Empty)}', lines={lines.Count}");
         return lines;

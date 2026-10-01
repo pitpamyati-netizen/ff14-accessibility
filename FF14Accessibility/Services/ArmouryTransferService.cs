@@ -145,7 +145,7 @@ public sealed unsafe class ArmouryTransferService
         }
     }
 
-    public void Update()
+    public void Update(bool allowRequests = true)
     {
         if (!_active) return;
         if (!_clientState.IsLoggedIn)
@@ -156,6 +156,13 @@ public sealed unsafe class ArmouryTransferService
 
         try
         {
+            // Keep supervision alive while another mode owns input. Cancel
+            // instead of pausing a queue that could resume against stale UI.
+            if (!allowRequests || FindVisibleInventoryAddonId(_ownerAddonId) == 0)
+            {
+                StopUnconfirmed();
+                return;
+            }
             var manager = InventoryManager.Instance();
             if (manager == null)
             {
@@ -164,12 +171,6 @@ public sealed unsafe class ArmouryTransferService
             }
 
             var now = DateTime.UtcNow;
-            // Closing the source window cancels the batch; never reuse a stale owner.
-            if (FindVisibleInventoryAddonId() == 0)
-            {
-                StopUnconfirmed();
-                return;
-            }
             if (_pending is { } pending)
             {
                 if (_menuOpening)
@@ -320,14 +321,15 @@ public sealed unsafe class ArmouryTransferService
         addon->Hide(false, true, 0);
     }
 
-    private uint FindVisibleInventoryAddonId()
+    private uint FindVisibleInventoryAddonId(uint requiredOwner = 0)
     {
         foreach (var name in new[] { "Inventory", "InventoryLarge", "InventoryExpansion" })
         {
             var ptr = _gameGui.GetAddonByName(name);
             if (ptr.IsNull) continue;
             var addon = (AtkUnitBase*)(nint)ptr;
-            if (addon != null && addon->IsVisible) return addon->Id;
+            if (addon != null && addon->IsVisible && (requiredOwner == 0 || addon->Id == requiredOwner))
+                return addon->Id;
         }
         return 0;
     }

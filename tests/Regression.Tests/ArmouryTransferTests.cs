@@ -4,6 +4,29 @@ namespace Regression.Tests;
 
 public class ArmouryTransferTests
 {
+    [Fact]
+    public unsafe void SwitchingInventoryWindowsCannotReuseTheOriginalOwner()
+    {
+        FFXIVClientStructs.FFXIV.Component.GUI.AtkUnitBase original = default, replacement = default;
+        original.Id = 10; original.IsVisible = true;
+        replacement.Id = 20; replacement.IsVisible = true;
+        var windows = new Dictionary<string, nint> {
+            ["Inventory"] = (nint)(&original), ["InventoryLarge"] = (nint)(&replacement) };
+        var gui = ModSwitchTests.Gate.Of<Dalamud.Plugin.Services.IGameGui>((method, args) =>
+            Activator.CreateInstance(method.ReturnType, [windows.GetValueOrDefault((string)args![0]!)]));
+        var service = new ArmouryTransferService(null!, null!, gui, null!, null!, null!);
+        var find = typeof(ArmouryTransferService).GetMethod("FindVisibleInventoryAddonId",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+        Assert.Equal(10u, find.Invoke(service, [10u]));
+        original.IsVisible = false;
+        Assert.Equal(0u, find.Invoke(service, [10u]));
+        Assert.Equal(20u, find.Invoke(service, [0u])); // Other window really is open.
+        original.IsVisible = true;
+        original.Id = 30; // Recreated addon at the same address.
+        Assert.Equal(0u, find.Invoke(service, [10u]));
+        Assert.Equal(30u, find.Invoke(service, [30u]));
+    }
+
     // Rows captured from 6.08.74 in dalamud.old.log, 2026-09-29 23:17.
     // Every callback LabelId was zero; the Russian patch supplied the text.
     [Theory]

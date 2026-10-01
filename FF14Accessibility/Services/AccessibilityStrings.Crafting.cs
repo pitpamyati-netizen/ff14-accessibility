@@ -25,6 +25,11 @@ public static partial class AccessibilityStrings
 
     private static string CraftingUnknown => L("unbekannt", "unknown", "неизвестно");
 
+    public static string RecipeCrystal(string name, string needed, string have) =>
+        L($"{name}, {CraftingCount(needed)} benötigt, vorhanden {CraftingCount(have)}",
+            $"{name}, need {CraftingCount(needed)}, have {CraftingCount(have)}",
+            $"{name}, нужно {CraftingCount(needed)}, есть {CraftingCount(have)}");
+
     // UI counters may use grouping separators or SeString formatting (removed
     // by AtkText.ReadClean). Missing data must never become a stock of zero.
     internal static bool TryCraftingCount(string value, out long count)

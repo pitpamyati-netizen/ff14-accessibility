@@ -11,7 +11,7 @@ public sealed partial class UIReaderService
     private int _tableCharacterTab = -1;
     private bool _tableDrainKeys;
     public bool IsTableReading => _tableReader != null;
-    public static IEnumerable<int> TableKeys => ShopQuantityKeys.Concat(new[] { 0x79 });
+    public static IEnumerable<int> TableKeys => ShopQuantityKeys;
 
     private static bool IsCharacterPanel(string name) => name is "Character" or "CharacterStatus"
         or "CharacterProfile" or "CharacterClass" or "CharacterRepute";
@@ -78,7 +78,7 @@ public sealed partial class UIReaderService
             : input.Just(0x21) ? -10 : input.Just(0x22) ? 10
             : input.Just(0x24) ? -int.MaxValue : input.Just(0x23) ? int.MaxValue / 2 : 0;
         var colDelta = input.JustAny(0x25, 0x64) ? -1 : input.JustAny(0x27, 0x66) ? 1 : 0;
-        if (rowDelta == 0 && colDelta == 0 && !input.JustAny(0x09, 0x20, 0x65, 0x0D, 0x60)) return true;
+        if (rowDelta == 0 && colDelta == 0 && !input.JustAny(0x09, 0x20, 0x65, 0x0C, 0x0D, 0x60)) return true;
         if (!reader.Refresh(ReadTableRows(owner))) { EndTableReading(AccessibilityStrings.TableEmpty); return true; }
         if (input.JustAny(0x0D, 0x60)) { _tolk.SpeakInterrupt(AccessibilityStrings.TableInstructions); return true; }
         if (rowDelta != 0) reader.MoveRow(rowDelta);

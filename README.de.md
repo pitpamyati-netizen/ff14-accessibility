@@ -398,7 +398,7 @@ sich darin um: statt sechzehn Weltkategorien gibt es fünf Antworten.
 
 ## Installation der russischen Version
 
-Dieser Fork veröffentlicht Plugin **6.08.74** und den russischsprachigen
+Dieser Fork veröffentlicht Plugin **6.08.86** und den russischsprachigen
 Installer **1.1.2**. Benötigt werden Windows x64, FFXIV, XIVLauncher mit
 kompatiblem Dalamud API 15 und ein eingerichteter Screenreader.
 Vor der ersten Installation einmal mit aktiviertem Dalamud ins Spiel einloggen.
@@ -417,7 +417,7 @@ bleiben erhalten. Vorhandenes vnavmesh wird durch diesen EXE nicht aktualisiert.
 Das Fenster verwendet normale Windows-Steuerelemente; die tatsächliche
 NVDA-Ausgabe und Tastaturnavigation müssen noch bestätigt werden.
 
-Für die manuelle Installation das [Plugin-ZIP](https://github.com/pitpamyati-netizen/ff14-accessibility/releases/latest/download/FF14Accessibility-6.08.74-RU-no-source.zip) entpacken, bei
+Für die manuelle Installation das [Plugin-ZIP](https://github.com/pitpamyati-netizen/ff14-accessibility/releases/latest/download/FF14Accessibility-6.08.86-RU-no-source.zip) entpacken, bei
 geschlossenem Spiel die alte Plugin-Mappe sichern und den gesamten Inhalt von
 `plugin` nach `%APPDATA%\XIVLauncher\devPlugins\FF14Accessibility` kopieren.
 Bei der ersten Installation den vollständigen DLL-Pfad unter Dalamud Settings →

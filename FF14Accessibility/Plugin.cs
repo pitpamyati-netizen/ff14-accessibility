@@ -213,7 +213,7 @@ public sealed partial class Plugin : IDalamudPlugin
     // 6.08.18 lokal: Chat-Absender Kontextmenü (Strg+Umschalt+BildAuf) + Numpad3-Ziel.
     // 6.08.19: Charakterauswahl — eine Ansage (Name, Job, Ort) statt Scan-Sturm.
     // 6.08.20: Mitstreiter-Taste (PR 27 Port) — Strg+Umschalt+C öffnet/vorliest.
-    private const string PluginVersion    = "6.08.85";
+    private const string PluginVersion    = "6.08.86";
     // Der Tag nennt, was diese Fassung MITBRINGT, nicht woher sie stammt: die
     // russische Schicht auf dem Stand des Autors 6.08.34 (Auftragstext im
     // Quest-Tracker des Autors, siehe package-Schritt).
@@ -2426,9 +2426,12 @@ public sealed partial class Plugin : IDalamudPlugin
         _autoWalk.Update();
         _transitions.Update();
         FacingService.Tick(ObjectTable.LocalPlayer);
+        _armouryTransfer.Update(GameWindowFocus.IsActive && !_uiReader.IsTableReading
+            && !_uiReader.IsShopQuantityEditing && !_menu.IsOpen && !_hotbar.IsSkillMenuOpen);
 
-        if (_uiReader.IsTableReading && IsJustPressed(_config.KeySilence)) { _tolk.Silence(); _chatVoice.Silence(); }
-        if (_uiReader.IsTableReading && IsJustPressed(_config.KeyHelp)) _uiReader.AnnounceContextHelp();
+        var readingInput = _uiReader.IsTableReading || _uiReader.IsShopQuantityEditing;
+        if (readingInput && IsJustPressed(_config.KeySilence)) { _tolk.Silence(); _chatVoice.Silence(); }
+        if (readingInput && IsJustPressed(_config.KeyHelp)) _uiReader.AnnounceContextHelp();
         if (_uiReader.HandleTableKeys(_tableInput, GameWindowFocus.IsActive, textInputActive,
                 KeyState[Dalamud.Game.ClientState.Keys.VirtualKey.CONTROL],
                 KeyState[Dalamud.Game.ClientState.Keys.VirtualKey.SHIFT],
@@ -2764,7 +2767,6 @@ public sealed partial class Plugin : IDalamudPlugin
         // action) - the loot channel only says they arrived, not that they do
         // something. Throttles itself to once a second.
         _inventoryReader.Update();
-        _armouryTransfer.Update();
         // Announces party loot rolls the moment they open. Reads the game's own
         // Loot state, so it works no matter what the NeedGreed window is doing.
         _lootRolls.Update();
