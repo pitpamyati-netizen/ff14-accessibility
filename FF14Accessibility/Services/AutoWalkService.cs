@@ -352,6 +352,7 @@ public sealed partial class AutoWalkService : IDisposable
     private Phase _phase = Phase.Idle;
     private int _reengageCount;          // re-requests spent on the current walk
     private float _reengageBestDistance; // closest approach when we last re-requested
+    private Vector3? _reengagePosition;
     private DateTime _startedAt;
     private DateTime _guardUntil;
 
@@ -450,6 +451,7 @@ public sealed partial class AutoWalkService : IDisposable
     /// Vorwaerts-Impuls laufen (ZoneTransitionHandler) - bei jedem anderen Ziel
     /// waere blindes Anschieben sinnlos, weil dort nichts ausgeloest wird.</summary>
     private bool _destinationIsTransition;
+    private bool _destinationHeightIsGuess;
 
     private IReadOnlyList<Vector3>? _pendingCrossing;
     private string _pendingCrossingName = string.Empty;
@@ -841,9 +843,11 @@ public sealed partial class AutoWalkService : IDisposable
     /// tighter still for zone transitions so they trigger. The position should
     /// already be snapped onto the walkable mesh.
     /// </summary>
-    public void ToggleToPosition(Vector3 position, string name, float stopRange, bool isZoneTransition = false)
+    public void ToggleToPosition(Vector3 position, string name, float stopRange, bool isZoneTransition = false,
+        bool heightIsGuess = false)
     {
         _destinationIsTransition = isZoneTransition;
+        _destinationHeightIsGuess = heightIsGuess;
         StopFollowQuiet();
 
         if (IsActive)
@@ -874,12 +878,19 @@ public sealed partial class AutoWalkService : IDisposable
         var player = _objectTable.LocalPlayer;
         if (player == null) return;
 
+        if (targetId != 0)
+        {
+            _destinationIsTransition = false;
+            _destinationHeightIsGuess = false;
+        }
+
         if (fresh)
         {
             _detourAttempts.Clear();
             _usedTrails.Clear();
             _reengageCount = 0;
             _reengageBestDistance = float.MaxValue;
+            _reengagePosition = null;
         }
 
         if (!_nav.IsReady)
@@ -995,7 +1006,7 @@ public sealed partial class AutoWalkService : IDisposable
 
         _nav.Stop();
 
-        var checkHeight = crossing == null && !_destinationIsTransition
+        var checkHeight = crossing == null && !_destinationIsTransition && !_destinationHeightIsGuess
             && MathF.Abs(walkTo.Y - player.Position.Y) >= 3;
         if (!checkHeight && !_nav.MoveCloseTo(walkTo, walkStopRange))
         {
@@ -1555,6 +1566,8 @@ public sealed partial class AutoWalkService : IDisposable
         if (_checkedHeightRoute != null && (_nav.PathfindInProgress
             || !HeightPath.IsRemainingPath(_checkedHeightRoute, waypoints)))
         {
+            _nav.Stop();
+            if (TryReengage(distance)) return;
             Finish(AccessibilityStrings.HeightPathUnavailable(_destPosition.Y - player.Position.Y),
                 "height: native route replaced the checked path");
             return;
@@ -1741,7 +1754,13 @@ public sealed partial class AutoWalkService : IDisposable
     {
         if (_reengageCount >= MaxReengages) return false;
         if (distance <= _stopRange) return false;
-        if (distance > _reengageBestDistance - ReengageProgress)
+        var position = _objectTable.LocalPlayer?.Position;
+        // A checked route may first lead away from the goal to reach a ramp.
+        // Physical progress along that route also earns a bounded retry.
+        var routeProgress = _checkedHeightRoute != null && position is { } current
+            && _reengagePosition is { } previous
+            && Vector3.Distance(current, previous) >= ReengageProgress;
+        if (distance > _reengageBestDistance - ReengageProgress && !routeProgress)
         {
             _log.Info($"[Nav] Auto-Lauf: Nachfassen uebersprungen - keine Annaeherung seit dem letzten " +
                       $"Versuch (dist={distance:F1}, vorher={_reengageBestDistance:F1}).");
@@ -1750,6 +1769,7 @@ public sealed partial class AutoWalkService : IDisposable
 
         _reengageCount++;
         _reengageBestDistance = distance;
+        _reengagePosition = position;
         _log.Info($"[Nav] Auto-Lauf: Nachfassen {_reengageCount}/{MaxReengages} bei dist={distance:F1} " +
                   $"(stopRange={_stopRange:F1}).");
 

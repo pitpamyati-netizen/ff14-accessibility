@@ -4,6 +4,7 @@ using System.Runtime.CompilerServices;
 using Dalamud.Plugin.Ipc;
 using Dalamud.Plugin.Services;
 using Dalamud.Game.ClientState.Objects.Types;
+using Dalamud.Game.ClientState.Objects.SubKinds;
 using FF14Accessibility;
 using FF14Accessibility.Services;
 
@@ -92,6 +93,43 @@ public class HeightPathTests
         Assert.Contains(ramp[2], search.Result);
     }
 
+    [Theory]
+    [InlineData(false)] [InlineData(true)]
+    public void OrdinaryTerrainMayChangeHeightBetweenHorizontalPathCorners(bool downhill)
+    {
+        Vector3[] ground = [new(0, 0, 0), new(60, 0, 0), new(80, 14, 0), new(100, 14, 0)];
+        if (downhill) Array.Reverse(ground);
+        var from = ground[0]; var goal = ground[^1];
+        // vnavmesh string pulling omits the two middle height changes.
+        using var search = new HeightPath(from, goal, 2.5f, Surface(ground),
+            (_, _, _) => Task.FromResult(new List<Vector3> { from, goal, goal }));
+        Complete(search);
+        Assert.NotNull(search.Result);
+        Assert.Equal(1, search.Queries);
+    }
+
+    [Fact]
+    public void EndpointNeedNotBeDuplicatedAndPolygonCenterNeedNotEqualStart()
+    {
+        Vector3[] ground = [new(0, 0, 0), new(60, 0, 0), new(80, 14, 0), new(100, 14, 0)];
+        using var search = new HeightPath(ground[0], ground[^1], 2.5f, Surface(ground),
+            (_, _, _) => Task.FromResult(new List<Vector3> { new(5, 0, 0), ground[2], ground[^1] }));
+        Complete(search);
+        Assert.NotNull(search.Result);
+        Assert.Equal(1, search.Queries);
+    }
+
+    [Fact]
+    public void ContinuousLowerFloorDoesNotValidateAGoalOnAnUnconnectedUpperFloor()
+    {
+        var goal = new Vector3(100, 14, 0);
+        using var search = new HeightPath(Vector3.Zero, goal, 2.5f,
+            (p, _, _) => p == goal ? p : p with { Y = 0 },
+            (_, _, _) => Task.FromResult(new List<Vector3> { Vector3.Zero, goal, goal }));
+        Complete(search);
+        Assert.Null(search.Result);
+    }
+
     [Fact]
     public void FindsAConnectedRampViaAnotherApproachInsteadOfTheFalseShortcut()
     {
@@ -127,7 +165,7 @@ public class HeightPathTests
         using var search = new HeightPath(ramp[0], ramp[^1], 2.5f, Surface(ramp), (a, b, _) =>
             Task.FromResult(a == ramp[0] && b == ramp[^2]
                 ? new List<Vector3> { a, ramp[1], ramp[2], b, b }
-                : new List<Vector3> { a, a, b }));
+                : new List<Vector3> { a, b with { Y = b.Y - 4 }, b }));
         Complete(search);
         Assert.Null(search.Result);
     }
@@ -194,6 +232,59 @@ public class HeightPathTests
         Assert.Null(search.Result);
     }
 
+    [Theory]
+    [InlineData(true, 200f, false)] [InlineData(false, 200f, false)]
+    [InlineData(true, 5f, false)] [InlineData(false, 5f, false)]
+    [InlineData(true, 200f, true)] [InlineData(false, 5f, true)]
+    public void NativeRetryAtFarOrNearDistanceStartsAnotherCheckInsteadOfEndingTheWalk(bool pending, float flatDistance, bool detourProgress)
+    {
+        var start = Vector3.Zero;
+        var goal = new Vector3(flatDistance, 4, 0);
+        var player = DestinationReadoutTests.StrictProxy.Of<IPlayerCharacter>(m => m.Name == "get_Position"
+            ? start : throw new NotSupportedException(m.Name));
+        var walk = (AutoWalkService)RuntimeHelpers.GetUninitializedObject(typeof(AutoWalkService));
+        var nav = (NavmeshIpc)RuntimeHelpers.GetUninitializedObject(typeof(NavmeshIpc));
+        var stops = 0;
+        Field(nav, "_stop", DestinationReadoutTests.StrictProxy.Of<ICallGateSubscriber<object>>(m =>
+        { Assert.Equal("InvokeAction", m.Name); ++stops; return null; }));
+        Field(nav, "_isReady", DestinationReadoutTests.StrictProxy.Of<ICallGateSubscriber<bool>>(_ => true));
+        Field(nav, "_pathfindInProgress", DestinationReadoutTests.StrictProxy.Of<ICallGateSubscriber<bool>>(_ => pending));
+        Field(nav, "_listWaypoints", DestinationReadoutTests.StrictProxy.Of<ICallGateSubscriber<List<Vector3>>>(_ => new List<Vector3> { start, goal }));
+        Field(walk, "_objectTable", DestinationReadoutTests.StrictProxy.Of<IObjectTable>(m => m.Name == "get_LocalPlayer"
+            ? player : throw new NotSupportedException(m.Name)));
+        Field(walk, "_clientState", DestinationReadoutTests.StrictProxy.Of<IClientState>(m => m.Name == "get_TerritoryType"
+            ? 153u : throw new NotSupportedException(m.Name)));
+        Field(walk, "_nav", nav);
+        Field(walk, "_log", DestinationReadoutTests.StrictProxy.Of<IPluginLog>(_ => null));
+        // Tolk is never initialized in this process: its native IsLoaded is false.
+        Field(walk, "_tolk", RuntimeHelpers.GetUninitializedObject(typeof(TolkService)));
+        Field(walk, "_checkedHeightRoute", new List<Vector3> { start, goal, goal });
+        Field(walk, "_destPosition", goal);
+        Field(walk, "_targetName", "Проверка маршрута");
+        Field(walk, "_stopRange", 2.5f);
+        Field(walk, "_startTerritory", (ushort)153);
+        Field(walk, "_reengageBestDistance", float.MaxValue);
+        if (detourProgress)
+        {
+            Field(walk, "_reengageCount", 1);
+            Field(walk, "_reengageBestDistance", Vector3.Distance(start, goal) - 2);
+            Field(walk, "_reengagePosition", new Vector3(-10, 0, 0));
+        }
+        Field(walk, "_phase", Enum.Parse(typeof(AutoWalkService).GetNestedType("Phase", BindingFlags.NonPublic)!, "Walking"));
+        typeof(AutoWalkService).GetMethod("WalkingUpdate", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(walk, null);
+        Assert.True(walk.IsActive);
+        Assert.Equal(detourProgress ? 2 : 1, typeof(AutoWalkService).GetField("_reengageCount", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(walk));
+        var search = (HeightPath)typeof(AutoWalkService).GetField("_heightPath", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(walk)!;
+        Assert.NotNull(search);
+        Assert.Equal(start, search.Start);
+        Assert.Equal(goal, search.Destination);
+        Assert.Equal(0, search.Queries);
+        Assert.Equal(2, stops);
+        walk.StopQuiet();
+        Assert.False(walk.IsActive);
+        Assert.Null(search.Result);
+    }
+
     [Fact]
     public void FaultedQueryIsObservedAndSearchFinishes()
     {
@@ -201,6 +292,70 @@ public class HeightPathTests
             (_, _, _) => Task.FromException<List<Vector3>>(new InvalidOperationException("Mesh unloaded")));
         Complete(search);
         Assert.Null(search.Result);
+    }
+
+    [Theory]
+    [InlineData(false, false, "HeightSearch", 0)]
+    [InlineData(true, false, "Starting", 1)]
+    [InlineData(false, true, "Starting", 1)]
+    public void OnlyKnownObjectHeightUsesStrictFloorSearch(bool guessedHeight, bool transition, string expectedPhase, int expectedMoves)
+    {
+        var walk = (AutoWalkService)RuntimeHelpers.GetUninitializedObject(typeof(AutoWalkService));
+        var nav = (NavmeshIpc)RuntimeHelpers.GetUninitializedObject(typeof(NavmeshIpc));
+        var player = DestinationReadoutTests.StrictProxy.Of<IPlayerCharacter>(m => m.Name == "get_Position"
+            ? Vector3.Zero : throw new NotSupportedException(m.Name));
+        Field(walk, "_objectTable", DestinationReadoutTests.StrictProxy.Of<IObjectTable>(_ => player));
+        Field(walk, "_clientState", DestinationReadoutTests.StrictProxy.Of<IClientState>(_ => 153u));
+        Field(walk, "_log", DestinationReadoutTests.StrictProxy.Of<IPluginLog>(_ => null));
+        Field(walk, "_tolk", RuntimeHelpers.GetUninitializedObject(typeof(TolkService)));
+        Field(walk, "_nav", nav);
+        Field(walk, "_destinationHeightIsGuess", guessedHeight);
+        Field(walk, "_destinationIsTransition", transition);
+        Field(nav, "_isReady", DestinationReadoutTests.StrictProxy.Of<ICallGateSubscriber<bool>>(_ => true));
+        Field(nav, "_stop", DestinationReadoutTests.StrictProxy.Of<ICallGateSubscriber<object>>(_ => null));
+        var moves = 0;
+        Field(nav, "_moveCloseTo", DestinationReadoutTests.StrictProxy.Of<ICallGateSubscriber<Vector3, bool, float, bool>>(_ => { ++moves; return true; }));
+        typeof(AutoWalkService).GetMethod("Begin", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(walk, [new Vector3(100, 14, 0), "Цель", 2.5f, 0UL, false]);
+        Assert.Equal(expectedPhase, typeof(AutoWalkService).GetField("_phase", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(walk)!.ToString());
+        Assert.Equal(expectedMoves, moves);
+        walk.StopQuiet();
+    }
+
+    [Fact]
+    public void LiveTargetResetsPreviousMapAndZoneTransitionFlags()
+    {
+        var walk = (AutoWalkService)RuntimeHelpers.GetUninitializedObject(typeof(AutoWalkService));
+        var nav = (NavmeshIpc)RuntimeHelpers.GetUninitializedObject(typeof(NavmeshIpc));
+        var player = DestinationReadoutTests.StrictProxy.Of<IPlayerCharacter>(_ => Vector3.Zero);
+        Field(walk, "_objectTable", DestinationReadoutTests.StrictProxy.Of<IObjectTable>(_ => player));
+        Field(walk, "_tolk", RuntimeHelpers.GetUninitializedObject(typeof(TolkService)));
+        Field(walk, "_nav", nav);
+        Field(walk, "_destinationHeightIsGuess", true);
+        Field(walk, "_destinationIsTransition", true);
+        Field(nav, "_isReady", DestinationReadoutTests.StrictProxy.Of<ICallGateSubscriber<bool>>(_ => false));
+        Field(nav, "_buildProgress", DestinationReadoutTests.StrictProxy.Of<ICallGateSubscriber<float>>(_ => 0.5f));
+        typeof(AutoWalkService).GetMethod("Begin", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(walk, [Poacher, "NPC", 2.5f, 123UL, false]);
+        Assert.Equal(false, typeof(AutoWalkService).GetField("_destinationHeightIsGuess", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(walk));
+        Assert.Equal(false, typeof(AutoWalkService).GetField("_destinationIsTransition", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(walk));
+    }
+
+    [Theory]
+    [InlineData(1, false)] [InlineData(2, true)]
+    public void CheckedRouteRetryDoesNotLoopWithoutProgressOrBeyondItsLimit(int attempts, bool moved)
+    {
+        var walk = (AutoWalkService)RuntimeHelpers.GetUninitializedObject(typeof(AutoWalkService));
+        var player = DestinationReadoutTests.StrictProxy.Of<IPlayerCharacter>(_ => moved ? new Vector3(10, 0, 0) : Vector3.Zero);
+        Field(walk, "_objectTable", DestinationReadoutTests.StrictProxy.Of<IObjectTable>(_ => player));
+        Field(walk, "_log", DestinationReadoutTests.StrictProxy.Of<IPluginLog>(_ => null));
+        Field(walk, "_reengageCount", attempts);
+        Field(walk, "_reengageBestDistance", 100f);
+        Field(walk, "_reengagePosition", Vector3.Zero);
+        Field(walk, "_checkedHeightRoute", new List<Vector3>());
+        Field(walk, "_stopRange", 2.5f);
+        Assert.Equal(false, typeof(AutoWalkService).GetMethod("TryReengage", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(walk, [101f]));
+        Assert.Equal(attempts, typeof(AutoWalkService).GetField("_reengageCount", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(walk));
     }
 
     [Theory]
@@ -233,7 +388,10 @@ public class HeightPathTests
         for (var i = 1; i < polyline.Length; ++i)
         {
             var a = polyline[i - 1]; var d = polyline[i] - a;
-            var t = Math.Clamp(Vector3.Dot(p - a, d) / d.LengthSquared(), 0, 1);
+            // A point inside a mesh polygon keeps its X/Z; its Y is projected
+            // onto the polygon's floor (ClosestPointOnPoly in vnavmesh).
+            var flatLength = d.X * d.X + d.Z * d.Z;
+            var t = flatLength == 0 ? 0 : Math.Clamp(((p.X - a.X) * d.X + (p.Z - a.Z) * d.Z) / flatLength, 0, 1);
             var q = a + d * t;
             var next = Vector3.Distance(p, q);
             if (GroundDetour.FlatDistance(p, q) <= xz && MathF.Abs(p.Y - q.Y) <= y && next < distance)

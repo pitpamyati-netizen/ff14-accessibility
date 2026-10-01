@@ -213,7 +213,7 @@ public sealed partial class Plugin : IDalamudPlugin
     // 6.08.18 lokal: Chat-Absender Kontextmenü (Strg+Umschalt+BildAuf) + Numpad3-Ziel.
     // 6.08.19: Charakterauswahl — eine Ansage (Name, Job, Ort) statt Scan-Sturm.
     // 6.08.20: Mitstreiter-Taste (PR 27 Port) — Strg+Umschalt+C öffnet/vorliest.
-    private const string PluginVersion    = "6.08.83";
+    private const string PluginVersion    = "6.08.84";
     // Der Tag nennt, was diese Fassung MITBRINGT, nicht woher sie stammt: die
     // russische Schicht auf dem Stand des Autors 6.08.34 (Auftragstext im
     // Quest-Tracker des Autors, siehe package-Schritt).
@@ -1543,8 +1543,8 @@ public sealed partial class Plugin : IDalamudPlugin
             || KeyState[Dalamud.Game.ClientState.Keys.VirtualKey.SHIFT] != shift
             || KeyState[Dalamud.Game.ClientState.Keys.VirtualKey.MENU] != alt) return false;
 
-        // Follow owns its chord, including held frames, so Alt+F cannot also
-        // activate a game shortcut. Text input and other modifiers still pass through.
+        // An owning command consumes its chord, including held frames. Text
+        // input and other modifiers still pass through.
         if (consume && _keyWasDown[vk])
             KeyState[(Dalamud.Game.ClientState.Keys.VirtualKey)vk] = false;
         return _keyJustPressed[vk];
@@ -2411,6 +2411,13 @@ public sealed partial class Plugin : IDalamudPlugin
         FollowChatTab();
         _chatBackfill.Update();
 
+        // A modal table or quantity editor can return from this frame below.
+        // Native movement still runs then, so supervision and the stop guard
+        // must keep receiving every frame, including while a menu owns keys.
+        _autoWalk.Update();
+        _transitions.Update();
+        FacingService.Tick(ObjectTable.LocalPlayer);
+
         if (_uiReader.IsTableReading && IsJustPressed(_config.KeySilence)) { _tolk.Silence(); _chatVoice.Silence(); }
         if (_uiReader.IsTableReading && IsJustPressed(_config.KeyHelp)) _uiReader.AnnounceContextHelp();
         if (_uiReader.HandleTableKeys(_tableInput, GameWindowFocus.IsActive, textInputActive,
@@ -2458,8 +2465,10 @@ public sealed partial class Plugin : IDalamudPlugin
         }
 
         if (IsJustPressed(_config.KeyHelp))          _uiReader.AnnounceContextHelp();
-        if (IsJustPressed(_config.KeyNextObject))    _navigation.CycleObject(+1);
-        if (IsJustPressed(_config.KeyPrevObject))    _navigation.CycleObject(-1);
+        // The browser owns these presses. Page Up/Down also drive the game's
+        // page navigation and camera zoom; one press must have one owner.
+        if (IsJustPressed(_config.KeyNextObject, consume: ClientState.IsLoggedIn)) _navigation.CycleObject(+1);
+        if (IsJustPressed(_config.KeyPrevObject, consume: ClientState.IsLoggedIn)) _navigation.CycleObject(-1);
         if (IsJustPressed(_config.KeyCategory))
         {
             _navigation.NextCategory();
@@ -2494,7 +2503,7 @@ public sealed partial class Plugin : IDalamudPlugin
                 case MarkerResolve.Failed:   break; // reason already announced
             }
         }
-        if (IsJustPressed(_config.KeyAutoWalk))
+        if (IsJustPressed(_config.KeyAutoWalk, consume: ClientState.IsLoggedIn))
         {
             _navigation.StopWalkGuideQuiet();
             var bestiaryMonster = _uiReader.SelectedBestiaryMonster;
@@ -2504,11 +2513,9 @@ public sealed partial class Plugin : IDalamudPlugin
                 // the nearest live one, or tell the user where it lives.
                 TrackBestiaryMonster(bestiaryMonster);
             }
-            // The v5.74 walk takes no height-is-guess hint - that belonged to
-            // the reworked routing which has been rolled back.
-            else switch (TryResolveMarkerDestination(out var pos, out var name, out var stop, out _, out var isTransition))
+            else switch (TryResolveMarkerDestination(out var pos, out var name, out var stop, out var heightIsGuess, out var isTransition))
             {
-                case MarkerResolve.Resolved: _autoWalk.ToggleToPosition(pos, name, stop, isTransition); break;
+                case MarkerResolve.Resolved: _autoWalk.ToggleToPosition(pos, name, stop, isTransition, heightIsGuess); break;
                 case MarkerResolve.None:     _autoWalk.Toggle();                          break;
                 case MarkerResolve.Failed:   break; // reason already announced
             }
@@ -2760,13 +2767,6 @@ public sealed partial class Plugin : IDalamudPlugin
         // able to say "schon besucht" for the very object just walked up to.
         _objectMemory.Update();
         _navigation.Update(_config.AnnounceTargetChanges && !_autoWalk.IsActive && !_autoWalk.IsFollowing);
-        _autoWalk.Update();
-        // Laeuft NACH dem Auto-Lauf und unabhaengig von ihm: der Impuls beginnt
-        // genau dann, wenn der Lauf zu Ende ist.
-        _transitions.Update();
-        // Has to run OUTSIDE the walk: the turn happens at the moment the walk
-        // ends, so checking whether it stuck belongs to the frames after that.
-        FacingService.Tick(ObjectTable.LocalPlayer);
         // Records the player's own line while a trail recording runs (see TrailService).
         _trails.Update();
         // Speaks "Angelbereit" when the player faces castable water and "Biss"
@@ -3420,7 +3420,9 @@ public sealed partial class Plugin : IDalamudPlugin
             // fallback for an object that has since despawned.
             var live = ObjectTable.FirstOrDefault(o => o.GameObjectId == obj.ObjectId);
             var raw  = live?.Position ?? obj.Position;
-            position = FloorPoint(raw) ?? raw;
+            // A loaded object has a real Y. A wide map-height projection can
+            // silently replace it with the floor above or below the NPC.
+            position = raw;
             // The browser already stored a RESOLVED name (gathering node type,
             // sheet name, or the honest "Objekt ohne Namen"), so this only has
             // to guard against a pick made before that resolution existed.

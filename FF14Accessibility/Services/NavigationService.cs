@@ -1553,12 +1553,11 @@ public sealed class NavigationService
         }
 
         var count = objects.Count;
-        _cycleIndex = ((_cycleIndex + direction) % count + count) % count;
+        _cycleIndex = BrowserTargetSelection.NextIndex(_cycleIndex, direction, count);
         var obj = objects[_cycleIndex];
 
         // Suppress the target-change announcer: we announce with position info here.
-        _ownSelectionId = obj.GameObjectId;
-        _targetManager.Target = obj;
+        _ownSelectionId = BrowserTargetSelection.Select(_targetManager, obj) ? obj.GameObjectId : 0;
 
         // Remember the pick independently of the game target. Objects the game
         // will not target (quest props) are still listed and announced here, and
@@ -1666,7 +1665,7 @@ public sealed class NavigationService
         }
 
         var count = rows.Count;
-        _cycleIndex = ((_cycleIndex + direction) % count + count) % count;
+        _cycleIndex = BrowserTargetSelection.NextIndex(_cycleIndex, direction, count);
         var row = rows[_cycleIndex];
 
         // Ein Raum, in dem der Spieler schon war, IST ein Laufziel: die Tuer, durch die
@@ -1729,7 +1728,7 @@ public sealed class NavigationService
         }
 
         var count = entries.Count;
-        _cycleIndex = ((_cycleIndex + direction) % count + count) % count;
+        _cycleIndex = BrowserTargetSelection.NextIndex(_cycleIndex, direction, count);
         var pick = entries[_cycleIndex];
 
         if (pick.IsRange)
@@ -1754,8 +1753,7 @@ public sealed class NavigationService
         // Live object — same announcement path as the ordinary object browser.
         SelectedQuestDestination = null;
         var obj = live[pick.Index];
-        _ownSelectionId = obj.GameObjectId;
-        _targetManager.Target = obj;
+        _ownSelectionId = BrowserTargetSelection.Select(_targetManager, obj) ? obj.GameObjectId : 0;
         SelectedObjectDestination = new ObjectDestination(
             obj.GameObjectId,
             _objectNames.Describe(obj),
@@ -1791,7 +1789,7 @@ public sealed class NavigationService
         }
 
         var count = dests.Count;
-        _cycleIndex = ((_cycleIndex + direction) % count + count) % count;
+        _cycleIndex = BrowserTargetSelection.NextIndex(_cycleIndex, direction, count);
         var dest = dests[_cycleIndex];
         SelectedQuestDestination = dest;
 
@@ -1876,7 +1874,7 @@ public sealed class NavigationService
         }
 
         var count = fates.Count;
-        _cycleIndex = ((_cycleIndex + direction) % count + count) % count;
+        _cycleIndex = BrowserTargetSelection.NextIndex(_cycleIndex, direction, count);
         var fate = fates[_cycleIndex];
 
         // Reuse the quest destination path: the FATE is in the current zone with a
@@ -1919,7 +1917,7 @@ public sealed class NavigationService
         }
 
         var count = areas.Count;
-        _cycleIndex = ((_cycleIndex + direction) % count + count) % count;
+        _cycleIndex = BrowserTargetSelection.NextIndex(_cycleIndex, direction, count);
         var (dest, inCurrentZone) = areas[_cycleIndex];
 
         SelectedQuestDestination = new QuestDestination(
@@ -2198,7 +2196,7 @@ public sealed class NavigationService
             return;
         }
 
-        _cycleIndex = ((_cycleIndex + direction) % count + count) % count;
+        _cycleIndex = BrowserTargetSelection.NextIndex(_cycleIndex, direction, count);
         if (_cycleIndex < enemies.Count)
         {
             AnnounceLevequestEnemy(enemies[_cycleIndex], player, count);
@@ -2294,8 +2292,7 @@ public sealed class NavigationService
 
         SelectedQuestDestination = null;
 
-        _ownSelectionId = obj.GameObjectId;
-        _targetManager.Target = obj;
+        _ownSelectionId = BrowserTargetSelection.Select(_targetManager, obj) ? obj.GameObjectId : 0;
 
         SelectedObjectDestination = new ObjectDestination(
             obj.GameObjectId, _objectNames.Describe(obj), obj.Position);
@@ -2388,7 +2385,7 @@ public sealed class NavigationService
         }
 
         var count = places.Count;
-        _cycleIndex = ((_cycleIndex + direction) % count + count) % count;
+        _cycleIndex = BrowserTargetSelection.NextIndex(_cycleIndex, direction, count);
         var place = places[_cycleIndex];
         SelectedPlaceDestination = place;
 
@@ -2425,7 +2422,7 @@ public sealed class NavigationService
         }
 
         var count = spots.Count;
-        _cycleIndex = ((_cycleIndex + direction) % count + count) % count;
+        _cycleIndex = BrowserTargetSelection.NextIndex(_cycleIndex, direction, count);
         var spot = spots[_cycleIndex];
 
         // Reuse PlaceDestination so the existing walk guide picks it up unchanged.
@@ -2466,7 +2463,7 @@ public sealed class NavigationService
         }
 
         var count = spots.Count;
-        _cycleIndex = ((_cycleIndex + direction) % count + count) % count;
+        _cycleIndex = BrowserTargetSelection.NextIndex(_cycleIndex, direction, count);
         var (spot, territoryId, mapId, inCurrentZone) = spots[_cycleIndex];
 
         SelectedQuestDestination = new QuestDestination(
@@ -2557,7 +2554,7 @@ public sealed class NavigationService
         }
 
         var count = targets.Count;
-        _cycleIndex = ((_cycleIndex + direction) % count + count) % count;
+        _cycleIndex = BrowserTargetSelection.NextIndex(_cycleIndex, direction, count);
         var target = targets[_cycleIndex];
         SelectedBlueMagicTarget = target;
 
@@ -2624,7 +2621,7 @@ public sealed class NavigationService
         }
 
         var count = targets.Count;
-        _cycleIndex = ((_cycleIndex + direction) % count + count) % count;
+        _cycleIndex = BrowserTargetSelection.NextIndex(_cycleIndex, direction, count);
         var target = targets[_cycleIndex];
         SelectedBeastTarget = target;
         BuildBeastSearch(target, player.Position);
@@ -2760,7 +2757,7 @@ public sealed class NavigationService
         }
 
         var count = targets.Count;
-        _cycleIndex = ((_cycleIndex + direction) % count + count) % count;
+        _cycleIndex = BrowserTargetSelection.NextIndex(_cycleIndex, direction, count);
         var (target, live) = targets[_cycleIndex];
         SelectedHuntTarget = target;
         // Der Suchlauf gehoert zum gewaehlten Ziel: bei jedem Wechsel neu, sonst
@@ -2854,7 +2851,7 @@ public sealed class NavigationService
         }
 
         var count = entries.Count;
-        _cycleIndex = ((_cycleIndex + direction) % count + count) % count;
+        _cycleIndex = BrowserTargetSelection.NextIndex(_cycleIndex, direction, count);
         var entry = entries[_cycleIndex];
         SelectedDutyEntrance = entry;
 
@@ -2932,7 +2929,7 @@ public sealed class NavigationService
         // stur der Reihe nach, weil nur das eine Reihenfolge ist.
         _cycleIndex = _cycleIndex < 0
             ? NextDungeonStepIndex(steps, player)
-            : ((_cycleIndex + direction) % count + count) % count;
+            : BrowserTargetSelection.NextIndex(_cycleIndex, direction, count);
 
         var step = steps[_cycleIndex];
         SelectedDungeonStep = step;
@@ -3284,8 +3281,7 @@ public sealed class NavigationService
     /// </summary>
     public bool TargetFromBrowser(IGameObject obj)
     {
-        _ownSelectionId = obj.GameObjectId;
-        _targetManager.Target = obj;
+        _ownSelectionId = BrowserTargetSelection.Select(_targetManager, obj) ? obj.GameObjectId : 0;
         return (_targetManager.Target?.GameObjectId ?? 0) == obj.GameObjectId;
     }
 

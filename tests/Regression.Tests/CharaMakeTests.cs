@@ -13,6 +13,36 @@ public sealed class CharaMakeTests
     private static readonly CharaMakeClassText.Entry Gladiator = new(1, "Гладиатор", "Описание гладиатора");
     private static readonly CharaMakeClassText.Entry Thaumaturge = new(7, "Тауматург", "Описание тауматурга");
 
+    [Theory]
+    [InlineData(1u, "паладин")] [InlineData(2u, "монах")] [InlineData(3u, "воин")]
+    [InlineData(4u, "драгун")] [InlineData(5u, "бард")] [InlineData(6u, "белый маг")]
+    [InlineData(7u, "чёрный маг")] [InlineData(26u, "призыватель и учёный")]
+    public void RussianClassDescriptionMatchesItsWholeSourceAndJob(uint id, string job)
+    {
+        using var stream = typeof(AccessibilityStrings).Assembly.GetManifestResourceStream(
+            "FF14Accessibility.Resources.RussianCharaMakeClasses.json");
+        using var document = System.Text.Json.JsonDocument.Parse(stream!);
+        var source = document.RootElement.GetProperty(id.ToString()).GetProperty("Source").GetString()!;
+        var saved = Loc.Mode;
+        try
+        {
+            Loc.Mode = LanguageMode.Russian;
+            var result = AccessibilityStrings.CharaMakeClassDescription(id, source, "GAME_LANGUAGE");
+            Assert.Contains(job, result);
+            Assert.DoesNotContain("Corresponding Job", result);
+            Assert.True(result.Length > 250);
+            Assert.Equal("GAME_LANGUAGE", AccessibilityStrings.CharaMakeClassDescription(id, source + " changed", "GAME_LANGUAGE"));
+            Assert.Equal("GAME_LANGUAGE", AccessibilityStrings.CharaMakeClassDescription(999, source, "GAME_LANGUAGE"));
+            Assert.Equal("GAME_LANGUAGE", AccessibilityStrings.CharaMakeClassDescription(id == 1 ? 7u : 1u, source, "GAME_LANGUAGE"));
+            foreach (var mode in new[] { LanguageMode.English, LanguageMode.German })
+            {
+                Loc.Mode = mode;
+                Assert.Equal("GAME_LANGUAGE", AccessibilityStrings.CharaMakeClassDescription(id, source, "GAME_LANGUAGE"));
+            }
+        }
+        finally { Loc.Mode = saved; }
+    }
+
     [Fact]
     public void GuardianDescriptionCannotSurviveEntryIntoClassSelection()
     {

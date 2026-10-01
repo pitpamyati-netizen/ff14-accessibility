@@ -24,6 +24,7 @@ internal sealed class HeightPath : IDisposable
     private List<Vector3>? _leg;
     private List<Vector3>? _firstLeg;
     private Vector3 _goal, _via;
+    private Vector3 _surface;
     private int _candidate;
     private bool _initialized, _direct = true, _disposed;
 
@@ -76,6 +77,7 @@ internal sealed class HeightPath : IDisposable
             // Own the list; vnavmesh must not be able to prune the data we check.
             _leg = new List<Vector3>(task.Result);
             _samples = Samples(_leg, from).GetEnumerator();
+            _surface = from;
         }
         if (_samples != null)
         {
@@ -83,10 +85,18 @@ internal sealed class HeightPath : IDisposable
             {
                 if (!_samples.MoveNext()) { AcceptLeg(); return; }
                 var sample = _samples.Current;
-                var floor = _nearest(sample, 0.35f, 0.75f);
-                if (floor is not { } p || !Finite(p) || MathF.Abs(p.Y - sample.Y) > 0.75f
+                // A string-pulled ground route gives horizontal corners, not
+                // every change in terrain height. Trace the actual floor from
+                // the previous supported point instead of demanding that the
+                // floor coincide with a straight 3D line between the corners.
+                var step = GroundDetour.FlatDistance(_surface, sample);
+                var maxRise = MathF.Max(0.75f, step * 1.25f);
+                var probe = sample with { Y = _surface.Y };
+                var floor = _nearest(probe, 0.35f, maxRise);
+                if (floor is not { } p || !Finite(p) || MathF.Abs(p.Y - _surface.Y) > maxRise
                     || GroundDetour.FlatDistance(p, sample) > 0.35f)
                 { LastFailure = $"no surface at ({sample.X:F2}|{sample.Y:F2}|{sample.Z:F2})"; Reject(); return; }
+                _surface = p;
             }
             return;
         }
@@ -121,6 +131,9 @@ internal sealed class HeightPath : IDisposable
     private void AcceptLeg()
     {
         _samples!.Dispose(); _samples = null;
+        var endpoint = _direct || _firstLeg != null ? _goal : _via;
+        if (Vector3.Distance(_surface, endpoint) > 0.75f)
+        { LastFailure = "surface trace ends on another floor"; Reject(); return; }
         var leg = _leg!; _leg = null;
         if (!_direct && _firstLeg == null)
         {
@@ -139,8 +152,10 @@ internal sealed class HeightPath : IDisposable
     internal static bool ValidShape(IReadOnlyList<Vector3>? path, Vector3 from, Vector3 to)
     {
         if (path == null || path.Count < 2 || path.Count > 1024 || !Finite(from) || !Finite(to)) return false;
-        if (Vector3.Distance(path[0], from) > 1.5f || Vector3.Distance(path[^2], to) > 0.75f
-            || Vector3.Distance(path[^1], to) > 0.75f) return false;
+        // Polygon-center routes need not begin at the exact start, and a valid
+        // route need not duplicate its endpoint. Surface tracing validates
+        // those connections and still rejects an appended unreachable goal.
+        if (Vector3.Distance(path[^1], to) > 0.75f) return false;
         var previous = from;
         var length = 0f;
         foreach (var p in path)

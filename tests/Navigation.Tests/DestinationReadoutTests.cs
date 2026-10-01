@@ -106,6 +106,10 @@ public class DestinationReadoutTests
         Assert.Equal("Resolved", readout.Result);
         Assert.Equal("Выбранный NPC", readout.Name);
         Assert.Equal(position, readout.Position);
+        Set(plugin, "Log", StrictProxy.Of<IPluginLog>(_ => null));
+        // Walk resolution must also preserve the actual NPC floor. No
+        // AutoWalkService is supplied: calling map-height projection fails.
+        Assert.Equal(position, Read(plugin, forReadout: false).Position);
     }
 
     [Fact]
@@ -155,9 +159,9 @@ public class DestinationReadoutTests
         return (plugin, navigation);
     }
 
-    private static (string Result, Vector3 Position, string Name, bool HeightIsGuess) Read(Plugin plugin)
+    private static (string Result, Vector3 Position, string Name, bool HeightIsGuess) Read(Plugin plugin, bool forReadout = true)
     {
-        object?[] args = [default(Vector3), "", 0f, false, false, true];
+        object?[] args = [default(Vector3), "", 0f, false, false, forReadout];
         var method = typeof(Plugin).GetMethod("TryResolveMarkerDestination", BindingFlags.Instance | BindingFlags.NonPublic)!;
         var result = method.Invoke(plugin, args)!;
         return (result.ToString()!, (Vector3)args[0]!, (string)args[1]!, (bool)args[3]!);

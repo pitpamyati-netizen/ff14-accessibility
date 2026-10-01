@@ -104,7 +104,7 @@ public sealed class FollowTargetKeyTests
     private static bool FollowPressed(Plugin plugin) =>
         (bool)Method("IsJustPressed").Invoke(plugin, [new Configuration().KeyFollowTarget, false, true])!;
 
-    private static (Plugin, ShopQuantityTests.KeyStateProxy) CreateInput()
+    internal static (Plugin, ShopQuantityTests.KeyStateProxy) CreateInput()
     {
         var plugin = (Plugin)RuntimeHelpers.GetUninitializedObject(typeof(Plugin));
         var keys = DispatchProxy.Create<IKeyState, ShopQuantityTests.KeyStateProxy>();

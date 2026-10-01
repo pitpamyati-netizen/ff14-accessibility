@@ -38,15 +38,28 @@ foreach (var mode in new[] { LanguageMode.Russian, LanguageMode.English })
             var name = (string)resultType.GetProperty("Name")!.GetValue(result)!;
             var description = (string)resultType.GetProperty("Description")!.GetValue(result)!;
             var source = data.GetExcelSheet<Lobby>().GetRow(lobbyIds[i]);
-            if (id != classes[i] || description.Length < 40 || description != source.Unknown1.ExtractText().Trim())
+            if (id != classes[i] || description.Length < 40)
                 throw new Exception($"Wrong description for {language}/{mode}/{classes[i]}.");
             if (mode == LanguageMode.Russian)
             {
                 if (!System.Text.RegularExpressions.Regex.IsMatch(name, "[А-Яа-яЁё]"))
                     throw new Exception($"Russian class name missing: {name}");
+                if (!System.Text.RegularExpressions.Regex.IsMatch(description, "[А-Яа-яЁё]")
+                    || System.Text.RegularExpressions.Regex.IsMatch(description, "[A-Za-z]")
+                    || !description.Contains(i == 7 ? "Соответствующие профессии:" : "Соответствующая профессия:"))
+                    throw new Exception($"Russian class description missing: {language}/{classes[i]}.");
+                using var stream = typeof(AccessibilityStrings).Assembly.GetManifestResourceStream(
+                    "FF14Accessibility.Resources.RussianCharaMakeClasses.json");
+                using var catalog = JsonDocument.Parse(stream!);
+                var entry = catalog.RootElement.GetProperty(id.ToString());
+                if (entry.GetProperty("Source").GetString() != game.Excel.GetSheet<Lobby>(Lumina.Data.Language.English).GetRow(lobbyIds[i]).Unknown1.ExtractText().Trim()
+                    || entry.GetProperty("Russian").GetString() != description)
+                    throw new Exception($"Stale or wrong Russian class description: {id}");
             }
-            else if (!string.Equals(name, equipment.Class.Value.Name.ExtractText(), StringComparison.OrdinalIgnoreCase)
+            else if (description != source.Unknown1.ExtractText().Trim()
+                     || (!string.Equals(name, equipment.Class.Value.Name.ExtractText(), StringComparison.OrdinalIgnoreCase)
                      && !string.Equals(name, data.GetExcelSheet<ClassJob>().GetRow(id).Name.ExtractText(), StringComparison.OrdinalIgnoreCase))
+                    )
                 throw new Exception($"Wrong game-language name: {name}");
             cases.Add(new { ClientLanguage = language.ToString(), PluginLanguage = mode.ToString(), ClassId = id,
                 LobbyRow = lobbyIds[i], WeaponKind = kind, Weapon = $"{model:X12}", Name = name, Description = description });
@@ -54,6 +67,6 @@ foreach (var mode in new[] { LanguageMode.Russian, LanguageMode.English })
     }
 }
 File.WriteAllText(args[1], JsonSerializer.Serialize(new { CheckedAt = DateTimeOffset.Now, Cases = cases,
-    InGameVerified = false, DescriptionsUseGameLanguage = true }, new JsonSerializerOptions { WriteIndented = true,
+    InGameVerified = false, RussianDescriptionsVerified = true }, new JsonSerializerOptions { WriteIndented = true,
     Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }));
 Console.WriteLine($"Passed {cases.Count} class/description checks using installed game tables. Live selection and speech still require FFXIV.");
