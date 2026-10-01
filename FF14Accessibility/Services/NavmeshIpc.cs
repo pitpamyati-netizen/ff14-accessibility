@@ -68,17 +68,20 @@ public sealed class NavmeshIpc
 
     /// <summary>A cancellable ground query only; its completion never starts movement.</summary>
     public Task<List<Vector3>>? FindGroundPath(Vector3 from, Vector3 to, CancellationToken cancel)
+        => FindPath(from, to, false, cancel);
+
+    public Task<List<Vector3>>? FindPath(Vector3 from, Vector3 to, bool fly, CancellationToken cancel)
     {
         try
         {
-            var task = _findPath.InvokeFunc(from, to, false, cancel);
+            var task = _findPath.InvokeFunc(from, to, fly, cancel);
             LastCallFailed = false;
             return task;
         }
         catch (Exception ex)
         {
             LastCallFailed = true;
-            _log.Warning(ex, "[Nav] Ground detour path query unavailable");
+            _log.Warning(ex, "[Nav] Cancellable path query unavailable");
             return null;
         }
     }

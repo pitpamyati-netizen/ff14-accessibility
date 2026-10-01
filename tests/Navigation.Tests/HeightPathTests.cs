@@ -90,7 +90,7 @@ public class HeightPathTests
         var surface = Surface(ramp);
         using var search = new HeightPath(ramp[0], target, 2.5f, (p, xz, y) =>
             p == target ? xz >= 2.33f ? approach : null : surface(p, xz, y),
-            (_, _, _) => Task.FromResult(ramp.ToList()));
+            (a, b, _) => Task.FromResult(a == ramp[0] ? ramp.ToList() : new List<Vector3> { a, b, b }));
         Complete(search);
         Assert.NotNull(search.Result);
         Assert.InRange(Vector3.Distance(search.Result[^1], target), 2.3f, 2.5f);
@@ -169,10 +169,12 @@ public class HeightPathTests
     {
         Vector3[] ground = [new(0, 0, 0), new(60, 0, 0), new(80, 14, 0), new(100, 14, 0)];
         using var search = new HeightPath(ground[0], ground[^1], 2.5f, Surface(ground),
-            (_, _, _) => Task.FromResult(new List<Vector3> { new(5, 0, 0), ground[2], ground[^1] }));
+            (a, b, _) => Task.FromResult(a == ground[0]
+                ? new List<Vector3> { new(5, 0, 0), ground[2], ground[^1] }
+                : new List<Vector3> { a, b, b }));
         Complete(search);
         Assert.NotNull(search.Result);
-        Assert.Equal(1, search.Queries);
+        Assert.InRange(search.Queries, 1, 2);
     }
 
     [Fact]
@@ -352,9 +354,9 @@ public class HeightPathTests
 
     [Theory]
     [InlineData(false, false, "HeightSearch", 0)]
-    [InlineData(true, false, "Starting", 1)]
-    [InlineData(false, true, "Starting", 1)]
-    public void OnlyKnownObjectHeightUsesStrictFloorSearch(bool guessedHeight, bool transition, string expectedPhase, int expectedMoves)
+    [InlineData(true, false, "HeightSearch", 0)]
+    [InlineData(false, true, "HeightSearch", 0)]
+    public void EveryGroundDestinationIsCheckedBeforeMovement(bool guessedHeight, bool transition, string expectedPhase, int expectedMoves)
     {
         var walk = (AutoWalkService)RuntimeHelpers.GetUninitializedObject(typeof(AutoWalkService));
         var nav = (NavmeshIpc)RuntimeHelpers.GetUninitializedObject(typeof(NavmeshIpc));
@@ -386,10 +388,12 @@ public class HeightPathTests
         var player = DestinationReadoutTests.StrictProxy.Of<IPlayerCharacter>(_ => Vector3.Zero);
         Field(walk, "_objectTable", DestinationReadoutTests.StrictProxy.Of<IObjectTable>(_ => player));
         Field(walk, "_tolk", RuntimeHelpers.GetUninitializedObject(typeof(TolkService)));
+        Field(walk, "_log", DestinationReadoutTests.StrictProxy.Of<IPluginLog>(_ => null));
         Field(walk, "_nav", nav);
         Field(walk, "_destinationHeightIsGuess", true);
         Field(walk, "_destinationIsTransition", true);
         Field(nav, "_isReady", DestinationReadoutTests.StrictProxy.Of<ICallGateSubscriber<bool>>(_ => false));
+        Field(nav, "_stop", DestinationReadoutTests.StrictProxy.Of<ICallGateSubscriber<object>>(_ => null));
         Field(nav, "_buildProgress", DestinationReadoutTests.StrictProxy.Of<ICallGateSubscriber<float>>(_ => 0.5f));
         typeof(AutoWalkService).GetMethod("Begin", BindingFlags.Instance | BindingFlags.NonPublic)!
             .Invoke(walk, [Poacher, "NPC", 2.5f, 123UL, false]);

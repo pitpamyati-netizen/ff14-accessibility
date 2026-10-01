@@ -93,6 +93,8 @@ public sealed class ZoneTransitionHandler
     {
         var player = _objectTable.LocalPlayer;
         if (player == null) return false;
+        if (!HeightPath.Finite(target) || !HeightPath.Finite(player.Position)
+            || _nav.PathfindInProgress) return false;
 
         var distance = Vector3.Distance(player.Position, target);
         if (distance > MaxNudgeDistance)
@@ -142,6 +144,9 @@ public sealed class ZoneTransitionHandler
 
         var player = _objectTable.LocalPlayer;
         if (player == null) { Stop(silent: true); return; }
+        if (!HeightPath.Finite(player.Position) || _nav.PathfindInProgress
+            || !HeightPath.IsRemainingPath(new[] { _target }, _nav.Waypoints))
+        { Stop(silent: false); return; }
 
         var now = DateTime.UtcNow;
         if (Vector3.Distance(player.Position, _lastPosition) >= MovementEpsilon)

@@ -19,6 +19,7 @@ public sealed partial class AutoWalkService
 
     private void HeightSearchUpdate()
     {
+        if (!ValidateWalkContext()) return;
         var player = _objectTable.LocalPlayer;
         if (player == null) { Finish(null, "height: player missing"); return; }
         if ((ushort)_clientState.TerritoryType != _startTerritory)
@@ -28,13 +29,10 @@ public sealed partial class AutoWalkService
         // Stop any late SimpleMove result from an earlier command before using
         // the position from which this query-only search was started.
         if (_nav.IsRunning) _nav.Stop();
-        var targetMoved = _targetId != 0
-            && _objectTable.FirstOrDefault(o => o.GameObjectId == _targetId) is { } live
-            && Vector3.Distance(live.Position, search.Destination) > 1;
-        if (targetMoved || Vector3.Distance(player.Position, search.Start) > 0.75f
+        if (Vector3.Distance(player.Position, search.Start) > 0.75f
             || (DateTime.UtcNow - _startedAt).TotalSeconds > 30 || !_nav.IsReady)
         {
-            Finish(AccessibilityStrings.HeightPathUnavailable(_destPosition.Y - player.Position.Y),
+            Finish(GroundPathFailure(player.Position),
                 "height: changed position, timeout or mesh unavailable");
             return;
         }
@@ -51,9 +49,11 @@ public sealed partial class AutoWalkService
             _log.Info($"[HeightPath] no supported route; queries={queries}; target=({Fmt(_destPosition)}); reason={failure}");
             // Keep the existing, measured/recorded crossings available; never
             // manufacture a direct jump between disconnected floors.
-            if (TryBridgePartialPath(player.Position)) { _phase = Phase.Starting; return; }
+            if (TryBridgePartialPath(player.Position)) return;
             if (TryTakeTrail(player.Position)) return;
-            Finish(AccessibilityStrings.HeightPathUnavailable(_destPosition.Y - player.Position.Y),
+            if (_destinationIsTransition && Vector3.Distance(player.Position, _destPosition) <= 6
+                && TryNudgeIntoTransition(Vector3.Distance(player.Position, _destPosition))) return;
+            Finish(GroundPathFailure(player.Position),
                 "height: no continuous route to target floor");
             return;
         }

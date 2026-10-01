@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 namespace FF14Accessibility.Services;
 
 /// <summary>
-/// Query-only recovery for destinations on another floor. A duplicated endpoint
+/// Query-only planning for every ground destination. A duplicated endpoint
 /// is not proof of arrival: vnavmesh can return it even for a disconnected mesh.
 /// Every leg must end on the requested floor and have mesh support along it.
 /// Update runs on the framework thread with a bounded number of probes per tick.
@@ -16,11 +16,13 @@ internal sealed class HeightPath : IDisposable
 {
     private readonly Func<Vector3, float, float, Vector3?> _nearest;
     private readonly Func<Vector3, Vector3, CancellationToken, Task<List<Vector3>>?> _query;
+    private readonly Func<Vector3, Vector3, bool>? _segmentClear;
     private readonly CancellationTokenSource _cancel = new();
     private readonly float _range;
     private readonly List<Vector3> _candidates = new();
     private readonly List<Vector3> _starts = new();
     private Task<List<Vector3>>? _pending;
+    private List<Vector3>? _endpointPath;
     private IEnumerator<Vector3>? _samples;
     private List<Vector3>? _leg;
     private List<Vector3>? _firstLeg;
@@ -38,10 +40,12 @@ internal sealed class HeightPath : IDisposable
 
     internal HeightPath(Vector3 start, Vector3 destination, float range,
         Func<Vector3, float, float, Vector3?> nearest,
-        Func<Vector3, Vector3, CancellationToken, Task<List<Vector3>>?> query)
+        Func<Vector3, Vector3, CancellationToken, Task<List<Vector3>>?> query,
+        Func<Vector3, Vector3, bool>? segmentClear = null, float? approachRange = null)
     {
-        Start = start; Destination = destination; _range = range;
+        Start = start; Destination = destination; _range = approachRange ?? range;
         _nearest = nearest; _query = query;
+        _segmentClear = segmentClear;
     }
 
     internal void Update()
@@ -78,9 +82,29 @@ internal sealed class HeightPath : IDisposable
             { _ = task.Exception; LastFailure = "query failed or canceled"; Reject(); return; }
             var from = _firstLeg == null ? Start : _via;
             var to = _direct || _firstLeg != null ? _goal : _via;
-            if (!ValidShape(task.Result, from, to)) { LastFailure = "partial path or unsupported height change"; Reject(); return; }
+            var path = task.Result;
+            var endpointVerified = _endpointPath != null;
+            if (_endpointPath != null)
+            {
+                // Polygon-centre routes may end far from the requested point.
+                // Ask from the goal back to the actual last polygon: a partial
+                // route from the other island cannot certify that connection.
+                var endpoint = _endpointPath[^2];
+                if (!ValidShape(path, to, endpoint) || !HasNativeEndpoint(path, endpoint))
+                { LastFailure = "partial native endpoint"; Reject(); return; }
+                path = _endpointPath;
+                _endpointPath = null;
+            }
+            if (path.Count < 2 || path.Count > 1024 || !ValidShape(path, from, to))
+            { LastFailure = "partial path or unsupported height change"; Reject(); return; }
+            if (!endpointVerified && !HasNativeEndpoint(path, to))
+            {
+                _endpointPath = new List<Vector3>(path);
+                Query(to, path[^2]);
+                return;
+            }
             // Own the list; vnavmesh must not be able to prune the data we check.
-            _samples = Samples(new List<Vector3>(task.Result), from).GetEnumerator();
+            _samples = Samples(new List<Vector3>(path), from).GetEnumerator();
             _leg = new List<Vector3>();
             _surface = from;
         }
@@ -95,7 +119,7 @@ internal sealed class HeightPath : IDisposable
                 // the previous supported point instead of demanding that the
                 // floor coincide with a straight 3D line between the corners.
                 var step = GroundDetour.FlatDistance(_surface, sample);
-                var maxRise = MathF.Max(0.75f, step * 1.25f);
+                var maxRise = MathF.Max(0.75f, step * 1.5f);
                 var probe = sample with { Y = _surface.Y };
                 // Recast erodes edges and quantizes stairs. Small seams are
                 // allowed, while each sample must still stay on nearby ground.
@@ -103,6 +127,8 @@ internal sealed class HeightPath : IDisposable
                 if (floor is not { } p || !Finite(p) || MathF.Abs(p.Y - _surface.Y) > maxRise
                     || GroundDetour.FlatDistance(p, sample) > 1.5f)
                 { LastFailure = $"no surface at ({sample.X:F2}|{sample.Y:F2}|{sample.Z:F2})"; Reject(); return; }
+                if (_segmentClear != null && !_segmentClear(_surface, p))
+                { LastFailure = "collision across surface connector"; Reject(); return; }
                 _surface = p;
                 // Walk the supported surface, not the sparse straight line
                 // that may run beside a stairway or across an eroded edge.
@@ -148,7 +174,7 @@ internal sealed class HeightPath : IDisposable
     private void Reject()
     {
         _samples?.Dispose(); _samples = null;
-        _leg = null; _firstLeg = null; _direct = false;
+        _leg = null; _firstLeg = null; _endpointPath = null; _direct = false;
     }
 
     private void AcceptLeg()
@@ -177,7 +203,7 @@ internal sealed class HeightPath : IDisposable
 
     internal static bool ValidShape(IReadOnlyList<Vector3>? path, Vector3 from, Vector3 to)
     {
-        if (path == null || path.Count < 2 || path.Count > 1024 || !Finite(from) || !Finite(to)) return false;
+        if (path == null || path.Count == 0 || path.Count > 8192 || !Finite(from) || !Finite(to)) return false;
         // Polygon-center routes need not begin at the exact start, and a valid
         // route need not duplicate its endpoint. Surface tracing validates
         // those connections and still rejects an appended unreachable goal.
@@ -189,9 +215,9 @@ internal sealed class HeightPath : IDisposable
             if (!Finite(p)) return false;
             var rise = MathF.Abs(p.Y - previous.Y);
             // Also catches the logged [start, target, target] false success.
-            if (rise > 1 && rise > GroundDetour.FlatDistance(previous, p)) return false;
+            if (rise > 1 && rise > GroundDetour.FlatDistance(previous, p) * 1.45f) return false;
             length += Vector3.Distance(previous, p);
-            if (length > 2000) return false;
+            if (length > 8000) return false;
             previous = p;
         }
         return true;
@@ -217,7 +243,10 @@ internal sealed class HeightPath : IDisposable
         return true;
     }
 
-    private static bool Finite(Vector3 p) => float.IsFinite(p.X) && float.IsFinite(p.Y) && float.IsFinite(p.Z);
+    internal static bool HasNativeEndpoint(IReadOnlyList<Vector3> path, Vector3 goal)
+        => path.Count >= 2 && Finite(path[^2]) && Vector3.Distance(path[^2], goal) <= 0.75f;
+
+    internal static bool Finite(Vector3 p) => float.IsFinite(p.X) && float.IsFinite(p.Y) && float.IsFinite(p.Z);
 
     public void Dispose()
     {

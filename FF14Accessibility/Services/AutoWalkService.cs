@@ -379,6 +379,7 @@ public sealed partial class AutoWalkService : IDisposable
     private int _lastWaypointCount;     // remaining hops at the last check
     private DateTime _lastDiagAt;
     private GroundDetour? _groundDetour;
+    private IReadOnlyList<Vector3>? _lastGroundWaypoints;
     private readonly List<Vector3> _detourAttempts = new();
     private DateTime _detourStartedAt;
     private Vector3 _detourEnd;
@@ -457,6 +458,9 @@ public sealed partial class AutoWalkService : IDisposable
     private string _pendingCrossingName = string.Empty;
     private Vector3? _crossingDestination;
     private float _crossingStopRange;
+    private ulong _crossingTargetId;
+    private bool _crossingIsTransition, _crossingHeightIsGuess, _crossingIsTrail;
+    private List<Vector3>? _checkedAuxiliaryRoute;
     /// <summary>Whether this walk's path has already been examined for being cut
     /// short (<see cref="TryBridgePartialPath"/>). Once per walk: the check ends in
     /// a second walk, and letting that one check again would be a loop.</summary>
@@ -553,7 +557,7 @@ public sealed partial class AutoWalkService : IDisposable
     /// a walk the player did not start is not one they need steering for.
     /// </para>
     /// </summary>
-    public bool IsWalking => IsActive || IsFollowing;
+    public bool IsWalking => IsActive || IsFollowing || Transitions is { IsActive: true };
 
     /// <summary>
     /// Switches an active auto-walk onto a live object (hunting-log specimen that
@@ -809,7 +813,7 @@ public sealed partial class AutoWalkService : IDisposable
     {
         StopFollowQuiet();   // a one-shot walk cancels a running follow (shared vnavmesh)
 
-        if (IsActive)
+        if (IsActive || Transitions is { IsActive: true })
         {
             Finish(AccessibilityStrings.AutoWalkStopped, "vom Spieler gestoppt");
             return;
@@ -850,7 +854,7 @@ public sealed partial class AutoWalkService : IDisposable
         _destinationHeightIsGuess = heightIsGuess;
         StopFollowQuiet();
 
-        if (IsActive)
+        if (IsActive || Transitions is { IsActive: true })
         {
             Finish(AccessibilityStrings.AutoWalkStopped, "vom Spieler gestoppt");
             return;
@@ -861,7 +865,7 @@ public sealed partial class AutoWalkService : IDisposable
     }
 
     /// <summary>
-    /// Requests the path and enters <see cref="Phase.Starting"/>. Stops whatever
+    /// Starts a cancellable query and validates the route before movement. Stops whatever
     /// vnavmesh was doing FIRST: a leftover path (quite possibly a stuck-retry
     /// cycle re-arming itself once a second) would otherwise both steer the
     /// character and make our own status reads describe the wrong walk.
@@ -873,10 +877,18 @@ public sealed partial class AutoWalkService : IDisposable
     private void Begin(Vector3 destination, string name, float stopRange, ulong targetId, bool fresh = true)
     {
         ClearHeightPath();
+        ClearFlightPath();
         _groundDetour?.Dispose();
         _groundDetour = null;
         var player = _objectTable.LocalPlayer;
-        if (player == null) return;
+        if (player == null) { Finish(null, "player missing at start"); return; }
+        Transitions?.Stop(silent: true);
+        _nav.Stop();
+        _checkedAuxiliaryRoute = null;
+        _lastGroundWaypoints = null;
+        if (!HeightPath.Finite(player.Position) || !HeightPath.Finite(destination)
+            || !float.IsFinite(stopRange) || stopRange <= 0)
+        { Finish(AccessibilityStrings.NavigationInvalidPosition, "invalid destination or range"); return; }
 
         if (targetId != 0)
         {
@@ -886,6 +898,7 @@ public sealed partial class AutoWalkService : IDisposable
 
         if (fresh)
         {
+            _targetRepaths = 0;
             _detourAttempts.Clear();
             _usedTrails.Clear();
             _reengageCount = 0;
@@ -909,6 +922,7 @@ public sealed partial class AutoWalkService : IDisposable
                     ? AccessibilityStrings.MeshStillLoading(progress * 100)
                     : AccessibilityStrings.MeshNotReady);
             }
+            Finish(null, "mesh unavailable at start");
             return;
         }
 
@@ -921,11 +935,13 @@ public sealed partial class AutoWalkService : IDisposable
         // HIER, vor allem anderen: ein Flug ueberspringt die Vorsprung-Umleitung,
         // die Bruecken und die Spuren gleich mit, weil die alle Loesungen fuer
         // Probleme des Bodennetzes sind, die es im Luftraum nicht gibt.
-        if (fresh && ShouldFly())
+        if (ShouldFly())
         {
             BeginFlightPath(destination, name, stopRange, targetId);
             return;
         }
+        if (_flight is { IsInFlight: true })
+        { Finish(AccessibilityStrings.NavigationAirborneNoRoute, "ground route refused while airborne"); return; }
 
         // Steht das Ziel unter etwas Begehbarem? Dann ist der Punkt, den die
         // Wegsuche daraus machen wuerde, das Stockwerk darueber. BEVOR die
@@ -950,8 +966,14 @@ public sealed partial class AutoWalkService : IDisposable
         }
 
         var distance = Vector3.Distance(player.Position, destination);
-        if (distance <= stopRange)
+        if (distance <= stopRange && (_groundSegmentClear == null || _groundSegmentClear(player.Position, destination)))
         {
+            Finish(null, "already within arrival range");
+            if (_destinationIsTransition && Transitions != null)
+            {
+                if (!Transitions.Nudge(destination, name)) _tolk.SpeakInterrupt(AccessibilityStrings.TransitionNudgeFailed(name));
+                return;
+            }
             // Already there - starting a walk would be a no-op the player has to
             // wait out, and vnavmesh would report an immediate end that reads
             // like a failure.
@@ -1004,30 +1026,27 @@ public sealed partial class AutoWalkService : IDisposable
             }
         }
 
-        _nav.Stop();
-
-        var checkHeight = crossing == null && !_destinationIsTransition && !_destinationHeightIsGuess
-            && MathF.Abs(walkTo.Y - player.Position.Y) >= 3;
-        if (!checkHeight && !_nav.MoveCloseTo(walkTo, walkStopRange))
-        {
-            _tolk.SpeakInterrupt(_nav.LastCallFailed
-                ? AccessibilityStrings.AutoWalkUnavailable
-                : AccessibilityStrings.PathfindBusy);
-            return;
-        }
-
         _pendingCrossing = crossing;
         _pendingCrossingName = crossingName;
         _crossingDestination = crossing != null ? destination : null;
         _crossingStopRange = stopRange;
+        _crossingTargetId = targetId;
+        if (crossing != null)
+        {
+            _crossingIsTransition = _destinationIsTransition;
+            _crossingHeightIsGuess = _destinationHeightIsGuess;
+            _destinationIsTransition = _destinationHeightIsGuess = false;
+            _crossingIsTrail = false;
+        }
 
         _targetId = crossing != null ? 0 : targetId;   // the bridge entry is not the target object
         _targetName = name;
         _destPosition = walkTo;
+        _plannedDestination = walkTo;
         _stopRange = walkStopRange;
         _startTerritory = (ushort)_clientState.TerritoryType;
 
-        _phase = checkHeight ? Phase.HeightSearch : Phase.Starting;
+        _phase = Phase.HeightSearch;
         _startedAt = DateTime.UtcNow;
         _lastPosition = player.Position;
         _lastMoveAt = _startedAt;
@@ -1043,21 +1062,14 @@ public sealed partial class AutoWalkService : IDisposable
         // ON one (or came off one), and re-checking would send it back.
         _partialPathChecked = !fresh || crossing != null;
 
-        if (checkHeight)
-        {
-            _heightPath = new HeightPath(player.Position, walkTo, walkStopRange,
-                _nav.NearestPoint, _nav.FindGroundPath);
-            _log.Info($"[HeightPath] search start=({Fmt(player.Position)}) target=({Fmt(walkTo)}) range={walkStopRange:F1}");
-            _tolk.SpeakInterrupt(AccessibilityStrings.WalkingTo(name) + " " + AccessibilityStrings.HeightPathSearching);
-            return;
-        }
-
-        _log.Info($"[Nav] Auto-Lauf: gestartet zu {name} (id={targetId:X}, stopRange={stopRange:F1}, " +
-                  $"dist={distance:F1}, neu={fresh})");
+        _heightPath = new HeightPath(player.Position, walkTo, walkStopRange,
+            _nav.NearestPoint, _nav.FindGroundPath, _groundSegmentClear,
+            approachRange: _destinationIsTransition ? 6f : null);
+        _log.Info($"[HeightPath] search start=({Fmt(player.Position)}) target=({Fmt(walkTo)}) range={walkStopRange:F1}");
         if (fresh)
             _tolk.SpeakInterrupt(_ceilingDestination != null
                 ? AccessibilityStrings.WalkingToBelowLedge(name, ceilingDetour)
-                : AccessibilityStrings.WalkingTo(name));
+                : AccessibilityStrings.WalkingTo(name) + " " + AccessibilityStrings.GroundPathSearching);
     }
 
     // ── Fliegen ──────────────────────────────────────────────────────
@@ -1131,35 +1143,12 @@ public sealed partial class AutoWalkService : IDisposable
         var distance = Vector3.Distance(player.Position, destination);
 
         _nav.Stop();
-
-        if (!_nav.MoveCloseTo(destination, stopRange, fly: true))
-        {
-            // WARUM HIER UNTERSCHIEDEN WIRD: "abgelehnt" hat zwei ganz
-            // verschiedene Bedeutungen. AsyncMoveRequest.MoveTo gibt false zurueck,
-            // solange eine Suche laeuft ("Pathfinding task is in progress...", im
-            // Log vom 2026-09-01 viermal). Diesen Fall auf den Bodenweg umzuleiten
-            // war falsch: die alte Suche rechnet weiter, liefert ihren Pfad und
-            // steuert dann gegen den Bodenlauf. Ein Abbruch ist nicht moeglich,
-            // also wird gewartet statt ausgewichen.
-            if (_nav.PathfindInProgress)
-            {
-                _log.Info("[Flug] Wegsuche laeuft noch - neuer Auftrag nicht angenommen.");
-                _tolk.SpeakInterrupt(AccessibilityStrings.PathSearchStillBusy);
-                Finish(null, "Wegsuche belegt");
-                return;
-            }
-
-            // Es rechnet nichts - die Ablehnung kam also nicht aus der
-            // Warteschlange, sondern vnavmesh ist nicht erreichbar. Zu Fuss weiter
-            // statt schweigend stehen: der Spieler hat einen Lauf angefordert,
-            // nicht einen Flug.
-            _log.Info("[Flug] Wegsuche abgelehnt - laufe stattdessen.");
-            _tolk.SpeakInterrupt(AccessibilityStrings.NoFlightPathWalkingInstead);
-            _flying = false;
-            _flightDeclined = true;
-            Begin(destination, name, stopRange, targetId);
-            return;
-        }
+        ClearFlightPath();
+        _flightPathStart = player.Position;
+        _flightPathCancel = new System.Threading.CancellationTokenSource();
+        _flightPath = _nav.FindPath(player.Position, destination, true, _flightPathCancel.Token);
+        if (_flightPath == null)
+        { Finish(AccessibilityStrings.NavigationFlightUnavailable, "flight query unavailable"); return; }
 
         _flying = true;
 
@@ -1172,6 +1161,7 @@ public sealed partial class AutoWalkService : IDisposable
         _targetId = targetId;
         _targetName = name;
         _destPosition = destination;
+        _plannedDestination = destination;
         _stopRange = stopRange;
         _startTerritory = (ushort)_clientState.TerritoryType;
 
@@ -1250,6 +1240,7 @@ public sealed partial class AutoWalkService : IDisposable
 
     private void LandingUpdate()
     {
+        if (!ValidateWalkContext()) return;
         var player = _objectTable.LocalPlayer;
         if (player == null) { Finish(null, "Spieler weg"); return; }
 
@@ -1267,8 +1258,10 @@ public sealed partial class AutoWalkService : IDisposable
         //
         // Der alte Ablauf konnte das gar nicht: EnterLanding rief Path.Stop, die
         // Figur schwebte danach steuerlos, und dagegen half kein Absteigen.
-        if (_flight is { IsInFlight: true } && elapsed < LandingSettleS + LandingTimeoutS)
+        if (_flight is { IsInFlight: true })
         {
+            if (elapsed >= LandingSettleS + LandingTimeoutS)
+            { Finish(AccessibilityStrings.NavigationLandingFailed, "landing timed out while airborne"); return; }
             Descend(player.Position);
             return;
         }
@@ -1354,6 +1347,10 @@ public sealed partial class AutoWalkService : IDisposable
     private void Finish(string? spoken, string reason)
     {
         ClearHeightPath();
+        ClearFlightPath();
+        Transitions?.Stop(silent: true);
+        _checkedAuxiliaryRoute = null;
+        _lastGroundWaypoints = null;
         _groundDetour?.Dispose();
         _groundDetour = null;
         _nav.Stop();
@@ -1392,6 +1389,8 @@ public sealed partial class AutoWalkService : IDisposable
         // keine Restentfernung zu einem Ziel erfindet, das es hier nicht gibt.
         _destPosition = player.Position;
         _targetName = string.Empty;
+        _targetId = 0;
+        _startTerritory = (ushort)_clientState.TerritoryType;
         _flying = true;
 
         _log.Info("[Flug] Landung auf Anforderung des Spielers.");
@@ -1403,7 +1402,13 @@ public sealed partial class AutoWalkService : IDisposable
     /// manual walk guide takes over).</summary>
     public void StopQuiet()
     {
-        if (IsActive) Finish(null, "still gestoppt");
+        if (IsActive || Transitions is { IsActive: true }) Finish(null, "still gestoppt");
+    }
+
+    public void StopMovement()
+    {
+        StopFollowQuiet();
+        Finish(AccessibilityStrings.AutoWalkStopped, "stopped by navigation key");
     }
 
     // ── Jede Frame: Aufsicht über den laufenden Weg ──────────────────
@@ -1439,104 +1444,14 @@ public sealed partial class AutoWalkService : IDisposable
     /// </summary>
     private void StartingUpdate()
     {
-        var player = _objectTable.LocalPlayer;
-        if (player == null) { Finish(null, "Spieler weg"); return; }
-
-        if (_nav.IsRunning)
-        {
-            // The path exists - but does it reach the destination? Asked here
-            // because this is the one frame where the whole list is still present.
-            // Not for a flight: the check hunts for a gap in the WALKABLE mesh and
-            // would answer about ground the flight never touches.
-            if (!_flying && TryBridgePartialPath(player.Position)) return;
-
-            _phase = Phase.Walking;
-            _lastMoveAt = DateTime.UtcNow;
-            _pathQuiet = false;
-            _log.Info($"[Nav] Auto-Lauf: Pfad steht ({_nav.NumWaypoints} Wegpunkte), laufe.");
-            return;
-        }
-
-        var waited = (DateTime.UtcNow - _startedAt).TotalSeconds;
-
-        // ── Der Flug wartet, solange vnavmesh rechnet ─────────────────────────
-        //
-        // WAS HIER FRUEHER FALSCH WAR (gemessen 2026-09-01, Log 21:11-21:13): die
-        // Frist unten galt auch fuer den Flug, und sie war um ein Vielfaches zu
-        // kurz. Die Voxel-Suche brauchte fuer 814 bis 894 m zwischen 18,9 und
-        // 24,8 s, wurde nach 6 s fuer gescheitert erklaert - und lief trotzdem
-        // weiter. Es gibt keinen Abbruch: Nav.PathfindCancelAll laedt in
-        // Wahrheit das ganze Wegenetz neu (IPCProvider:25). Der Flugpfad kam also
-        // zwanzig Sekunden spaeter doch noch an und steuerte gegen den
-        // Bodenlauf, der inzwischen gestartet war. Das war das Haengen.
-        //
-        // Statt der Uhr entscheidet jetzt vnavmeshs eigene Auskunft. Die Frist
-        // bleibt nur als Notbremse.
-        if (_flying)
-        {
-            var searching = _nav.PathfindInProgress;
-
-            // Nach ein paar Sekunden einmal sagen, dass gewartet wird. Kurze
-            // Strecken kommen hier nie an - deren Suche ist laengst durch.
-            if (searching && !_flightSearchAnnounced && waited > FlightSearchNoticeS)
-            {
-                _flightSearchAnnounced = true;
-                _log.Info($"[Flug] Wegsuche laeuft seit {waited:F1} s - Ansage an den Spieler.");
-                _tolk.Speak(AccessibilityStrings.FlightPathSearching);
-            }
-
-            // Es rechnet noch: warten. Die alten StartTimeoutS bleiben als
-            // Mindestgeduld, damit ein einzelner Frame zwischen "Suche fertig"
-            // und "Pfad steht" nicht als Fehlschlag durchgeht.
-            if (waited <= FlightStartTimeoutS && (searching || waited <= StartTimeoutS))
-                return;
-
-            // Notbremse: es rechnet IMMER noch. Kein Rueckfall auf den Bodenweg -
-            // die Suche laeuft ja weiter und wuerde genau da hineinsteuern, wo
-            // der Bodenlauf gerade angefangen hat. Lieber ehrlich abbrechen.
-            if (searching)
-            {
-                _log.Info($"[Flug] Wegsuche laeuft nach {waited:F0} s immer noch - " +
-                          $"Abbruch ohne Bodenweg, ein Abbruch der Suche ist nicht moeglich.");
-                _flying = false;
-                _flightDeclined = true;
-                Finish(AccessibilityStrings.FlightSearchTooSlow, "Flugsuche zu langsam");
-                return;
-            }
-
-            // Die Suche ist durch und hat nichts geliefert. JETZT ist der Bodenweg
-            // die richtige Antwort - und er kann gefahrlos starten, weil nichts
-            // mehr rechnet, was ihm spaeter dazwischenfahren koennte.
-            _log.Info($"[Flug] Kein Flugpfad zu {_targetName} nach {waited:F1} s - laufe stattdessen.");
-            _tolk.SpeakInterrupt(AccessibilityStrings.NoFlightPathWalkingInstead);
-            _flying = false;
-            _flightDeclined = true;
-            _phase = Phase.Idle;
-            Begin(_destPosition, _targetName, _stopRange, _targetId);
-            return;
-        }
-
-        // Still computing is fine; only give up once nothing is coming.
-        if (waited <= StartTimeoutS) return;
-
-        // After a re-request, "no route at all" would be the wrong story: we walked
-        // most of the way and are standing a few metres short. Tell the player what
-        // is actually true - how far, in which direction - and face it.
-        if (_reengageCount > 0)
-        {
-            var remainingDistance = Vector3.Distance(player.Position, _destPosition);
-            _log.Info($"[Nav] Auto-Lauf: Nachfassen brachte keinen Weg mehr, dist={remainingDistance:F1}.");
-            Finish(MeshEndsMessage(player.Position, remainingDistance), "Nachfassen ohne Weg");
-            FacingService.FaceTowards(player, _destPosition);
-            return;
-        }
-
-        _log.Info($"[Nav] Auto-Lauf: kein Weg zu {_targetName} (id={_targetId:X}) gefunden.");
-        Finish(AccessibilityStrings.NoPathTo(_targetName, _places.BuildNoPathHint(_destPosition)), "kein Weg");
+        if (!ValidateWalkContext()) return;
+        if (_flightPath == null)
+        { Finish(AccessibilityStrings.NavigationFlightUnavailable, "missing owned flight query"); return; }
+        FlightSearchUpdate();
     }
-
     private void WalkingUpdate()
     {
+        if (!ValidateWalkContext()) return;
         var player = _objectTable.LocalPlayer;
         if (player == null) { Finish(null, "Spieler weg"); return; }
 
@@ -1560,23 +1475,31 @@ public sealed partial class AutoWalkService : IDisposable
         var distance = Vector3.Distance(player.Position, _destPosition);
         var waypoints = _nav.Waypoints;
         var remaining = waypoints.Count;
+        if (!CheckUpcomingGroundSegment(player.Position, waypoints)) return;
 
         // Native stuck-retry can replace our checked route with the original
         // false shortcut. Check its contents, not just the waypoint count.
         if (_checkedHeightRoute != null && (_nav.PathfindInProgress
             || !HeightPath.IsRemainingPath(_checkedHeightRoute, waypoints)))
         {
+            var previousPath = _lastGroundWaypoints;
             _nav.Stop();
+            if (_flying)
+            { Finish(AccessibilityStrings.NavigationFlightUnavailable, "flight route replaced"); return; }
+            if (previousPath != null && TryGroundDetour(player.Position, previousPath, now, nativeRetry: true)) return;
             if (TryReengage(distance)) return;
-            Finish(AccessibilityStrings.HeightPathUnavailable(_destPosition.Y - player.Position.Y),
+            Finish(GroundPathFailure(player.Position),
                 "height: native route replaced the checked path");
             return;
         }
+        if (!_flying) _lastGroundWaypoints = waypoints;
 
         // Arrival is decided on distance, not on vnavmesh going quiet: its path
         // goes quiet for a second on every stuck-retry too.
         if (distance <= _stopRange + ArrivalSlack)
         {
+            if (!_flying && _groundSegmentClear != null && !_groundSegmentClear(player.Position, _destPosition))
+            { Finish(AccessibilityStrings.NavigationPathBlocked, "target is close but behind collision"); return; }
             // Ein Flug endet ueber dem Ziel - erst absteigen, dann melden. In der
             // Luft laesst sich weder reden noch sammeln noch kaempfen, "Ziel
             // erreicht" waere dort also die halbe Wahrheit.
@@ -1590,7 +1513,12 @@ public sealed partial class AutoWalkService : IDisposable
             // Arrived at the near end of a measured gap: drive across it, then pick
             // the real destination back up. Not an arrival for the player - they
             // asked to go somewhere else and are not there yet.
-            if (_pendingCrossing != null && TryTakeCrossing(player.Position)) return;
+            if (_pendingCrossing != null)
+            {
+                if (!TryTakeCrossing(player.Position)) Finish(AccessibilityStrings.TrailLost, "crossing could not start");
+                return;
+            }
+            if (_destinationIsTransition && TryNudgeIntoTransition(distance)) return;
 
             // Umgeleitet, weil das Ziel unter einem Vorsprung steht: angekommen ist
             // der Lauf, das Ziel aber ein paar Meter weiter. Beides gehoert in die
@@ -1712,8 +1640,8 @@ public sealed partial class AutoWalkService : IDisposable
             _log.Info($"[Nav] Auto-Lauf: Pfad zu Ende, dist={distance:F1}, restWp={remaining}");
             if (EndFlightShort(player.Position, distance, "Flugpfad zu Ende")) return;
             if (TryTakeTrail(player.Position)) return;
-            if (TryReengage(distance)) return;
             if (TryNudgeIntoTransition(distance)) return;
+            if (TryReengage(distance)) return;
             var rise = _destPosition.Y - player.Position.Y;
             Finish(MeshEndsMessage(player.Position, distance),
                    $"Pfad zu Ende ohne Ankunft, Hoehe {rise:+0.0;-0.0;0.0}");
@@ -1890,18 +1818,22 @@ public sealed partial class AutoWalkService : IDisposable
         // Re-aim at the near end, which sits on the reachable side by definition,
         // and remember the real destination for the far side. Same handover the
         // pre-walk check sets up in Begin.
-        _nav.Stop();
-        if (!_nav.MoveCloseTo(crossingEntry, BridgeEntryStopRange))
-        {
-            _log.Warning($"[Bruecke] Lauf zur Bruecke '{crossingName}' konnte nicht gestartet werden - " +
-                         "bleibe auf dem Teilweg.");
-            return false;
-        }
-
+        var destination = _destPosition;
+        var range = _stopRange;
+        var targetId = _targetId;
+        var transition = _destinationIsTransition;
+        var guessedHeight = _destinationHeightIsGuess;
+        _destinationIsTransition = _destinationHeightIsGuess = false;
+        Begin(crossingEntry, _targetName, BridgeEntryStopRange, 0, fresh: false);
+        if (_phase != Phase.HeightSearch) return false;
         _pendingCrossing = crossing;
         _pendingCrossingName = crossingName;
-        _crossingDestination = _destPosition;
-        _crossingStopRange = _stopRange;
+        _crossingDestination = destination;
+        _crossingStopRange = range;
+        _crossingTargetId = targetId;
+        _crossingIsTransition = transition;
+        _crossingHeightIsGuess = guessedHeight;
+        _crossingIsTrail = false;
 
         _targetId = 0;                  // the bridge entry is not the target object
         _destPosition = crossingEntry;
@@ -1960,6 +1892,10 @@ public sealed partial class AutoWalkService : IDisposable
         // with _destPosition - so that has to be the REAL destination now.
         _destPosition = destination.Value;
         _stopRange = _crossingStopRange;
+        _targetId = _crossingTargetId;
+        _destinationIsTransition = _crossingIsTransition;
+        _destinationHeightIsGuess = _crossingHeightIsGuess;
+        _checkedAuxiliaryRoute = new List<Vector3>(crossing);
         _trailEnd = crossing[^1];
         _trailLength = PathLength(crossing);
         _trailWaypointsSeen = crossing.Count;
@@ -1970,7 +1906,8 @@ public sealed partial class AutoWalkService : IDisposable
 
         _log.Info($"[Nav] Auto-Lauf: fahre Bruecke '{_pendingCrossingName}' " +
                   $"({Fmt(crossing[0])} -> {Fmt(crossing[^1])}), danach weiter zu {Fmt(destination.Value)}.");
-        _tolk.SpeakInterrupt(AccessibilityStrings.BridgeCrossing(_pendingCrossingName));
+        _tolk.SpeakInterrupt(_crossingIsTrail ? AccessibilityStrings.TrailTaking(_pendingCrossingName)
+            : AccessibilityStrings.BridgeCrossing(_pendingCrossingName));
         return true;
     }
 
@@ -2004,10 +1941,10 @@ public sealed partial class AutoWalkService : IDisposable
         return true;
     }
 
-    private bool TryGroundDetour(Vector3 position, IReadOnlyList<Vector3> path, DateTime now)
+    private bool TryGroundDetour(Vector3 position, IReadOnlyList<Vector3> path, DateTime now, bool nativeRetry = false)
     {
         if (_flying || _destinationIsTransition || _pendingCrossing != null
-            || !_nav.IsRunning || _nav.PathfindInProgress || _detourAttempts.Count >= 3
+            || (!nativeRetry && (!_nav.IsRunning || _nav.PathfindInProgress)) || _detourAttempts.Count >= 3
             || _detourAttempts.Any(p => GroundDetour.FlatDistance(p, position) < 3f)
             || !GroundDetour.TryChoose(position, path, out var corner, out var end)) return false;
 
@@ -2015,7 +1952,7 @@ public sealed partial class AutoWalkService : IDisposable
         _checkedHeightRoute = null;
         _nav.Stop();
         _groundDetour = new GroundDetour(position, corner, end,
-            p => _nav.NearestPoint(p, 0.5f, 0.5f), _nav.FindGroundPath);
+            p => _nav.NearestPoint(p, 0.5f, 0.5f), _nav.FindGroundPath, _groundSegmentClear);
         _detourStartedAt = now;
         _phase = Phase.DetourSearch;
         _log.Info($"[GroundDetour] search from=({Fmt(position)}) corner=({Fmt(corner)}) end=({Fmt(end)}) attempt={_detourAttempts.Count}");
@@ -2025,6 +1962,7 @@ public sealed partial class AutoWalkService : IDisposable
 
     private void DetourSearchUpdate()
     {
+        if (!ValidateWalkContext()) return;
         var player = _objectTable.LocalPlayer;
         if (player == null) { Finish(null, "detour: player missing"); return; }
         if ((ushort)_clientState.TerritoryType != _startTerritory)
@@ -2060,7 +1998,8 @@ public sealed partial class AutoWalkService : IDisposable
         _groundDetour = null;
         search.Dispose();
         _nav.Stop();
-        if (!_nav.MoveAlong(result))
+        _checkedAuxiliaryRoute = new List<Vector3>(result);
+        if (!_nav.MoveAlong(new List<Vector3>(result)))
         {
             Finish(AccessibilityStrings.AutoWalkAbortedNoResponse, "detour: move rejected");
             return;
@@ -2075,6 +2014,7 @@ public sealed partial class AutoWalkService : IDisposable
 
     private void DetourWalkingUpdate()
     {
+        if (!ValidateWalkContext()) return;
         var player = _objectTable.LocalPlayer;
         if (player == null) { Finish(null, "detour: player missing"); return; }
         if ((ushort)_clientState.TerritoryType != _startTerritory)
@@ -2083,9 +2023,12 @@ public sealed partial class AutoWalkService : IDisposable
             return;
         }
         var now = DateTime.UtcNow;
-        var remaining = _nav.NumWaypoints;
+        var waypoints = _nav.Waypoints;
+        var remaining = waypoints.Count;
         var distance = Vector3.Distance(player.Position, _detourEnd);
-        if (_nav.PathfindInProgress || remaining > _detourWaypointsSeen)
+        if (!CheckUpcomingGroundSegment(player.Position, waypoints)) return;
+        if (_nav.PathfindInProgress || _checkedAuxiliaryRoute == null
+            || !HeightPath.IsRemainingPath(_checkedAuxiliaryRoute, waypoints))
         {
             Finish(AccessibilityStrings.GroundDetourFailed, "detour: native route replaced the checked path");
             return;
@@ -2115,9 +2058,34 @@ public sealed partial class AutoWalkService : IDisposable
     {
         var points = _trails.FindUsableTrail(position, _destPosition, out var name);
         if (points == null || _usedTrails.Contains(name)) return false;
+        if (!MeshBridgeService.AtEntry(position, points[0]))
+        {
+            // A recording proves its own points, not the unrecorded 15 metres
+            // between the player and its entry. Check that approach normally.
+            var destination = _destPosition;
+            var range = _stopRange;
+            var id = _targetId;
+            var transition = _destinationIsTransition;
+            var guess = _destinationHeightIsGuess;
+            _destinationIsTransition = _destinationHeightIsGuess = false;
+            _usedTrails.Add(name);
+            Begin(points[0], _targetName, BridgeEntryStopRange, 0, fresh: false);
+            if (_phase != Phase.HeightSearch) return false;
+            _pendingCrossing = new List<Vector3>(points);
+            _pendingCrossingName = name;
+            _crossingDestination = destination;
+            _crossingStopRange = range;
+            _crossingTargetId = id;
+            _crossingIsTransition = transition;
+            _crossingHeightIsGuess = guess;
+            _crossingIsTrail = true;
+            return true;
+        }
+        if (_groundSegmentClear != null && !_groundSegmentClear(position, points[0])) return false;
 
         _nav.Stop();
-        if (!_nav.MoveAlong(points))
+        _checkedAuxiliaryRoute = new List<Vector3>(points);
+        if (!_nav.MoveAlong(new List<Vector3>(points)))
         {
             _log.Warning("[Nav] Auto-Lauf: Spur konnte nicht gestartet werden.");
             return false;
@@ -2148,18 +2116,22 @@ public sealed partial class AutoWalkService : IDisposable
     /// </summary>
     private void TrailWalkingUpdate()
     {
+        if (!ValidateWalkContext()) return;
         var player = _objectTable.LocalPlayer;
         if (player == null) { Finish(null, "Spieler weg"); return; }
 
         var now = DateTime.UtcNow;
-        var remaining = _nav.NumWaypoints;
+        var waypoints = _nav.Waypoints;
+        var remaining = waypoints.Count;
         var toEnd = Vector3.Distance(player.Position, _trailEnd);
+        if (!CheckUpcomingGroundSegment(player.Position, waypoints)) return;
 
         // Two independent tells that vnavmesh took the wheel back, because either
         // alone can miss: a re-route over the zone yields MORE waypoints than our
         // list, a re-route straight at the point yields fewer - but it always
         // starts with a pathfind, and our own crossing never runs one.
-        if (remaining > _trailWaypointsSeen || _nav.PathfindInProgress)
+        if (_nav.PathfindInProgress || _checkedAuxiliaryRoute == null
+            || !HeightPath.IsRemainingPath(_checkedAuxiliaryRoute, waypoints))
         {
             _log.Warning($"[Nav] Auto-Lauf: Spur verloren, vnavmesh routet selbst " +
                          $"(restWp={remaining}, vorher {_trailWaypointsSeen}, wegsuche={_nav.PathfindInProgress}).");
@@ -2172,8 +2144,7 @@ public sealed partial class AutoWalkService : IDisposable
         // crossing is behind us and the normal walk takes over from here. The
         // empty-list case is only trusted after a moment: FollowPath drops
         // waypoints it considers already reached in its first update.
-        if (toEnd <= TrailArrival ||
-            (remaining == 0 && (now - _trailStartedAt).TotalSeconds > TrailSettleS))
+        if (toEnd <= TrailArrival)
         {
             _log.Info($"[Nav] Auto-Lauf: Spur zu Ende (dist zum Spur-Ende={toEnd:F1}, " +
                       $"Ankunftsmass={TrailArrival:F1}, Spurlaenge={_trailLength:F1}, restWp={remaining}), " +
@@ -2183,6 +2154,8 @@ public sealed partial class AutoWalkService : IDisposable
             Begin(_destPosition, _targetName, _stopRange, _targetId, fresh: false);
             return;
         }
+        if (remaining == 0 && (now - _trailStartedAt).TotalSeconds > TrailSettleS)
+        { Finish(AccessibilityStrings.TrailLost, "trail ended before reaching its endpoint"); return; }
 
         if (Vector3.Distance(player.Position, _lastPosition) >= MovementEpsilon)
         {
@@ -2237,7 +2210,7 @@ public sealed partial class AutoWalkService : IDisposable
             // zwischen Ende und Ergebnis gemessene 19 bis 25 s, also ein
             // Vielfaches von StopGuardS - ohne dieses Nachschieben fliegt die
             // Figur eine halbe Minute nach dem Abbruch unbeaufsichtigt los.
-            if (_nav.PathfindInProgress && DateTime.UtcNow < _guardHardUntil)
+            if (_nav.PathfindInProgress || _nav.IsRunning)
             {
                 _guardUntil = DateTime.UtcNow.AddSeconds(StopGuardS);
                 return;
@@ -2487,7 +2460,7 @@ public sealed partial class AutoWalkService : IDisposable
             return;
         }
 
-        if (IsActive) Finish(null, "Folgen übernimmt");
+        Finish(null, "follow takes over");
 
         var target = _targetManager.Target ?? _targetManager.SoftTarget;
         if (target == null)
@@ -2510,6 +2483,10 @@ public sealed partial class AutoWalkService : IDisposable
         _followStartTerritory = (ushort)_clientState.TerritoryType;
         _lastFollowDest = default;         // force the first path immediately
         _lastFollowPathAt = DateTime.MinValue;
+        _followSearchStartedAt = _followLastMoveAt = DateTime.UtcNow;
+        _followLastPosition = _objectTable.LocalPlayer?.Position ?? default;
+        _followReplacements = 0;
+        _followSearchWindow = false;
         _log.Info($"[Nav] Folgen: gestartet -> {_followName} (id={_followTargetId:X})");
         _tolk.SpeakInterrupt(AccessibilityStrings.Following(_followName));
     }
@@ -2518,6 +2495,8 @@ public sealed partial class AutoWalkService : IDisposable
     {
         if (!_following) return;
         _following = false;
+        _followSearchWindow = false;
+        ClearFollowPath();
         _nav.Stop();
         // Same guard as the one-shot walk: a pathfind in flight would revive it.
         _phase = Phase.Guarding;
@@ -2534,56 +2513,6 @@ public sealed partial class AutoWalkService : IDisposable
     /// <summary>Runs every frame while follow is active: re-issues the path toward
     /// the target's current position and ends when the target vanishes, the player
     /// leaves, or the zone changes.</summary>
-    private void FollowUpdate()
-    {
-        var player = _objectTable.LocalPlayer;
-        if (player == null) { StopFollow(announce: false); return; }
-
-        if ((ushort)_clientState.TerritoryType != _followStartTerritory)
-        {
-            _log.Info("[Nav] Folgen: Gebiet gewechselt, beende.");
-            StopFollow(announce: false);
-            _tolk.SpeakInterrupt(AccessibilityStrings.FollowStoppedZone);
-            return;
-        }
-
-        var target = _objectTable.FirstOrDefault(o => o.GameObjectId == _followTargetId);
-        if (target == null)
-        {
-            _log.Info($"[Nav] Folgen: Ziel {_followTargetId:X} nicht mehr da, beende.");
-            StopFollow(announce: false);
-            _tolk.SpeakInterrupt(AccessibilityStrings.FollowTargetGone(_followName));
-            return;
-        }
-
-        var dest = target.Position;
-        var distance = Vector3.Distance(player.Position, dest);
-        var now = DateTime.UtcNow;
-
-        // Nothing to do while already within trail distance - let the target pull
-        // away first (the character stops when the target stops).
-        if (distance <= FollowDistance + 0.5f) return;
-
-        if ((now - _lastFollowPathAt).TotalSeconds < FollowRepathIntervalS) return;
-        if (_nav.PathfindInProgress) return;
-
-        // Re-path when the target drifted enough OR the previous path already
-        // finished (idle but still beyond trail distance - the target walked off).
-        if (Vector3.Distance(dest, _lastFollowDest) < FollowRepathMove && _nav.IsRunning) return;
-
-        if (!_nav.MoveCloseTo(dest, FollowDistance))
-        {
-            if (!_nav.LastCallFailed) return;   // pathfind busy: just try again next frame
-            _log.Warning("[Nav] Folgen: vnavmesh antwortet nicht, breche ab");
-            StopFollow(announce: false);
-            _tolk.SpeakInterrupt(AccessibilityStrings.FollowAbortedUnavailable);
-            return;
-        }
-
-        _lastFollowDest = dest;
-        _lastFollowPathAt = now;
-    }
-
     public void Dispose()
     {
         StopFollowQuiet();

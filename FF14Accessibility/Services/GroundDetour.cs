@@ -18,6 +18,7 @@ internal sealed class GroundDetour : IDisposable
     private readonly Func<Vector3, Vector3?> _nearest;
     private readonly Func<Vector3, Vector3, CancellationToken, Task<List<Vector3>>?> _query;
     private readonly CancellationTokenSource _cancel = new();
+    private readonly Func<Vector3, Vector3, bool>? _segmentClear;
     private readonly List<Vector3> _candidates;
     private Task<List<Vector3>>? _pending;
     private List<Vector3>? _firstLeg;
@@ -33,10 +34,12 @@ internal sealed class GroundDetour : IDisposable
 
     internal GroundDetour(Vector3 start, Vector3 corner, Vector3 end,
         Func<Vector3, Vector3?> nearest,
-        Func<Vector3, Vector3, CancellationToken, Task<List<Vector3>>?> query)
+        Func<Vector3, Vector3, CancellationToken, Task<List<Vector3>>?> query,
+        Func<Vector3, Vector3, bool>? segmentClear = null)
     {
         Start = start; Corner = corner; End = end;
         _nearest = nearest; _query = query;
+        _segmentClear = segmentClear;
         _candidates = Candidates(start, corner);
     }
 
@@ -89,6 +92,13 @@ internal sealed class GroundDetour : IDisposable
             {
                 _firstLeg = null;
                 return;
+            }
+            var previous = legStart;
+            foreach (var point in leg)
+            {
+                if (_segmentClear != null && !_segmentClear(previous, point))
+                { _firstLeg = null; return; }
+                previous = point;
             }
             if (_firstLeg == null)
             {

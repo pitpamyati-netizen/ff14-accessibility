@@ -213,7 +213,7 @@ public sealed partial class Plugin : IDalamudPlugin
     // 6.08.18 lokal: Chat-Absender Kontextmenü (Strg+Umschalt+BildAuf) + Numpad3-Ziel.
     // 6.08.19: Charakterauswahl — eine Ansage (Name, Job, Ort) statt Scan-Sturm.
     // 6.08.20: Mitstreiter-Taste (PR 27 Port) — Strg+Umschalt+C öffnet/vorliest.
-    private const string PluginVersion    = "6.08.87";
+    private const string PluginVersion    = "6.08.88";
     // Der Tag nennt, was diese Fassung MITBRINGT, nicht woher sie stammt: die
     // russische Schicht auf dem Stand des Autors 6.08.34 (Auftragstext im
     // Quest-Tracker des Autors, siehe package-Schritt).
@@ -2430,6 +2430,7 @@ public sealed partial class Plugin : IDalamudPlugin
             && !_uiReader.IsShopQuantityEditing && !_menu.IsOpen && !_hotbar.IsSkillMenuOpen);
 
         var readingInput = _uiReader.IsTableReading || _uiReader.IsShopQuantityEditing;
+        if (HandleNavigationStopKeys(readingInput)) return;
         if (readingInput && IsJustPressed(_config.KeySilence)) { _tolk.Silence(); _chatVoice.Silence(); }
         if (readingInput && IsJustPressed(_config.KeyHelp)) _uiReader.AnnounceContextHelp();
         if (_uiReader.HandleTableKeys(_tableInput, GameWindowFocus.IsActive, textInputActive,
@@ -2909,6 +2910,16 @@ public sealed partial class Plugin : IDalamudPlugin
         }
     }
 
+    private bool HandleNavigationStopKeys(bool readingInput)
+    {
+        if (!_autoWalk.IsWalking) return false;
+        if (!IsJustPressed(_config.KeyAutoWalk, allowTextInput: readingInput, consume: true)
+            && !(_autoWalk.IsFollowing
+                && IsJustPressed(_config.KeyFollowTarget, allowTextInput: readingInput, consume: true))) return false;
+        _autoWalk.StopMovement();
+        return true;
+    }
+
     private enum MarkerResolve
     {
         /// <summary>No marker destination selected - callers fall back to the game target.</summary>
@@ -3047,7 +3058,7 @@ public sealed partial class Plugin : IDalamudPlugin
                 _tolk.SpeakInterrupt(AccessibilityStrings.NoWalkablePointNear(place.Name));
                 return MarkerResolve.Failed;
             }
-            position = floor.Value;
+            position = borderPoint is { } inside ? inside with { Y = floor.Value.Y } : floor.Value;
             name = place.Name;
             heightIsGuess = true;
             // Transitions get an extra-tight range so the player walks right
