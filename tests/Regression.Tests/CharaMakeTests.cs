@@ -14,6 +14,64 @@ public sealed class CharaMakeTests
     private static readonly CharaMakeClassText.Entry Thaumaturge = new(7, "Тауматург", "Описание тауматурга");
 
     [Theory]
+    [InlineData("Борец", 2u)] [InlineData("Копейщик", 4u)] [InlineData("Лучник", 5u)]
+    [InlineData("Оккультист", 7u)] [InlineData("Арканист", 26u)]
+    [InlineData("Защитник", 0u)] [InlineData("Целитель", 0u)] [InlineData("Боец", 0u)]
+    [InlineData("Подтвердить", 0u)] [InlineData("", 0u)]
+    public void LoggedHoveredRowsResolveIndependentlyOfTheStillGladiatorWeapon(string label, uint id)
+    {
+        var names = CharaMakeClassText.StartingClasses.SelectMany(i =>
+            AccessibilityStrings.CharaMakeClassAliases(i).Select(n => (i, n)));
+        Assert.Equal(id, CharaMakeClassText.ResolveName(label, names));
+        Assert.Equal(1u, CharaMakeClassText.ResolveClass(0x0001002B00C9, [new(0x0001002B00C9, 1)]));
+    }
+
+    [Fact]
+    public void AmbiguousUnknownAndOtherJobsCannotBecomeAStartingClass()
+    {
+        Assert.Equal(0u, CharaMakeClassText.ResolveName("Class", [(1, "Class"), (7, "Class")]));
+        Assert.Equal(0u, CharaMakeClassText.ResolveName("Paladin", [(19, "Paladin")]));
+        Assert.Equal(0u, CharaMakeClassText.ResolveName("Other", [(1, "Class")]));
+        Assert.Equal(4u, CharaMakeClassText.ResolveName(" LANCER ", [(4, "Lancer")]));
+    }
+
+    [Theory]
+    [InlineData(true, true, true)] [InlineData(false, true, false)]
+    [InlineData(true, false, false)]
+    public unsafe void FocusMustBelongToTheVisibleClassSelector(bool visible, bool belongs, bool expected)
+    {
+        var bytes = System.Text.Encoding.UTF8.GetBytes("Копейщик\0");
+        fixed (byte* text = bytes)
+        {
+            AtkTextNode row = default;
+            row.AtkResNode.Type = NodeType.Text;
+            row.AtkResNode.NodeFlags |= NodeFlags.Visible;
+            row.NodeText.StringPtr = text;
+            row.NodeText.BufSize = bytes.Length;
+            row.NodeText.BufUsed = bytes.Length;
+            AtkResNode other = default;
+            AtkResNode** nodes = stackalloc AtkResNode*[1];
+            nodes[0] = belongs ? &row.AtkResNode : &other;
+            AtkUnitBase selector = default;
+            selector.IsVisible = visible;
+            selector.UldManager.NodeList = nodes;
+            selector.UldManager.NodeListCount = 1;
+            Assert.Equal(expected ? "Копейщик" : "", CharaMakeClassFocus.ReadLabel(&selector, &row.AtkResNode));
+        }
+    }
+
+    [Fact]
+    public void HoverThenRoleHeadingCancelsThePendingClassDescription()
+    {
+        var speech = new CharaMakeClassSpeech();
+        var lancer = new CharaMakeClassText.Entry(4, "Копейщик", "Описание копейщика");
+        Assert.Equal((lancer.Name, ""), speech.Update(lancer, 0));
+        Assert.Equal(("", ""), speech.Update(null, 200));
+        Assert.Equal(("", ""), speech.Update(null, 600));
+        Assert.Equal((lancer.Name, lancer.Description), speech.Update(lancer, 700, true));
+    }
+
+    [Theory]
     [InlineData(1u, "паладин")] [InlineData(2u, "монах")] [InlineData(3u, "воин")]
     [InlineData(4u, "драгун")] [InlineData(5u, "бард")] [InlineData(6u, "белый маг")]
     [InlineData(7u, "чёрный маг")] [InlineData(26u, "призыватель и учёный")]

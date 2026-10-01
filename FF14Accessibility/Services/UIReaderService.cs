@@ -169,6 +169,7 @@ public sealed partial class UIReaderService : IDisposable
     // Addons mit eigenem PostSetup-Handler � Universal-OnOpen �berspringt diese
     private static readonly HashSet<string> SpecialSetupAddons =
     [
+        "SelectOk",
         "Talk", "TalkSubtitle", "SelectYesno", "SelectString", "SelectIconString",
         "_TextError", "_WideText", "_BattleTalk", "_LocationTitle",
         "LevelUpAnnouncement", "ContentsTutorial", "_ScreenText",
@@ -212,6 +213,7 @@ public sealed partial class UIReaderService : IDisposable
     // Addons, bei denen Universal-Update/ReceiveEvent nicht l�uft
     private static readonly HashSet<string> SpecialUpdateAddons =
     [
+        "SelectOk",
         "Talk", "TalkSubtitle", "SelectYesno",
         "_TextError", "_WideText", "_BattleTalk", "_LocationTitle",
         "LevelUpAnnouncement", "ContentsTutorial", "_ScreenText",
@@ -415,7 +417,8 @@ public sealed partial class UIReaderService : IDisposable
         HudNoiseAddons.Contains(name)
         || (_config.SuppressStatusBarSpam && StatusBarSpamAddons.Contains(name))
         || IsSuppressedCombatHud(name)
-        || IsSuppressedCharaMakeCity(name);
+        || IsSuppressedCharaMakeCity(name)
+        || IsSuppressedCharaSelect(name);
 
     // The city pane changes alongside class selection and must not interrupt
     // the selected class. Outside that step its normal reading remains available.
@@ -629,6 +632,8 @@ public sealed partial class UIReaderService : IDisposable
         // -- SelectYesno ------------------------------------------
         _addonLifecycle.RegisterListener(AddonEvent.PostSetup,        "SelectYesno", OnYesNoOpen);
         _addonLifecycle.RegisterListener(AddonEvent.PostReceiveEvent, "SelectYesno", OnYesNoReceive);
+        _addonLifecycle.RegisterListener(AddonEvent.PostSetup, "SelectOk", OnSelectOkUpdate);
+        _addonLifecycle.RegisterListener(AddonEvent.PostUpdate, "SelectOk", OnSelectOkUpdate);
 
         // -- Dialog-Button-Fokus (SelectYesno + JournalResult) -----
         _addonLifecycle.RegisterListener(AddonEvent.PostUpdate, "SelectYesno",   OnDialogButtonProbe);
@@ -989,6 +994,7 @@ public sealed partial class UIReaderService : IDisposable
     private void OnAnyAddonClose(AddonEvent type, AddonArgs args)
     {
         var name = args.AddonName;
+        if (name == "SelectOk") _selectOkAnnouncement.Update(string.Empty, false, Environment.TickCount64);
         if (name == "_CharaMakeHelp" || name == _lastCharaMakeHelpOwner)
         {
             _charaMakeHelp.Clear();
@@ -1485,6 +1491,7 @@ public sealed partial class UIReaderService : IDisposable
         if (InLoginQuiet) return;
         var name = args.AddonName;
         if (IsShopQuantityEditing && name == "Shop") return;
+        if (IsSuppressedCharaSelect(name)) return;
         // SpecialUpdateAddons �berspringen, au�er ConfigSystem und TitleDCWorldMap (die wir jetzt universell behandeln)
         if (SpecialUpdateAddons.Contains(name) && name != "ConfigSystem" && name != "TitleDCWorldMap") return;
 
@@ -3482,7 +3489,8 @@ public sealed partial class UIReaderService : IDisposable
         // Do not use the whole HudNoiseAddons set: it also contains quest and
         // character windows whose deliberate keyboard focus is read here.
         if (IsSuppressedCombatHud(FindAddonNameForNode(node))
-            || IsSuppressedCharaMakeCity(FindAddonNameForNode(node)))
+            || IsSuppressedCharaMakeCity(FindAddonNameForNode(node))
+            || IsSuppressedCharaSelect(FindAddonNameForNode(node)))
         {
             _lastFocusedNodePtr = 0;
             _lastFocusedNodeText = string.Empty;
@@ -8203,6 +8211,7 @@ public sealed partial class UIReaderService : IDisposable
     // counts is only visible on screen.
     private unsafe void ScanAddonTexts(string addonName, AtkUnitBase* addon, bool isInit)
     {
+        if (IsSuppressedCharaSelect(addonName)) return;
         if (IsSuppressedCharaMakeCity(addonName)) return;
         if (IsTableReading) return;
         if (!_genericTextCache.TryGetValue(addonName, out var cache))
@@ -11366,6 +11375,7 @@ public sealed partial class UIReaderService : IDisposable
 
     public unsafe void ReadCurrentFocus()
     {
+        if (TryReadSelectOk()) return;
         if (_charaMake.TryReadClass()) return;
         if (TryReadSelectedActionDescription()) return;
         if (TryReadSupplyPaneDetail()) return;
@@ -15104,6 +15114,8 @@ public sealed partial class UIReaderService : IDisposable
         _addonLifecycle.UnregisterListener(AddonEvent.PostUpdate, "_BattleTalk",  OnTalkUpdate);
         _addonLifecycle.UnregisterListener(AddonEvent.PostSetup,        "SelectYesno", OnYesNoOpen);
         _addonLifecycle.UnregisterListener(AddonEvent.PostReceiveEvent, "SelectYesno", OnYesNoReceive);
+        _addonLifecycle.UnregisterListener(AddonEvent.PostSetup, "SelectOk", OnSelectOkUpdate);
+        _addonLifecycle.UnregisterListener(AddonEvent.PostUpdate, "SelectOk", OnSelectOkUpdate);
         _addonLifecycle.UnregisterListener(AddonEvent.PostUpdate, "SelectYesno",   OnDialogButtonProbe);
         _addonLifecycle.UnregisterListener(AddonEvent.PostUpdate, "JournalResult", OnDialogButtonProbe);
         _addonLifecycle.UnregisterListener(AddonEvent.PostUpdate, "ArmouryBoard",  OnArmouryBoardUpdate);

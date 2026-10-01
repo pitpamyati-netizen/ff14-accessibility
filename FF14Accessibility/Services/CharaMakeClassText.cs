@@ -10,6 +10,35 @@ internal static class CharaMakeClassText
     internal const ulong ModelMask = 0x0000_FFFF_FFFF_FFFFul;
     internal readonly record struct Entry(uint ClassId, string Name, string Description);
     internal readonly record struct Equipment(ulong Weapon, uint ClassId);
+    internal static readonly uint[] StartingClasses = [1, 2, 3, 4, 5, 6, 7, 26];
+
+    internal static uint ResolveName(string label, IEnumerable<(uint Id, string Name)> names)
+    {
+        label = TolkService.Sanitize(label).Trim();
+        uint found = 0;
+        foreach (var (id, name) in names)
+        {
+            if (LobbyRow(id) == 0 || !HeadingMatches(label, name)) continue;
+            if (found != 0 && found != id) return 0;
+            found = id;
+        }
+        return found;
+    }
+
+    internal static uint ResolveName(IDataManager data, string label)
+        => ResolveName(label, ClassNames(data));
+
+    private static IEnumerable<(uint Id, string Name)> ClassNames(IDataManager data)
+    {
+        foreach (var id in StartingClasses)
+        {
+            if (!data.GetExcelSheet<ClassJob>().TryGetRow(id, out var job)) continue;
+            yield return (id, job.Name.ExtractText());
+            yield return (id, RussianGameText.Name(data, job, row => row.Name));
+            if (Loc.IsRussian)
+                foreach (var alias in AccessibilityStrings.CharaMakeClassAliases(id)) yield return (id, alias);
+        }
+    }
 
     // Checked against installed CharaMakeClassEquip, ClassJob and Lobby rows.
     // Lobby.Unknown1 is the description column; Text is the class heading.
@@ -37,7 +66,12 @@ internal static class CharaMakeClassText
     internal static Entry? Read(IDataManager data, ulong weapon)
     {
         var id = ResolveClass(weapon, PreviewWeapons(data));
-        if (id == 0 || !data.GetExcelSheet<ClassJob>().TryGetRow(id, out var job)) return null;
+        return ReadById(data, id);
+    }
+
+    internal static Entry? ReadById(IDataManager data, uint id)
+    {
+        if (LobbyRow(id) == 0 || !data.GetExcelSheet<ClassJob>().TryGetRow(id, out var job)) return null;
         var name = RussianGameText.Name(data, job, row => row.Name).Trim();
         if (name.Length == 0) return null;
         name = char.ToUpperInvariant(name[0]) + name[1..];

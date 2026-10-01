@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Text.Json;
 using Dalamud.Game;
+using Dalamud.Plugin.Services;
 using FF14Accessibility;
 using FF14Accessibility.Services;
 using Lumina;
@@ -11,6 +12,10 @@ using var game = new GameData(args[0], new LuminaOptions { DefaultExcelLanguage 
 var data = new GameDataReader(game);
 var type = typeof(CharaMakeReader).Assembly.GetType("FF14Accessibility.Services.CharaMakeClassText")!;
 var read = type.GetMethod("Read", BindingFlags.Static | BindingFlags.NonPublic)!;
+var resolveName = type.GetMethod("ResolveName", BindingFlags.Static | BindingFlags.NonPublic,
+    [typeof(IDataManager), typeof(string)])!;
+var readById = type.GetMethod("ReadById", BindingFlags.Static | BindingFlags.NonPublic)!;
+var focusCases = new List<object>();
 var cases = new List<object>();
 // Explicit expectations separate from the implementation's class-to-Lobby map.
 uint[] classes = [1, 2, 3, 4, 5, 6, 7, 26];
@@ -30,6 +35,22 @@ foreach (var mode in new[] { LanguageMode.Russian, LanguageMode.English })
     for (var i = 0; i < classes.Length; i++)
     {
         var equipment = weapons.Single(x => x.Class.RowId == classes[i]);
+        // The highlighted text is independent of the old equipped weapon.
+        string[] russianLabels = ["Гладиатор", "Борец", "Мародёр", "Копейщик", "Лучник", "Элементалист", "Оккультист", "Арканист"];
+        var labels = mode == LanguageMode.Russian
+            ? new[] { data.GetExcelSheet<ClassJob>().GetRow(classes[i]).Name.ExtractText(), russianLabels[i] }
+            : new[] { data.GetExcelSheet<ClassJob>().GetRow(classes[i]).Name.ExtractText() };
+        foreach (var label in labels)
+        {
+            var focusedId = (uint)resolveName.Invoke(null, [data, label])!;
+            var focused = readById.Invoke(null, [data, focusedId]) ?? throw new Exception($"Unknown focused class: {label}");
+            var description = (string)focused.GetType().GetProperty("Description")!.GetValue(focused)!;
+            if (focusedId != classes[i] || description.Length < 40) throw new Exception($"Wrong focused class: {label}");
+            var fromWeapon = read.Invoke(null, [data, liveWeapons[i]])!;
+            if ((string)fromWeapon.GetType().GetProperty("Description")!.GetValue(fromWeapon)! != description)
+                throw new Exception($"Focused class description differs from its own source: {label}");
+            focusCases.Add(new { ClientLanguage = language.ToString(), PluginLanguage = mode.ToString(), Label = label, ClassId = focusedId });
+        }
         foreach (var (model, kind) in new[] { (liveWeapons[i], "LogStartingWeapon"), (equipment.Weapon, "ShowcaseWeapon") })
         {
             var result = read.Invoke(null, [data, model]) ?? throw new Exception($"Class {classes[i]} was not resolved for {kind} {model:X12}.");
@@ -66,7 +87,7 @@ foreach (var mode in new[] { LanguageMode.Russian, LanguageMode.English })
         }
     }
 }
-File.WriteAllText(args[1], JsonSerializer.Serialize(new { CheckedAt = DateTimeOffset.Now, Cases = cases,
+File.WriteAllText(args[1], JsonSerializer.Serialize(new { CheckedAt = DateTimeOffset.Now, Cases = cases, FocusCases = focusCases,
     InGameVerified = false, RussianDescriptionsVerified = true }, new JsonSerializerOptions { WriteIndented = true,
     Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }));
-Console.WriteLine($"Passed {cases.Count} class/description checks using installed game tables. Live selection and speech still require FFXIV.");
+Console.WriteLine($"Passed {cases.Count} class/description and {focusCases.Count} highlighted-label checks using installed game tables. Live selection and speech still require FFXIV.");

@@ -379,6 +379,9 @@ public sealed unsafe class CharaMakeReader
 
         TrackWindows(); // must run before any announcement decides how to speak
 
+        if (classStep) UpdateClass();
+        if (!appearance) return;
+
         var model = FindPreviewModel();
         if (model == null)
         {
@@ -386,8 +389,6 @@ public sealed unsafe class CharaMakeReader
             return;
         }
 
-        if (classStep) UpdateClass(model);
-        if (!appearance) return;
 
         Span<byte> now = stackalloc byte[CustomizeBytes];
         var src = LiveCustomize(model);
@@ -1134,32 +1135,47 @@ public sealed unsafe class CharaMakeReader
     private long _classReadAt;
     private CharaMakeClassText.Entry? _classSelection;
     private readonly CharaMakeClassSpeech _classSpeech = new();
+    private string _classFocusLabel = string.Empty;
+    private CharaMakeClassText.Entry? _classFocusSelection;
+    private LanguageMode _classFocusLanguage;
+    private Dalamud.Game.ClientLanguage _classFocusClientLanguage;
 
     private void ResetClass()
     {
         _haveClass = false;
         _classSelection = null;
+        _classFocusLabel = string.Empty;
+        _classFocusSelection = null;
         _classSpeech.Update(null, Environment.TickCount64);
     }
 
     /// <summary>
-    /// Names the class the preview model is currently showing.
-    /// WHY THE WEAPON: the class icons carry no text (which is what made the step
-    /// silent - see UIReaderService.IsCharaMakeIconList), but the game equips the
-    /// starting gear of the highlighted class onto the preview model, and
-    /// <c>CharaMakeClassEquip</c> lists showcase gear, while
-    /// <c>ClassJob.ItemStartingWeaponMainHand</c> links the actual starting item.
-    /// Both full models are checked: the 2026-09-30 log uses starting items,
-    /// e.g. Gladiator 0x0001002B00C9 instead of showcase 0x0001000A00C9.
-    /// It is match-or-silence by construction. If the model has no weapon, or the
-    /// game only equips it on confirm rather than on highlight, nothing is spoken
-    /// and the log says what the field actually held - the position announcement
-    /// from the list reader still covers movement. Nothing here can name the wrong
-    /// class.
+    /// Read the highlighted class row. The 2026-10-01 log shows that the weapon
+    /// changes only after clicking a class: using it for browsing reads the
+    /// previously selected class. Unknown labels never borrow the preview text.
     /// </summary>
-    private void UpdateClass(CsCharacter* model)
+    private CharaMakeClassText.Entry? ReadFocusedClass()
     {
-        var selection = ReadClass(model);
+        var pointer = _gui.GetAddonByName("_CharaMakeClassSelector");
+        var stage = AtkStage.Instance();
+        if (pointer.IsNull || stage == null || stage->AtkInputManager == null) return null;
+        var label = CharaMakeClassFocus.ReadLabel((AtkUnitBase*)(nint)pointer,
+            stage->AtkInputManager->FocusedNode);
+        if (label == _classFocusLabel && _classFocusLanguage == Loc.Mode && _classFocusClientLanguage == _data.Language)
+            return _classFocusSelection;
+        _classFocusLabel = label;
+        _classFocusLanguage = Loc.Mode;
+        _classFocusClientLanguage = _data.Language;
+        var id = CharaMakeClassText.ResolveName(_data, label);
+        _classFocusSelection = CharaMakeClassText.ReadById(_data, id);
+        if (_classFocusSelection is { } entry) _classFocusSelection = entry with { Name = label };
+        _log.Info($"[CharaMake] focused class '{label}' -> ClassJob={id}");
+        return _classFocusSelection;
+    }
+
+    private void UpdateClass()
+    {
+        var selection = ReadFocusedClass();
         var speech = _classSpeech.Update(selection, Environment.TickCount64);
         if (speech.Headline.Length > 0)
             _tolk.SpeakInterrupt(AccessibilityStrings.CharaMakeClass(speech.Headline));
@@ -1194,8 +1210,14 @@ public sealed unsafe class CharaMakeReader
     public bool TryReadClass()
     {
         if (!IsAddonVisible("_CharaMakeClassSelector")) return false;
-        var model = FindPreviewModel();
-        var selection = model == null ? null : ReadClass(model);
+        var selection = ReadFocusedClass();
+        // A role heading/unknown row must not borrow the selected model's class.
+        // With no row focus, the selected model remains a useful fallback.
+        if (selection == null && _classFocusLabel.Length == 0)
+        {
+            var model = FindPreviewModel();
+            selection = model == null ? null : ReadClass(model);
+        }
         var speech = _classSpeech.Update(selection, Environment.TickCount64, repeat: true);
         if (speech.Headline.Length == 0)
             _tolk.SpeakInterrupt(AccessibilityStrings.CharaMakeClassUnavailable);

@@ -19,13 +19,14 @@ internal sealed class HeightPath : IDisposable
     private readonly CancellationTokenSource _cancel = new();
     private readonly float _range;
     private readonly List<Vector3> _candidates = new();
+    private readonly List<Vector3> _starts = new();
     private Task<List<Vector3>>? _pending;
     private IEnumerator<Vector3>? _samples;
     private List<Vector3>? _leg;
     private List<Vector3>? _firstLeg;
     private Vector3 _goal, _via;
     private Vector3 _surface;
-    private int _candidate;
+    private int _candidate, _startCandidate;
     private bool _initialized, _direct = true, _disposed;
 
     internal Vector3 Start { get; }
@@ -52,11 +53,15 @@ internal sealed class HeightPath : IDisposable
             if (!Finite(Start) || !Finite(Destination) || !float.IsFinite(_range) || _range <= 0)
             { LastFailure = "invalid destination"; Done = true; return; }
             // Narrow Y is essential: never snap a known NPC height to the floor below.
-            var goal = _nearest(Destination, MathF.Min(_range, 2), 1);
+            var goal = _nearest(Destination, _range, 1);
             if (goal is not { } point || !Finite(point) || MathF.Abs(point.Y - Destination.Y) > 1
                 || Vector3.Distance(point, Destination) > _range)
             { LastFailure = "no mesh point within target height and interaction range"; Done = true; return; }
             _goal = point;
+            foreach (var radius in new[] { 2f, 4f, 8f })
+                for (var i = 0; i < 8; ++i)
+                    _starts.Add(Start + new Vector3(MathF.Cos(i * MathF.PI / 4) * radius, 0,
+                        MathF.Sin(i * MathF.PI / 4) * radius));
             foreach (var radius in new[] { 4f, 8f, 16f })
                 for (var i = 0; i < 8; ++i)
                     _candidates.Add(_goal + new Vector3(MathF.Cos(i * MathF.PI / 4) * radius, 0,
@@ -75,8 +80,8 @@ internal sealed class HeightPath : IDisposable
             var to = _direct || _firstLeg != null ? _goal : _via;
             if (!ValidShape(task.Result, from, to)) { LastFailure = "partial path or unsupported height change"; Reject(); return; }
             // Own the list; vnavmesh must not be able to prune the data we check.
-            _leg = new List<Vector3>(task.Result);
-            _samples = Samples(_leg, from).GetEnumerator();
+            _samples = Samples(new List<Vector3>(task.Result), from).GetEnumerator();
+            _leg = new List<Vector3>();
             _surface = from;
         }
         if (_samples != null)
@@ -92,11 +97,16 @@ internal sealed class HeightPath : IDisposable
                 var step = GroundDetour.FlatDistance(_surface, sample);
                 var maxRise = MathF.Max(0.75f, step * 1.25f);
                 var probe = sample with { Y = _surface.Y };
-                var floor = _nearest(probe, 0.35f, maxRise);
+                // Recast erodes edges and quantizes stairs. Small seams are
+                // allowed, while each sample must still stay on nearby ground.
+                var floor = _nearest(probe, 1.5f, maxRise);
                 if (floor is not { } p || !Finite(p) || MathF.Abs(p.Y - _surface.Y) > maxRise
-                    || GroundDetour.FlatDistance(p, sample) > 0.35f)
+                    || GroundDetour.FlatDistance(p, sample) > 1.5f)
                 { LastFailure = $"no surface at ({sample.X:F2}|{sample.Y:F2}|{sample.Z:F2})"; Reject(); return; }
                 _surface = p;
+                // Walk the supported surface, not the sparse straight line
+                // that may run beside a stairway or across an eroded edge.
+                if (_leg!.Count == 0 || Vector3.Distance(_leg[^1], p) > 0.05f) _leg.Add(p);
             }
             return;
         }
@@ -109,6 +119,19 @@ internal sealed class HeightPath : IDisposable
                 || GroundDetour.FlatDistance(probe, p) > 1) return;
             _via = p;
             Query(Start, _via);
+            return;
+        }
+        if (_startCandidate < _starts.Count)
+        {
+            // An isolated start polygon cannot discover the surrounding ramp.
+            // A query from a nearby origin still traces the WHOLE connector
+            // from Start; no movement occurs unless all its steps are supported.
+            var probe = _starts[_startCandidate++];
+            var origin = _nearest(probe, 1, 2);
+            if (origin is not { } p || !Finite(p) || MathF.Abs(p.Y - Start.Y) > 2
+                || GroundDetour.FlatDistance(probe, p) > 1) return;
+            _direct = true;
+            Query(p, _goal);
             return;
         }
         Done = true;
@@ -134,6 +157,8 @@ internal sealed class HeightPath : IDisposable
         var endpoint = _direct || _firstLeg != null ? _goal : _via;
         if (Vector3.Distance(_surface, endpoint) > 0.75f)
         { LastFailure = "surface trace ends on another floor"; Reject(); return; }
+        if (!ValidShape(_leg, _firstLeg == null ? Start : _via, endpoint))
+        { LastFailure = "surface trace contains an unsupported step"; Reject(); return; }
         var leg = _leg!; _leg = null;
         if (!_direct && _firstLeg == null)
         {
@@ -146,6 +171,7 @@ internal sealed class HeightPath : IDisposable
             foreach (var p in leg)
                 if (Vector3.Distance(combined[^1], p) > 0.05f) combined.Add(p);
         Result = combined;
+        LastFailure = "none";
         Done = true;
     }
 

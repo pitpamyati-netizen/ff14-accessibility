@@ -82,6 +82,62 @@ public class HeightPathTests
     }
 
     [Fact]
+    public void NpcApproachCanUseTheWholeInteractionRangeInsteadOfOnlyTwoMeters()
+    {
+        var target = new Vector3(100, 14, 0);
+        var approach = target + new Vector3(2.33f, 0, 0);
+        Vector3[] ramp = [Vector3.Zero, new(60, 0, 0), new(80, 14, 0), approach];
+        var surface = Surface(ramp);
+        using var search = new HeightPath(ramp[0], target, 2.5f, (p, xz, y) =>
+            p == target ? xz >= 2.33f ? approach : null : surface(p, xz, y),
+            (_, _, _) => Task.FromResult(ramp.ToList()));
+        Complete(search);
+        Assert.NotNull(search.Result);
+        Assert.InRange(Vector3.Distance(search.Result[^1], target), 2.3f, 2.5f);
+    }
+
+    [Fact]
+    public void ErodedStairEdgeUsesItsSupportedPointsInsteadOfTheSparseLineBesideIt()
+    {
+        var start = Vector3.Zero;
+        Vector3[] ramp = [new(1, 0, 0), new(1, 0, 4), new(1, 4, 10)];
+        var goal = ramp[^1];
+        using var search = new HeightPath(start, goal, 2.5f, Surface(ramp),
+            (_, _, _) => Task.FromResult(new List<Vector3> { start, goal, goal }));
+        Complete(search);
+        Assert.NotNull(search.Result);
+        Assert.All(search.Result, p => Assert.Equal(1, p.X));
+        Assert.True(HeightPath.ValidShape(search.Result, start, goal));
+        Assert.Equal(1, search.Queries);
+    }
+
+    [Fact]
+    public void IsolatedStartPolygonCanQueryANearbyOriginButMustTraceFromTheRealPlayer()
+    {
+        Vector3[] ramp = [Vector3.Zero, new(2, 0, 0), new(10, 4, 0)];
+        var from = ramp[0]; var goal = ramp[^1];
+        using var search = new HeightPath(from, goal, 2.5f, Surface(ramp), (a, b, _) =>
+            Task.FromResult(a == from ? new List<Vector3> { a, b with { Y = b.Y - 4 }, b }
+                : new List<Vector3> { a, b, b }));
+        Complete(search);
+        Assert.NotNull(search.Result);
+        Assert.True(search.Queries > 1);
+        Assert.True(HeightPath.ValidShape(search.Result, from, goal));
+        Assert.InRange(Vector3.Distance(search.Result[0], from), 0, 1.5f);
+    }
+
+    [Fact]
+    public void NearbyOriginOnAnUpperFloorCannotBypassTheUnsupportedConnector()
+    {
+        var goal = new Vector3(30, 4, 0);
+        using var search = new HeightPath(Vector3.Zero, goal, 2.5f,
+            (p, _, _) => p == goal ? p : p.X <= 1 ? p with { Y = 0 } : p with { Y = 4 },
+            (a, b, _) => Task.FromResult(new List<Vector3> { a, b, b }));
+        Complete(search);
+        Assert.Null(search.Result);
+    }
+
+    [Fact]
     public void ValidRampIsAcceptedWithoutASideSearch()
     {
         Vector3[] ramp = [new(0, 0, 0), new(16, 0, 0), new(32, 14, 0), new(0, 14, 3)];
@@ -184,7 +240,7 @@ public class HeightPathTests
         }
         Assert.True(search.Done);
         Assert.Null(search.Result);
-        Assert.InRange(search.Queries, 1, 49);
+        Assert.InRange(search.Queries, 1, 73);
     }
 
     [Theory]
