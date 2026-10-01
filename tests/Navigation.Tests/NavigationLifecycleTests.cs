@@ -194,14 +194,95 @@ public sealed class NavigationLifecycleTests
         => Assert.False(TrailService.ValidPoints(new NavTrail { Points = [[float.NaN, 0, 0], [1, 0, 0]] }));
 
     [Fact]
-    public void DynamicWallStopsAnAlreadyValidatedRoute()
+    public void DynamicWallStopsMovementAndStartsAdaptiveSearch()
     {
         var h = new Harness("Walking");
         h.Set("_groundSegmentClear", new Func<Vector3, Vector3, bool>((_, _) => false));
         h.Waypoints = [new(10, 0, 0), new(20, 0, 0)];
         h.Tick("Walking");
-        Assert.False(h.Walk.IsActive);
+        Assert.True(h.Walk.IsActive);
         Assert.True(h.Stops > 0);
+        Assert.Empty(h.Waypoints);
+        Assert.NotNull(h.Get("_adaptiveGround"));
+    }
+
+    [Fact]
+    public void RemoteObstacleDoesNotPreventPlanningButStartsRepairBeforeContact()
+    {
+        var h = new Harness("HeightSearch");
+        Func<Vector3, Vector3, bool> clear = (a, b) => (a.X < 10) == (b.X < 10);
+        h.Set("_groundSegmentClear", clear);
+        h.Set("_startedAt", DateTime.UtcNow);
+        using var search = new HeightPath(Vector3.Zero, h.TargetPosition, 2.5f, (p, _, _) => p,
+            (a, b, _) => h.Query(a, b, default), h.CheckPlanned);
+        h.Set("_heightPath", search);
+        for (var i = 0; i < 20 && h.Moves == 0; ++i) h.Tick("HeightSearch");
+        Assert.Equal(1, h.Moves);
+        Assert.True(h.Walk.IsActive);
+        h.PlayerPosition = new(9, 0, 0);
+        h.Waypoints = h.Waypoints.Where(p => p.X >= 10).ToList();
+        h.Tick("Walking");
+        Assert.True(h.Walk.IsActive);
+        Assert.Empty(h.Waypoints);
+        Assert.NotNull(h.Get("_adaptiveGround"));
+    }
+
+    [Fact]
+    public void ObstacleInTheFirstStepStillRejectsThePlan()
+    {
+        var h = new Harness();
+        h.Set("_groundSegmentClear", new Func<Vector3, Vector3, bool>((_, _) => false));
+        Assert.False(h.CheckPlanned(Vector3.Zero, new(1, 0, 0)));
+    }
+
+    [Theory]
+    [InlineData(false)] [InlineData(true)]
+    public void LongConnectorChecksOnlyItsNearbyPartInEitherDirection(bool reverse)
+    {
+        Vector3? first = null, last = null;
+        var from = reverse ? new Vector3(20, 0, 0) : Vector3.Zero;
+        var to = reverse ? Vector3.Zero : new Vector3(20, 0, 0);
+        Assert.True(GroundPathCollision.CheckNearby(Vector3.Zero, from, to, (a, b) =>
+        { first = a; last = b; return true; }));
+        Assert.NotNull(first); Assert.NotNull(last);
+        Assert.InRange(first.Value.X, 0, 1.5f);
+        Assert.InRange(last.Value.X, 0, 1.5f);
+        Assert.InRange(Vector3.Distance(first.Value, last.Value), 1.49f, 1.51f);
+    }
+
+    [Fact]
+    public void DistantFloorCannotBeCheckedAgainstLiveGeometryAroundAnotherFloor()
+    {
+        Assert.True(GroundPathCollision.CheckNearby(Vector3.Zero, new(0, 10, 0), new(1, 10, 0),
+            (_, _) => throw new Exception("Remote geometry must wait until approach")));
+        Assert.False(GroundPathCollision.CheckNearby(Vector3.Zero, new(float.NaN, 0, 0), Vector3.One,
+            (_, _) => throw new Exception("Invalid coordinates must not reach collision API")));
+    }
+
+    [Fact]
+    public void WestPierMarkerUsesItsHorizontalLocationDespitePlayersGuildHeight()
+    {
+        var h = new Harness();
+        var marker = new Vector3(182.5f, 15.9f, -240.5f);
+        var pier = new Vector3(181.85f, -2.2f, -241.8f);
+        var wrongRoof = new Vector3(175.75f, 7.5f, -230.25f);
+        h.NearestReachable = (p, xz, y) =>
+        {
+            Assert.Equal(marker, p);
+            return xz <= 2 && y >= 20 ? pier : wrongRoof;
+        };
+        Assert.Equal(pier, h.Walk.ResolveMapMarkerPoint(marker));
+        Assert.InRange(GroundDetour.FlatDistance(marker, pier), 0, 2);
+    }
+
+    [Fact]
+    public void MapMarkerWithoutNearbyGroundKeepsTheExistingWideFallback()
+    {
+        var h = new Harness();
+        var marker = new Vector3(20, 5, 0);
+        var besideFurniture = new Vector3(24, 5, 0);
+        h.NearestReachable = (_, xz, _) => xz <= 2 ? null : besideFurniture;
+        Assert.Equal(besideFurniture, h.Walk.ResolveMapMarkerPoint(marker));
     }
 
     [Fact]
@@ -291,22 +372,25 @@ public sealed class NavigationLifecycleTests
         Assert.True(path.Done);
     }
 
-    private sealed class Harness
+    internal sealed class Harness
     {
         internal readonly AutoWalkService Walk = (AutoWalkService)RuntimeHelpers.GetUninitializedObject(typeof(AutoWalkService));
         private readonly NavmeshIpc _nav = (NavmeshIpc)RuntimeHelpers.GetUninitializedObject(typeof(NavmeshIpc));
         internal uint Territory = 133;
+        internal Vector3 PlayerPosition;
+        internal Func<Vector3, float, float, Vector3?> NearestReachable = (p, _, _) => p;
         internal Vector3 TargetPosition = new(20, 0, 0);
         internal bool TargetPresent = true;
         internal List<Vector3> Waypoints = [];
         internal int Stops, Moves;
+        internal bool NativeSearching;
         internal Func<Vector3, Vector3, CancellationToken, Task<List<Vector3>>> Query
             = (a, b, _) => Task.FromResult(new List<Vector3> { a, b, b });
 
         internal Harness(string phase = "Idle")
         {
             var player = Proxy.Of<IPlayerCharacter>((m, _) => m.Name switch
-            { "get_Position" => Vector3.Zero, "get_GameObjectId" => 1UL, "get_Address" => (nint)0,
+            { "get_Position" => PlayerPosition, "get_GameObjectId" => 1UL, "get_Address" => (nint)0,
                 _ => throw new NotSupportedException(m.Name) });
             var target = Proxy.Of<IGameObject>((m, _) => m.Name switch
             { "get_Position" => TargetPosition, "get_GameObjectId" => 44UL, _ => throw new NotSupportedException(m.Name) });
@@ -321,9 +405,11 @@ public sealed class NavigationLifecycleTests
             Gate("_stop", Proxy.Of<ICallGateSubscriber<object>>((_, _) => { ++Stops; Waypoints = []; return null; }));
             Gate("_isReady", Proxy.Of<ICallGateSubscriber<bool>>((_, _) => true));
             Gate("_isRunning", Proxy.Of<ICallGateSubscriber<bool>>((_, _) => Waypoints.Count > 0));
-            Gate("_pathfindInProgress", Proxy.Of<ICallGateSubscriber<bool>>((_, _) => false));
+            Gate("_pathfindInProgress", Proxy.Of<ICallGateSubscriber<bool>>((_, _) => NativeSearching));
             Gate("_listWaypoints", Proxy.Of<ICallGateSubscriber<List<Vector3>>>((_, _) => new List<Vector3>(Waypoints)));
             Gate("_nearestPoint", Proxy.Of<ICallGateSubscriber<Vector3, float, float, Vector3?>>((_, a) => (Vector3)a![0]!));
+            Gate("_nearestPointReachable", Proxy.Of<ICallGateSubscriber<Vector3, float, float, Vector3?>>((_, a)
+                => NearestReachable((Vector3)a![0]!, (float)a[1]!, (float)a[2]!)));
             Gate("_findPath", Proxy.Of<ICallGateSubscriber<Vector3, Vector3, bool, CancellationToken, Task<List<Vector3>>>>(
                 (_, a) => Query((Vector3)a![0]!, (Vector3)a[1]!, (CancellationToken)a[3]!)));
             Gate("_moveAlong", Proxy.Of<ICallGateSubscriber<List<Vector3>, bool, object>>((_, a) =>
@@ -344,6 +430,7 @@ public sealed class NavigationLifecycleTests
             Set("_followLastMoveAt", DateTime.UtcNow); Set("_followSearchStartedAt", DateTime.UtcNow);
         }
         internal void Begin(Vector3 destination) => Invoke("Begin", [destination, "Цель", 2.5f, 0UL, false]);
+        internal bool CheckPlanned(Vector3 from, Vector3 to) => (bool)Invoke("CheckPlannedGroundSegment", [from, to])!;
         internal void Tick(string phase) => Invoke(phase switch
         { "Follow" => "FollowUpdate", "HeightSearch" => "HeightSearchUpdate", "Starting" => "StartingUpdate",
             "Landing" => "LandingUpdate", _ => phase + "Update" }, null);

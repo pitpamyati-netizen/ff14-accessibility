@@ -303,6 +303,8 @@ public sealed partial class AutoWalkService : IDisposable
         Starting,
         /// <summary>Checking a ground route to a destination on another floor.</summary>
         HeightSearch,
+        AdaptiveSearch,
+        AdaptiveWalking,
         /// <summary>Our path is steering the character.</summary>
         Walking,
         /// <summary>Querying a short walking detour around a stalled uphill corner.</summary>
@@ -518,7 +520,8 @@ public sealed partial class AutoWalkService : IDisposable
     /// grab the soft target every few steps and each one would be announced
     /// with distance and direction (user feedback 2026-07-10).</summary>
     public bool IsActive => _phase is Phase.Starting or Phase.Walking or Phase.DetourSearch or Phase.DetourWalking
-                                   or Phase.TrailWalking or Phase.Landing or Phase.HeightSearch;
+                                   or Phase.TrailWalking or Phase.Landing or Phase.HeightSearch
+                                   or Phase.AdaptiveSearch or Phase.AdaptiveWalking;
 
     /// <summary>Read-only destination for an explicit status request. A stopped
     /// walk must not make an old destination look selected again.</summary>
@@ -571,6 +574,13 @@ public sealed partial class AutoWalkService : IDisposable
         if (!IsActive) return;
         StopFollowQuiet();
         _flightDeclined = false;
+        if (_phase == Phase.AdaptiveWalking && _groundRunner is { JumpStarted: true })
+        {
+            _targetId = obj.GameObjectId; _targetName = name; _destPosition = obj.Position;
+            _stopRange = StopRange; _destinationIsTransition = _destinationHeightIsGuess = false;
+            _log.Info($"[AdaptiveGround] retarget queued until landing: {name}, id={obj.GameObjectId:X}");
+            return;
+        }
         Begin(obj.Position, name, StopRange, obj.GameObjectId, fresh: false);
         _log.Info($"[Nav] Auto-Lauf: umgebogen auf lebendes '{name}' (id={obj.GameObjectId:X}).");
     }
@@ -631,6 +641,21 @@ public sealed partial class AutoWalkService : IDisposable
             return reachable;
         }
         return ResolveFloorPoint(approximate);
+    }
+
+    /// <summary>A 2D named map marker has no measured Y. Keep its X/Z before
+    /// widening the search: the player's floor may be far above the marker.</summary>
+    public Vector3? ResolveMapMarkerPoint(Vector3 approximate)
+    {
+        if (!_nav.IsReady || !HeightPath.Finite(approximate)) return null;
+        var nearby = _nav.NearestPointReachable(approximate, 2f, 100f);
+        if (nearby is { } point && HeightPath.Finite(point)
+            && GroundDetour.FlatDistance(approximate, point) <= 3f)
+        {
+            _log.Info($"[Orte] map marker column ({Fmt(approximate)}) -> ({Fmt(point)})");
+            return point;
+        }
+        return ResolveReachablePoint(approximate);
     }
 
     /// <summary>
@@ -876,6 +901,7 @@ public sealed partial class AutoWalkService : IDisposable
     /// loop.</param>
     private void Begin(Vector3 destination, string name, float stopRange, ulong targetId, bool fresh = true)
     {
+        ClearAdaptiveGround();
         ClearHeightPath();
         ClearFlightPath();
         _groundDetour?.Dispose();
@@ -898,6 +924,9 @@ public sealed partial class AutoWalkService : IDisposable
 
         if (fresh)
         {
+            _groundRepairs = 0;
+            _groundFailures?.Clear();
+            _groundApproaches?.Clear();
             _targetRepaths = 0;
             _detourAttempts.Clear();
             _usedTrails.Clear();
@@ -1063,7 +1092,7 @@ public sealed partial class AutoWalkService : IDisposable
         _partialPathChecked = !fresh || crossing != null;
 
         _heightPath = new HeightPath(player.Position, walkTo, walkStopRange,
-            _nav.NearestPoint, _nav.FindGroundPath, _groundSegmentClear,
+            _nav.NearestPoint, _nav.FindGroundPath, CheckPlannedGroundSegment,
             approachRange: _destinationIsTransition ? 6f : null);
         _log.Info($"[HeightPath] search start=({Fmt(player.Position)}) target=({Fmt(walkTo)}) range={walkStopRange:F1}");
         if (fresh)
@@ -1346,6 +1375,7 @@ public sealed partial class AutoWalkService : IDisposable
     /// </summary>
     private void Finish(string? spoken, string reason)
     {
+        ClearAdaptiveGround();
         ClearHeightPath();
         ClearFlightPath();
         Transitions?.Stop(silent: true);
@@ -1428,6 +1458,8 @@ public sealed partial class AutoWalkService : IDisposable
             case Phase.Guarding: GuardUpdate(); return;
             case Phase.Starting: StartingUpdate(); return;
             case Phase.HeightSearch: HeightSearchUpdate(); return;
+            case Phase.AdaptiveSearch: AdaptiveSearchUpdate(); return;
+            case Phase.AdaptiveWalking: AdaptiveWalkingUpdate(); return;
             case Phase.Walking:  WalkingUpdate(); return;
             case Phase.DetourSearch: DetourSearchUpdate(); return;
             case Phase.DetourWalking: DetourWalkingUpdate(); return;
@@ -1474,8 +1506,8 @@ public sealed partial class AutoWalkService : IDisposable
         var now = DateTime.UtcNow;
         var distance = Vector3.Distance(player.Position, _destPosition);
         var waypoints = _nav.Waypoints;
+        if (!_flying) NoteGroundProgress(player.Position);
         var remaining = waypoints.Count;
-        if (!CheckUpcomingGroundSegment(player.Position, waypoints)) return;
 
         // Native stuck-retry can replace our checked route with the original
         // false shortcut. Check its contents, not just the waypoint count.
@@ -1486,12 +1518,14 @@ public sealed partial class AutoWalkService : IDisposable
             _nav.Stop();
             if (_flying)
             { Finish(AccessibilityStrings.NavigationFlightUnavailable, "flight route replaced"); return; }
+            if (TryAdaptiveGround(player.Position, FailureAhead(player.Position, previousPath ?? waypoints))) return;
             if (previousPath != null && TryGroundDetour(player.Position, previousPath, now, nativeRetry: true)) return;
             if (TryReengage(distance)) return;
             Finish(GroundPathFailure(player.Position),
                 "height: native route replaced the checked path");
             return;
         }
+        if (!CheckUpcomingGroundSegment(player.Position, waypoints)) return;
         if (!_flying) _lastGroundWaypoints = waypoints;
 
         // Arrival is decided on distance, not on vnavmesh going quiet: its path
@@ -1499,7 +1533,10 @@ public sealed partial class AutoWalkService : IDisposable
         if (distance <= _stopRange + ArrivalSlack)
         {
             if (!_flying && _groundSegmentClear != null && !_groundSegmentClear(player.Position, _destPosition))
-            { Finish(AccessibilityStrings.NavigationPathBlocked, "target is close but behind collision"); return; }
+            {
+                if (TryAdaptiveGround(player.Position, new GroundFailure(player.Position, _destPosition, false))) return;
+                Finish(AccessibilityStrings.NavigationPathBlocked, "target is close but behind collision"); return;
+            }
             // Ein Flug endet ueber dem Ziel - erst absteigen, dann melden. In der
             // Luft laesst sich weder reden noch sammeln noch kaempfen, "Ziel
             // erreicht" waere dort also die halbe Wahrheit.
@@ -1593,6 +1630,7 @@ public sealed partial class AutoWalkService : IDisposable
             _log.Info($"[Nav] Auto-Lauf: keine Bewegung seit {StallS:F0} s, dist={distance:F1}, " +
                       $"restWp={remaining}, Netzende={meshEnds}");
             if (EndFlightShort(player.Position, distance, "steht in der Luft")) return;
+            if (TryAdaptiveGround(player.Position, FailureAhead(player.Position, waypoints))) return;
             // A trail is tried for BOTH stall causes now, not just for the mesh
             // edge. Being wedged on geometry is precisely the case a recorded
             // trail exists for, and skipping the lookup here meant a player who
@@ -1952,7 +1990,7 @@ public sealed partial class AutoWalkService : IDisposable
         _checkedHeightRoute = null;
         _nav.Stop();
         _groundDetour = new GroundDetour(position, corner, end,
-            p => _nav.NearestPoint(p, 0.5f, 0.5f), _nav.FindGroundPath, _groundSegmentClear);
+            p => _nav.NearestPoint(p, 0.5f, 0.5f), _nav.FindGroundPath, CheckPlannedGroundSegment);
         _detourStartedAt = now;
         _phase = Phase.DetourSearch;
         _log.Info($"[GroundDetour] search from=({Fmt(position)}) corner=({Fmt(corner)}) end=({Fmt(end)}) attempt={_detourAttempts.Count}");
@@ -2486,6 +2524,10 @@ public sealed partial class AutoWalkService : IDisposable
         _followSearchStartedAt = _followLastMoveAt = DateTime.UtcNow;
         _followLastPosition = _objectTable.LocalPlayer?.Position ?? default;
         _followReplacements = 0;
+        _followRepairs = 0;
+        _followFailures?.Clear();
+        _followApproaches?.Clear();
+        _followRepairGoal = null;
         _followSearchWindow = false;
         _log.Info($"[Nav] Folgen: gestartet -> {_followName} (id={_followTargetId:X})");
         _tolk.SpeakInterrupt(AccessibilityStrings.Following(_followName));

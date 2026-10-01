@@ -25,9 +25,12 @@ public sealed partial class AutoWalkService
         if (!HeightPath.Finite(target.Position))
         { Finish(AccessibilityStrings.NavigationInvalidPosition, "invalid target position"); return false; }
         _destPosition = target.Position;
-        if (_phase is Phase.HeightSearch or Phase.Starting or Phase.Walking
+        if (_phase is Phase.HeightSearch or Phase.Starting or Phase.Walking or Phase.AdaptiveSearch or Phase.AdaptiveWalking
             && Vector3.Distance(_plannedDestination, _destPosition) > 1.5f)
         {
+            // A moving target cannot restart a ground query from the transient
+            // height of an already launched jump. Finish the landing first.
+            if (_phase == Phase.AdaptiveWalking && _groundRunner is { JumpStarted: true }) return true;
             if (++_targetRepaths > 8)
             { Finish(AccessibilityStrings.NavigationTargetMoving, "one-shot target keeps moving"); return false; }
             Begin(_destPosition, _targetName, _stopRange, _targetId, fresh: false);
@@ -41,6 +44,14 @@ public sealed partial class AutoWalkService
             ? AccessibilityStrings.HeightPathUnavailable(_destPosition.Y - player.Y)
             : AccessibilityStrings.GroundPathUnavailable;
 
+    private bool CheckPlannedGroundSegment(Vector3 from, Vector3 to)
+    {
+        var player = _objectTable.LocalPlayer;
+        if (player == null) return false;
+        if (_groundSegmentClear == null) return true;
+        return GroundPathCollision.CheckNearby(player.Position, from, to, _groundSegmentClear);
+    }
+
     private bool CheckUpcomingGroundSegment(Vector3 from, System.Collections.Generic.IReadOnlyList<Vector3> path)
     {
         if (_flying || _groundSegmentClear == null || path.Count == 0) return true;
@@ -48,6 +59,8 @@ public sealed partial class AutoWalkService
         var length = delta.Length();
         var to = length > 1.5f ? from + delta * (1.5f / length) : path[0];
         if (_groundSegmentClear(from, to)) return true;
+        _log.Info($"[GroundCollision] next step blocked: {GroundPathCollision.LastFailure ?? $"from={from}, to={to}"}");
+        if (_phase != Phase.TrailWalking && TryAdaptiveGround(from, new GroundFailure(from, to, false))) return false;
         Finish(AccessibilityStrings.NavigationPathBlocked, "live collision blocks next step");
         return false;
     }

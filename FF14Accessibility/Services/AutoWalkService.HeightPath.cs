@@ -47,6 +47,7 @@ public sealed partial class AutoWalkService
         if (result == null)
         {
             _log.Info($"[HeightPath] no supported route; queries={queries}; target=({Fmt(_destPosition)}); reason={failure}");
+            if (TryAdaptiveGround(player.Position)) return;
             // Keep the existing, measured/recorded crossings available; never
             // manufacture a direct jump between disconnected floors.
             if (TryBridgePartialPath(player.Position)) return;

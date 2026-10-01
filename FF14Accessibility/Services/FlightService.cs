@@ -100,6 +100,17 @@ public sealed class FlightService
     /// <summary>Whether the summon animation is playing right now.</summary>
     public bool IsMounting => _condition[ConditionFlag.Mounting] || _condition[ConditionFlag.Mounting71];
 
+    public bool IsJumping => _condition[ConditionFlag.Jumping] || _condition[ConditionFlag.Jumping61];
+
+    /// <summary>Use the game's ordinary jump; never turn a ground repair into
+    /// automatic mount takeoff. The game retains all its action restrictions.</summary>
+    public unsafe bool TryGroundJump()
+    {
+        if (IsMounted || IsMounting || IsInFlight || IsJumping || _condition[ConditionFlag.Diving]) return false;
+        var manager = ActionManager.Instance();
+        return manager != null && manager->UseAction(ActionType.GeneralAction, 2);
+    }
+
     /// <summary>Why flying is not available here, or <see cref="FlightBlock.None"/>
     /// when it is. Separate from a bare bool because each reason gets the player a
     /// different sentence - "no flying in cities" and "you have not collected the

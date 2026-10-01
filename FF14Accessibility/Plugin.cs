@@ -213,7 +213,7 @@ public sealed partial class Plugin : IDalamudPlugin
     // 6.08.18 lokal: Chat-Absender Kontextmenü (Strg+Umschalt+BildAuf) + Numpad3-Ziel.
     // 6.08.19: Charakterauswahl — eine Ansage (Name, Job, Ort) statt Scan-Sturm.
     // 6.08.20: Mitstreiter-Taste (PR 27 Port) — Strg+Umschalt+C öffnet/vorliest.
-    private const string PluginVersion    = "6.08.88";
+    private const string PluginVersion    = "6.08.90";
     // Der Tag nennt, was diese Fassung MITBRINGT, nicht woher sie stammt: die
     // russische Schicht auf dem Stand des Autors 6.08.34 (Auftragstext im
     // Quest-Tracker des Autors, siehe package-Schritt).
@@ -3052,7 +3052,8 @@ public sealed partial class Plugin : IDalamudPlugin
                 : place.IsWaterSpot
                 ? (_autoWalk.ResolveNearestBank(place.Position with { Y = playerY })
                    ?? FloorPoint(place.Position with { Y = playerY }))
-                : ReachablePoint(approach);
+                : place.IsZoneTransition ? ReachablePoint(approach)
+                : _autoWalk.ResolveMapMarkerPoint(approach);
             if (floor == null)
             {
                 _tolk.SpeakInterrupt(AccessibilityStrings.NoWalkablePointNear(place.Name));

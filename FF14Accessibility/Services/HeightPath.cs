@@ -30,6 +30,7 @@ internal sealed class HeightPath : IDisposable
     private Vector3 _surface;
     private int _candidate, _startCandidate;
     private bool _initialized, _direct = true, _disposed;
+    private readonly bool _directOnly;
 
     internal Vector3 Start { get; }
     internal Vector3 Destination { get; }
@@ -37,15 +38,18 @@ internal sealed class HeightPath : IDisposable
     internal List<Vector3>? Result { get; private set; }
     internal int Queries { get; private set; }
     internal string LastFailure { get; private set; } = "none";
+    internal Vector3? NativePartialEnd { get; private set; }
 
     internal HeightPath(Vector3 start, Vector3 destination, float range,
         Func<Vector3, float, float, Vector3?> nearest,
         Func<Vector3, Vector3, CancellationToken, Task<List<Vector3>>?> query,
-        Func<Vector3, Vector3, bool>? segmentClear = null, float? approachRange = null)
+        Func<Vector3, Vector3, bool>? segmentClear = null, float? approachRange = null,
+        bool directOnly = false)
     {
         Start = start; Destination = destination; _range = approachRange ?? range;
         _nearest = nearest; _query = query;
         _segmentClear = segmentClear;
+        _directOnly = directOnly;
     }
 
     internal void Update()
@@ -83,6 +87,9 @@ internal sealed class HeightPath : IDisposable
             var from = _firstLeg == null ? Start : _via;
             var to = _direct || _firstLeg != null ? _goal : _via;
             var path = task.Result;
+            if (_endpointPath == null && path.Count >= 3 && Finite(path[^2])
+                && !HasNativeEndpoint(path, to) && Vector3.Distance(from, path[^2]) > 1)
+                NativePartialEnd = path[^2];
             var endpointVerified = _endpointPath != null;
             if (_endpointPath != null)
             {
@@ -128,7 +135,7 @@ internal sealed class HeightPath : IDisposable
                     || GroundDetour.FlatDistance(p, sample) > 1.5f)
                 { LastFailure = $"no surface at ({sample.X:F2}|{sample.Y:F2}|{sample.Z:F2})"; Reject(); return; }
                 if (_segmentClear != null && !_segmentClear(_surface, p))
-                { LastFailure = "collision across surface connector"; Reject(); return; }
+                { LastFailure = $"collision across surface connector: {_surface} -> {p}"; Reject(); return; }
                 _surface = p;
                 // Walk the supported surface, not the sparse straight line
                 // that may run beside a stairway or across an eroded edge.
@@ -175,6 +182,7 @@ internal sealed class HeightPath : IDisposable
     {
         _samples?.Dispose(); _samples = null;
         _leg = null; _firstLeg = null; _endpointPath = null; _direct = false;
+        if (_directOnly) Done = true;
     }
 
     private void AcceptLeg()
