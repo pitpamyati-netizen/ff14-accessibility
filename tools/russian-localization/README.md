@@ -30,6 +30,33 @@
 
 ## Источники и воспроизведение
 
+### Обновления автора 6.08.32–6.08.35
+
+`AuthorText.cs` снимает 50 записей `XBMPet`/`Pet`, 68 имён выдающих ливквесты
+NPC через `Leve.LevelLevemete`/`Level`/`ENpcResident`, тексты интерфейса лотерей
+и название FATE 1409. Измеренный снимок находится в
+`tests/Regression.Tests/Fixtures/author-text-sources.json` и входит в обязательные
+тесты и отпечаток проверки. Версия игры — `2026.09.15.0000.0000`.
+
+Переводы зверей написаны в `author-beast-translations.json`. Имена NPC находятся
+в `author-giver-translations.json`: 27 из
+[ENpcResident XIV Rus](https://github.com/xivrus/xiv_ru_weblate/blob/6a2733af6df0f86b133bcbf61c553dfacf80ec2d/exd/ENpcResident/ru.xlf),
+41 дополнено вручную; версия источника и SHA-256 сохранены рядом с переводами.
+У импортированных имён исходный английский текст совпал с байтами игры.
+
+```powershell
+dotnet run --project tools/russian-localization/AuthorText.csproj -c Release -- 'ПУТЬ_К_GAME\sqpack' 'tests/Regression.Tests/Fixtures/author-text-sources.json'
+python tools/russian-localization/generate_author_text.py
+```
+
+Генератор выпускает `RussianAuthorText.json.gz` и `RussianLotteryLabels.json`.
+Описания зверей и имена NPC в этом снимке не содержат управляющих вставок;
+генератор проверяет это побайтно. Подписи лотерей переводятся только в их окнах.
+Динамическая подсказка сохраняет число открываемых клеток; неизвестный вариант
+или изменённый исходник читается на языке игры. Параметры остальных диалогов,
+имена игроков и чат не заменяются. `AuthorUpdateTests` проверяет полный охват,
+смену языка, исходные поисковые имена, устаревший источник и числа лотерей.
+
 `game-text-sources.json.gz` содержит снимок выбранных английских строк игры.
 `game-text-imported.json.gz` содержит только совпавшие по исходным байтам переводы
 из закреплённого снимка XIV Rus `6a2733af6df0f86b133bcbf61c553dfacf80ec2d`

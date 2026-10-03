@@ -289,6 +289,7 @@ public sealed class Configuration : IPluginConfiguration
         KeyReadEquipment = defaults.KeyReadEquipment;
         KeyItemCompare   = defaults.KeyItemCompare;
         KeyEquipBest     = defaults.KeyEquipBest;
+        KeyRandomLook    = defaults.KeyRandomLook;
         KeySkillMenu     = defaults.KeySkillMenu;
         KeyChatCatPrev   = defaults.KeyChatCatPrev;
         KeyChatCatNext   = defaults.KeyChatCatNext;

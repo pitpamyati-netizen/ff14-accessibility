@@ -45,11 +45,49 @@ public sealed class TolkService : IDisposable
     private long   _lastSpokenTick;
     private nint   _lastSpokenSource;
 
+    // After an error toast, inventory/armoury focus often snaps back and
+    // SpeakInterrupt-wipes the reason within ~25 ms (log 2026-09-28
+    // 09:16:00.311 toast → 09:16:00.336 ArmouryBoard item). Hold focus
+    // interrupts so the game's failure reason stays audible.
+    private long _focusInterruptProtectUntilTick;
+
     // Every speech call is logged ([Speak]): silence in the log used to be
     // ambiguous - "nothing was spoken" vs "spoken but not logged" broke the
     // diagnosis twice (V4.21 Tab silence, V4.31 SelectYesno left/right).
     private static string Short(string text) =>
         text.Length > 100 ? text[..100] + "..." : text;
+
+    /// <summary>
+    /// Blocks <see cref="SpeakFocusInterrupt"/> for a short window so action
+    /// feedback (error toasts) is not overwritten by focus restoration.
+    /// </summary>
+    /// <param name="seconds">Hold duration; long enough for typical German
+    /// equip-failure sentences (log 2026-09-28 Arsenal-voll).</param>
+    public void ProtectFocusInterrupts(double seconds = 3.5)
+    {
+        _focusInterruptProtectUntilTick =
+            Stopwatch.GetTimestamp() + (long)(seconds * Stopwatch.Frequency);
+    }
+
+    /// <summary>True while focus SpeakInterrupt must yield to recent error feedback.</summary>
+    public bool IsFocusInterruptProtected =>
+        Stopwatch.GetTimestamp() < _focusInterruptProtectUntilTick;
+
+    /// <summary>
+    /// Focus/navigation SpeakInterrupt. Skipped while
+    /// <see cref="ProtectFocusInterrupts"/> is active so a restored item slot
+    /// cannot erase an error toast the user just triggered.
+    /// </summary>
+    public void SpeakFocusInterrupt(string text, nint source = 0)
+    {
+        if (IsFocusInterruptProtected)
+        {
+            var preview = string.IsNullOrEmpty(text) ? string.Empty : Short(Sanitize(text));
+            _log.Info($"[Speak] FOCUS-SUPPRESSED '{preview}' (Fehler-Schutz)");
+            return;
+        }
+        SpeakInterrupt(text, source);
+    }
 
     /// <summary>
     /// Strips game markup before speaking so NVDA reads clean text:

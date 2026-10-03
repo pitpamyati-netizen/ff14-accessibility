@@ -1956,6 +1956,14 @@ public sealed class HotbarService
             _skills.Add((row.RowId, name, row.ClassJobLevel));
         }
 
+        // Author 6.08.35: some gatherer rows are not marked IsPlayerAction.
+        // Only use the fallback for an empty gatherer list; crafting keeps its
+        // separate mixed CraftAction/Action tab, including buffs and unlocks.
+        if (_skills.Count == 0
+            && _data.GetExcelSheet<Lumina.Excel.Sheets.ClassJob>().TryGetRow(jobId, out var jobRow)
+            && jobRow.DohDolJobIndex >= 0 && jobRow.ClassJobCategory.RowId == 32)
+            AppendGathererActions(jobId, level, ui, ref skippedLocked);
+
         // Craft actions deliberately NOT added here: they live in their own
         // CraftAction sheet (verified 2026-09-26 - "Basic Synthesis" is 100001,
         // the Action sheet has no such row at all) and the player wants them on
@@ -1978,6 +1986,25 @@ public sealed class HotbarService
             return false;
         }
         return true;
+    }
+
+    /// <summary>Author gatherer fallback with the usual level/unlock gates.</summary>
+    private unsafe void AppendGathererActions(byte jobId, uint level, UIState* ui, ref int skippedLocked)
+    {
+        foreach (var row in _data.GetExcelSheet<LuminaAction>())
+        {
+            if (row.RowId == 0 || row.IsPvP || row.ClassJob.RowId != jobId) continue;
+            if (row.ClassJobLevel == 0 || row.ClassJobLevel > level) continue;
+            var name = row.Name.ExtractText();
+            if (string.IsNullOrWhiteSpace(name)) continue;
+            var unlock = row.UnlockLink.RowId;
+            if (unlock != 0 && !ui->IsUnlockLinkUnlockedOrQuestCompleted(unlock))
+            {
+                skippedLocked++;
+                continue;
+            }
+            _skills.Add((row.RowId, name, row.ClassJobLevel));
+        }
     }
 
     /// <summary>

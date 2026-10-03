@@ -55,6 +55,10 @@ public sealed class ToastService : IDisposable
         // reason arrives while the key press is still fresh. Identical
         // repeats within 0.5s are caught by the Tolk debounce.
         _tolk.SpeakInterrupt(text);
+        // Closing ContextMenu "Anlegen" restores ArmouryBoard focus ~25 ms
+        // later; without this the item name SpeakInterrupt wiped the reason
+        // (log 2026-09-28 09:16:00.311/.336 and 09:19:58.533/.560).
+        _tolk.ProtectFocusInterrupts();
     }
 
 #if DEBUG

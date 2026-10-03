@@ -208,6 +208,9 @@ public sealed partial class UIReaderService : IDisposable
         // (Dump/Log 2026-09-20 GrandCompanyRank).
         "GrandCompanyRank",
         "PerformanceMode",
+        // Mini-Glueckskaktor: generischer Open scrapte Auszahlungstabelle
+        // ("MGP. Summe. Auszahlung…") statt Titel+Hinweis (Log 2026-09-26).
+        "LotteryDaily",
     ];
 
     // Addons, bei denen Universal-Update/ReceiveEvent nicht l�uft
@@ -727,6 +730,10 @@ public sealed partial class UIReaderService : IDisposable
         // Compiled out of release; remove once the reader is built.
         _addonLifecycle.RegisterListener(AddonEvent.PostUpdate, "TripleTriad", OnTripleTriadBoardProbe);
 #endif
+
+        // Mini-Glueckskaktor: eigene Oeffnungsansage (Titel + Hinweis), nicht
+        // die Auszahlungstabelle (Log 2026-09-26).
+        _addonLifecycle.RegisterListener(AddonEvent.PostSetup, "LotteryDaily", OnLotteryDailyOpen);
 
         // -- SelectString / SelectIconString ----------------------
         foreach (var name in SelectStringAddons)
@@ -3645,6 +3652,21 @@ public sealed partial class UIReaderService : IDisposable
             // Sprach-Kästen waren STUMM (Log 2026-09-24 21:56–21:58).
             text = lfgRow;
         }
+        else if (TryReadLotteryWeeklyInputFocus(node, out var lotteryRow))
+        {
+            // Jumbo-Glueckskaktor (LotteryWeeklyInput): Zifferntasten und Stellen
+            // sind Buttons/Radios, Fokus sitzt auf der Collision ohne Text.
+            // GetTextFromNodeTree wirft einstellige Ziffern weg (t.Length > 1) —
+            // deshalb STUMM (Dump+Log 2026-09-26 09:07).
+            text = lotteryRow;
+        }
+        else if (TryReadLotteryDailyFocus(node, out var miniLotteryRow))
+        {
+            // Mini-Glueckskaktor (LotteryDaily): 3x3-Felder und Reihen-Radios
+            // sind textlos auf der Collision — STUMM (Dump+Log 2026-09-26 09:24).
+            // Zellen/Reihen ueber AddonLotteryDaily.GameBoard / LaneSelector.
+            text = miniLotteryRow;
+        }
         else if (TryReadCurrencyFocusRow(node, out var currencyRow))
         {
             // Vermoegen: die Zeile sagt jetzt, WELCHE Waehrung sie ist. Vor dem
@@ -4020,6 +4042,8 @@ public sealed partial class UIReaderService : IDisposable
             // faltet er Anzahl, aktuellen Wert und Position in DIESELBE Ansage, statt
             // eine zweite hinterherzuschicken, die die erste abschneiden wuerde.
             text = _charaMake.DescribeFocus(node, text);
+            if (FindAddonNameForNode(node) is "LotteryDaily" or "LotteryWeekly" or "LotteryWeeklyInput")
+                text = RussianLotteryText.Translate(_data, text);
             // Namenstag: der globale Fokus landet auf dem Radio mit nacktem "01".
             // Die lesbare Zeile ist Text id=37; ohne Ersetzung hoert man nur die Zahl
             // (User 2026-09-19: beim Oeffnen nur "01"). Ok/Zurueck bleiben unveraendert.
@@ -4051,7 +4075,10 @@ public sealed partial class UIReaderService : IDisposable
             // Knotens faengt der 0,5s-Debounce weiterhin ab, ein Schritt auf einen
             // ANDEREN Knoten mit gleichem Wort ("Einfach" -> "Einfach" in der
             // naechsten Zeile der Optionsmatrix) darf er nicht mehr verschlucken.
-            _tolk.SpeakInterrupt(text, (nint)node);
+            // SpeakFocusInterrupt: yields to recent error toasts (equip fail
+            // from ContextMenu "Anlegen" restored this slot and wiped the
+            // reason — log 2026-09-28 09:16:00 / 09:19:58).
+            _tolk.SpeakFocusInterrupt(text, (nint)node);
         }
     }
 
@@ -5291,6 +5318,494 @@ public sealed partial class UIReaderService : IDisposable
             default:
                 return false;
         }
+    }
+
+    // Jumbo Cactpot number pad — dump Desktop\FFXIV_UI_Dump.txt 2026-09-26.
+    // Digit keys = Button Comp under Res id=20 (node ids 21..30), text child id=2.
+    // Four digit slots = RadioButton Comp ids 16..19 left-to-right.
+    // Buy = Button id=31 "Kaufen"; close chrome = Button id=35 (WindowA_Button.tex).
+    private const uint LotteryWeeklyBuyNodeId   = 31;
+    private const uint LotteryWeeklyCloseNodeId = 35;
+
+    /// <summary>
+    /// Jumbo Cactpot ticket entry (<c>LotteryWeeklyInput</c>): speak digit keys,
+    /// the four digit slots, Buy, and Close. Dump+Log 2026-09-26: focus on digit
+    /// Collision nodes was entirely silent ([Focus] STUMM) because the digit is a
+    /// one-character text child and <see cref="GetTextFromNodeTree"/> drops those.
+    /// </summary>
+    private unsafe bool TryReadLotteryWeeklyInputFocus(AtkResNode* node, out string text)
+    {
+        text = string.Empty;
+        if (!string.Equals(FindAddonNameForNode(node), "LotteryWeeklyInput", StringComparison.Ordinal))
+            return false;
+
+        var addon = FindAddonForNode(node);
+        if (addon == null) return false;
+
+        AtkComponentBase* comp = null;
+        AtkResNode* compNode = null;
+        var cur = node;
+        for (var up = 0; up < 6 && cur != null; up++, cur = cur->ParentNode)
+        {
+            if ((int)cur->Type < 1000) continue;
+            var candidate = ((AtkComponentNode*)cur)->Component;
+            if (candidate == null) continue;
+            comp     = candidate;
+            compNode = cur;
+            break;
+        }
+        if (comp == null || compNode == null) return false;
+
+        switch (comp->GetComponentType())
+        {
+            case ComponentType.Button:
+            {
+                var label = ReadLotteryWeeklyComponentText(compNode);
+                if (label.Length == 0)
+                {
+                    var tip = _tooltips.TryGetTooltipDeep(node)?.Trim() ?? string.Empty;
+                    if (tip.Length > 0)
+                        label = tip;
+                    else if (compNode->NodeId == LotteryWeeklyCloseNodeId)
+                        label = AccessibilityStrings.CloseControl;
+                    else
+                        return false;
+                }
+
+                label = RussianLotteryText.Translate(_data, label);
+                if (label.Length == 1 && char.IsDigit(label[0]))
+                {
+                    var slot = LotteryWeeklyActiveSlot(addon);
+                    text = slot > 0
+                        ? AccessibilityStrings.LotteryWeeklyDigit(label, slot)
+                        : AccessibilityStrings.LotteryWeeklyDigitOnly(label);
+                    return true;
+                }
+
+                if (compNode->NodeId == LotteryWeeklyBuyNodeId)
+                {
+                    var number = ReadLotteryWeeklyNumber(addon);
+                    text = number.Length > 0
+                        ? AccessibilityStrings.LotteryWeeklyBuy(label, number)
+                        : label;
+                    return true;
+                }
+
+                text = label;
+                if (((ushort)compNode->NodeFlags & (ushort)NodeFlags.Enabled) == 0)
+                    text = AccessibilityStrings.ControlUnavailable(text);
+                return true;
+            }
+
+            case ComponentType.RadioButton:
+            {
+                var digit = ReadLotteryWeeklyComponentText(compNode);
+                if (digit.Length == 0) digit = AccessibilityStrings.LotteryWeeklyEmptyDigit;
+                var slot = LotteryWeeklySlotIndex(addon, compNode);
+                if (slot <= 0) return false;
+                var selected = ((AtkComponentRadioButton*)comp)->IsSelected;
+                text = AccessibilityStrings.LotteryWeeklySlot(slot, digit, selected);
+                return true;
+            }
+
+            default:
+                return false;
+        }
+    }
+
+    /// <summary>
+    /// Visible text under a LotteryWeeklyInput button/radio, including single
+    /// digits. Dump: label is Text child id=2 ("0".."9", "Kaufen").
+    /// </summary>
+    private static unsafe string ReadLotteryWeeklyComponentText(AtkResNode* compNode)
+    {
+        if (compNode == null || (int)compNode->Type < 1000) return string.Empty;
+        var comp = ((AtkComponentNode*)compNode)->Component;
+        if (comp == null) return string.Empty;
+
+        // Prefer the labelled text child id=2 when present (dump layout).
+        for (var i = 0; i < comp->UldManager.NodeListCount; i++)
+        {
+            var child = comp->UldManager.NodeList[i];
+            if (child == null || child->Type != NodeType.Text || !child->IsVisible()) continue;
+            if (child->NodeId != 2) continue;
+            var t = AtkText.ReadClean((AtkTextNode*)child).Trim();
+            if (t.Length > 0) return t;
+        }
+
+        for (var i = 0; i < comp->UldManager.NodeListCount; i++)
+        {
+            var child = comp->UldManager.NodeList[i];
+            if (child == null || child->Type != NodeType.Text || !child->IsVisible()) continue;
+            var t = AtkText.ReadClean((AtkTextNode*)child).Trim();
+            if (t.Length > 0) return t;
+        }
+        return string.Empty;
+    }
+
+    /// <summary>
+    /// 1-based index of a digit-slot RadioButton among the four slots, left to
+    /// right by screen X (dump ids 16..19).
+    /// </summary>
+    private static unsafe int LotteryWeeklySlotIndex(AtkUnitBase* addon, AtkResNode* slotNode)
+    {
+        if (addon == null || slotNode == null) return 0;
+        var slots = new List<(nint Ptr, float X)>();
+        for (var i = 0; i < addon->UldManager.NodeListCount; i++)
+        {
+            var n = addon->UldManager.NodeList[i];
+            if (n == null || (int)n->Type < 1000 || !n->IsVisible()) continue;
+            var c = ((AtkComponentNode*)n)->Component;
+            if (c == null || c->GetComponentType() != ComponentType.RadioButton) continue;
+            slots.Add(((nint)n, n->ScreenX));
+        }
+        if (slots.Count == 0) return 0;
+        slots.Sort((a, b) => a.X.CompareTo(b.X));
+        var idx = slots.FindIndex(s => s.Ptr == (nint)slotNode);
+        return idx >= 0 ? idx + 1 : 0;
+    }
+
+    /// <summary>1-based index of the checked digit slot, or 0 if none.</summary>
+    private static unsafe int LotteryWeeklyActiveSlot(AtkUnitBase* addon)
+    {
+        if (addon == null) return 0;
+        var slots = new List<(nint Ptr, float X, bool Selected)>();
+        for (var i = 0; i < addon->UldManager.NodeListCount; i++)
+        {
+            var n = addon->UldManager.NodeList[i];
+            if (n == null || (int)n->Type < 1000 || !n->IsVisible()) continue;
+            var c = ((AtkComponentNode*)n)->Component;
+            if (c == null || c->GetComponentType() != ComponentType.RadioButton) continue;
+            slots.Add(((nint)n, n->ScreenX, ((AtkComponentRadioButton*)c)->IsSelected));
+        }
+        if (slots.Count == 0) return 0;
+        slots.Sort((a, b) => a.X.CompareTo(b.X));
+        for (var i = 0; i < slots.Count; i++)
+        {
+            if (slots[i].Selected) return i + 1;
+        }
+        return 0;
+    }
+
+    /// <summary>Four-digit ticket as currently shown on the slot radios.</summary>
+    private static unsafe string ReadLotteryWeeklyNumber(AtkUnitBase* addon)
+    {
+        if (addon == null) return string.Empty;
+        var slots = new List<(float X, string Digit)>();
+        for (var i = 0; i < addon->UldManager.NodeListCount; i++)
+        {
+            var n = addon->UldManager.NodeList[i];
+            if (n == null || (int)n->Type < 1000 || !n->IsVisible()) continue;
+            var c = ((AtkComponentNode*)n)->Component;
+            if (c == null || c->GetComponentType() != ComponentType.RadioButton) continue;
+            var digit = ReadLotteryWeeklyComponentText(n);
+            if (digit.Length == 0) digit = "-";
+            slots.Add((n->ScreenX, digit));
+        }
+        if (slots.Count == 0) return string.Empty;
+        slots.Sort((a, b) => a.X.CompareTo(b.X));
+        return string.Concat(slots.Select(s => s.Digit));
+    }
+
+    // Mini Cactpot — dump Desktop\FFXIV_UI_Dump.txt 2026-09-26 (LotteryDaily).
+    // Title id=10, draw id=9, hint id=39; Confirm Button id=67 "Bestätigen".
+    // Board/lanes: AddonLotteryDaily.GameBoard / LaneSelector (ClientStructs).
+    private const uint LotteryDailyTitleNodeId = 10;
+    private const uint LotteryDailyDrawNodeId  = 9;
+    private const uint LotteryDailyHintNodeId  = 39;
+
+    /// <summary>
+    /// Mini Cactpot open: title + draw number + instruction. Without a dedicated
+    /// handler the generic open path scraped the payout table ("MGP. Summe…")
+    /// (Log 2026-09-26 09:24:37).
+    /// </summary>
+    private unsafe void OnLotteryDailyOpen(AddonEvent type, AddonArgs args)
+    {
+        if (InLoginQuiet) return;
+        var addon = (AtkUnitBase*)(nint)args.Addon;
+        if (addon == null || !addon->IsVisible) return;
+
+        var parts = new List<string>();
+        var title = ReadLotteryDailyTopText(addon, LotteryDailyTitleNodeId);
+        var draw  = ReadLotteryDailyTopText(addon, LotteryDailyDrawNodeId);
+        var hint  = ReadLotteryDailyTopText(addon, LotteryDailyHintNodeId);
+        if (title.Length > 0) parts.Add(title);
+        if (draw.Length > 0)  parts.Add(draw);
+        if (hint.Length > 0)  parts.Add(hint);
+
+        var spoken = parts.Count > 0
+            ? string.Join(". ", parts) + "."
+            : AccessibilityStrings.LotteryDailyFallbackTitle;
+        _tolk.Speak(spoken);
+        _log.Info($"[LotteryDaily] Open: {spoken}");
+    }
+
+    private unsafe string ReadLotteryDailyTopText(AtkUnitBase* addon, uint nodeId)
+    {
+        var n = FindTopLevelNode(addon, nodeId);
+        if (n == null || n->Type != NodeType.Text || !n->IsVisible()) return string.Empty;
+        return RussianLotteryText.Translate(_data, AtkText.ReadClean((AtkTextNode*)n).Trim());
+    }
+
+    /// <summary>
+    /// Mini Cactpot focus: board cells (CheckBox), line selectors (RadioButton),
+    /// Confirm. Dump+Log 2026-09-26: Collision focus was STUMM; digits live in
+    /// text child id=3 (single char, dropped by <see cref="GetTextFromNodeTree"/>).
+    /// Lane names from <see cref="AddonLotteryDaily.LaneSelector"/>.
+    /// </summary>
+    private unsafe bool TryReadLotteryDailyFocus(AtkResNode* node, out string text)
+    {
+        text = string.Empty;
+        if (!string.Equals(FindAddonNameForNode(node), "LotteryDaily", StringComparison.Ordinal))
+            return false;
+
+        var addon = FindAddonForNode(node);
+        if (addon == null) return false;
+        var daily = (AddonLotteryDaily*)addon;
+
+        AtkComponentBase* comp = null;
+        AtkResNode* compNode = null;
+        var cur = node;
+        for (var up = 0; up < 6 && cur != null; up++, cur = cur->ParentNode)
+        {
+            if ((int)cur->Type < 1000) continue;
+            var candidate = ((AtkComponentNode*)cur)->Component;
+            if (candidate == null) continue;
+            comp     = candidate;
+            compNode = cur;
+            break;
+        }
+        if (comp == null || compNode == null) return false;
+
+        switch (comp->GetComponentType())
+        {
+            case ComponentType.CheckBox:
+            {
+                if (!TryFindLotteryDailyCell(daily, comp, out var row, out var col))
+                    return false;
+                var digit = ReadLotteryDailyCellDigit((AtkComponentCheckBox*)comp);
+                if (digit.Length == 0)
+                {
+                    var num = daily->GameNumbers[row * 3 + col];
+                    if (num is >= 1 and <= 9) digit = num.ToString();
+                }
+                text = digit.Length > 0
+                    ? AccessibilityStrings.LotteryDailyCell(row + 1, col + 1, digit)
+                    : AccessibilityStrings.LotteryDailyCellCovered(row + 1, col + 1);
+                return true;
+            }
+
+            case ComponentType.RadioButton:
+            {
+                if (!TryFindLotteryDailyLane(daily, comp, out var laneName, out var cellIndexes))
+                    return false;
+                var selected = ((AtkComponentRadioButton*)comp)->IsSelected;
+                var digits = new List<string>(3);
+                var sum = 0;
+                var allKnown = true;
+                foreach (var idx in cellIndexes)
+                {
+                    var cell = daily->GameBoard[idx];
+                    var d = ReadLotteryDailyCellDigit(cell);
+                    if (d.Length == 0)
+                    {
+                        var num = daily->GameNumbers[idx];
+                        if (num is >= 1 and <= 9) d = num.ToString();
+                    }
+                    if (d.Length == 1 && char.IsDigit(d[0]))
+                    {
+                        digits.Add(d);
+                        sum += d[0] - '0';
+                    }
+                    else
+                    {
+                        allKnown = false;
+                        digits.Add("?");
+                    }
+                }
+
+                var state = selected
+                    ? AccessibilityStrings.RadioSelected
+                    : AccessibilityStrings.RadioNotSelected;
+                if (allKnown)
+                {
+                    var payout = LookupLotteryDailyPayout(addon, sum);
+                    text = payout.Length > 0
+                        ? AccessibilityStrings.LotteryDailyLaneWithPayout(
+                            laneName, string.Join(" ", digits), sum, payout, state)
+                        : AccessibilityStrings.LotteryDailyLaneWithSum(
+                            laneName, string.Join(" ", digits), sum, state);
+                }
+                else
+                {
+                    text = AccessibilityStrings.LotteryDailyLane(
+                        laneName, string.Join(" ", digits), state);
+                }
+                return true;
+            }
+
+            case ComponentType.Button:
+            {
+                var label = ReadLotteryWeeklyComponentText(compNode);
+                if (label.Length == 0)
+                {
+                    var tip = _tooltips.TryGetTooltipDeep(node)?.Trim() ?? string.Empty;
+                    if (tip.Length == 0) return false;
+                    label = tip;
+                }
+                text = RussianLotteryText.Translate(_data, label);
+                if (((ushort)compNode->NodeFlags & (ushort)NodeFlags.Enabled) == 0)
+                    text = AccessibilityStrings.ControlUnavailable(text);
+                return true;
+            }
+
+            default:
+                return false;
+        }
+    }
+
+    /// <summary>Row/col (0-based) of a board CheckBox via GameBoard pointers.</summary>
+    private static unsafe bool TryFindLotteryDailyCell(
+        AddonLotteryDaily* daily, AtkComponentBase* comp, out int row, out int col)
+    {
+        row = col = -1;
+        if (daily == null || comp == null) return false;
+        for (var i = 0; i < 9; i++)
+        {
+            var cell = daily->GameBoard[i];
+            if (cell == null) continue;
+            if ((AtkComponentBase*)cell != comp) continue;
+            row = i / 3;
+            col = i % 3;
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>Lane name and the three board indexes (0..8) for a RadioButton.</summary>
+    private static unsafe bool TryFindLotteryDailyLane(
+        AddonLotteryDaily* daily, AtkComponentBase* comp,
+        out string laneName, out int[] cellIndexes)
+    {
+        laneName = string.Empty;
+        cellIndexes = [];
+        if (daily == null || comp == null) return false;
+
+        var sel = daily->LaneSelector;
+        // Indexes match GameBoard layout: row-major 0..8.
+        // MajorDiagonal: (0,0)(1,1)(2,2) = 0,4,8
+        // MinorDiagonal: (0,2)(1,1)(2,0) = 2,4,6
+        if ((AtkComponentBase*)sel.MajorDiagonal == comp)
+        {
+            laneName = AccessibilityStrings.LotteryDailyMajorDiagonal;
+            cellIndexes = [0, 4, 8];
+            return true;
+        }
+        if ((AtkComponentBase*)sel.MinorDiagonal == comp)
+        {
+            laneName = AccessibilityStrings.LotteryDailyMinorDiagonal;
+            cellIndexes = [2, 4, 6];
+            return true;
+        }
+        if ((AtkComponentBase*)sel.Col1 == comp)
+        {
+            laneName = AccessibilityStrings.LotteryDailyColumn(1);
+            cellIndexes = [0, 3, 6];
+            return true;
+        }
+        if ((AtkComponentBase*)sel.Col2 == comp)
+        {
+            laneName = AccessibilityStrings.LotteryDailyColumn(2);
+            cellIndexes = [1, 4, 7];
+            return true;
+        }
+        if ((AtkComponentBase*)sel.Col3 == comp)
+        {
+            laneName = AccessibilityStrings.LotteryDailyColumn(3);
+            cellIndexes = [2, 5, 8];
+            return true;
+        }
+        if ((AtkComponentBase*)sel.Row1 == comp)
+        {
+            laneName = AccessibilityStrings.LotteryDailyRow(1);
+            cellIndexes = [0, 1, 2];
+            return true;
+        }
+        if ((AtkComponentBase*)sel.Row2 == comp)
+        {
+            laneName = AccessibilityStrings.LotteryDailyRow(2);
+            cellIndexes = [3, 4, 5];
+            return true;
+        }
+        if ((AtkComponentBase*)sel.Row3 == comp)
+        {
+            laneName = AccessibilityStrings.LotteryDailyRow(3);
+            cellIndexes = [6, 7, 8];
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>Digit painted on a board cell (text child id=3), or empty if covered.</summary>
+    private static unsafe string ReadLotteryDailyCellDigit(AtkComponentCheckBox* cell)
+    {
+        if (cell == null) return string.Empty;
+        var owner = (AtkResNode*)cell->OwnerNode;
+        if (owner == null) return string.Empty;
+        return ReadLotteryDailyComponentDigit(owner);
+    }
+
+    private static unsafe string ReadLotteryDailyComponentDigit(AtkResNode* compNode)
+    {
+        if (compNode == null || (int)compNode->Type < 1000) return string.Empty;
+        var comp = ((AtkComponentNode*)compNode)->Component;
+        if (comp == null) return string.Empty;
+        for (var i = 0; i < comp->UldManager.NodeListCount; i++)
+        {
+            var child = comp->UldManager.NodeList[i];
+            if (child == null || child->Type != NodeType.Text || !child->IsVisible()) continue;
+            if (child->NodeId != 3) continue;
+            var t = AtkText.ReadClean((AtkTextNode*)child).Trim();
+            if (t.Length > 0) return t;
+        }
+        for (var i = 0; i < comp->UldManager.NodeListCount; i++)
+        {
+            var child = comp->UldManager.NodeList[i];
+            if (child == null || child->Type != NodeType.Text || !child->IsVisible()) continue;
+            var t = AtkText.ReadClean((AtkTextNode*)child).Trim();
+            if (t.Length == 1 && char.IsDigit(t[0])) return t;
+        }
+        return string.Empty;
+    }
+
+    /// <summary>
+    /// MGP for a line sum from the on-screen payout table (Base comps with
+    /// sum text id=2 and MGP text id=3). Empty if the sum row is not found.
+    /// </summary>
+    private static unsafe string LookupLotteryDailyPayout(AtkUnitBase* addon, int sum)
+    {
+        if (addon == null || sum <= 0) return string.Empty;
+        var key = sum.ToString();
+        for (var i = 0; i < addon->UldManager.NodeListCount; i++)
+        {
+            var n = addon->UldManager.NodeList[i];
+            if (n == null || (int)n->Type < 1000 || !n->IsVisible()) continue;
+            var c = ((AtkComponentNode*)n)->Component;
+            if (c == null || c->GetComponentType() != ComponentType.Base) continue;
+
+            string sumText = string.Empty, mgpText = string.Empty;
+            for (var j = 0; j < c->UldManager.NodeListCount; j++)
+            {
+                var child = c->UldManager.NodeList[j];
+                if (child == null || child->Type != NodeType.Text || !child->IsVisible()) continue;
+                var t = AtkText.ReadClean((AtkTextNode*)child).Trim();
+                if (t.Length == 0) continue;
+                if (child->NodeId == 2) sumText = t;
+                else if (child->NodeId == 3) mgpText = t;
+            }
+            if (sumText == key && mgpText.Length > 0) return mgpText;
+        }
+        return string.Empty;
     }
 
     /// <summary>
@@ -15124,6 +15639,7 @@ public sealed partial class UIReaderService : IDisposable
         _addonLifecycle.UnregisterListener(AddonEvent.PostUpdate, "Inventory", OnInventoryUpdate);
         _addonLifecycle.UnregisterListener(AddonEvent.PostUpdate, "Buddy", OnBuddyUpdate);
         _addonLifecycle.UnregisterListener(AddonEvent.PostUpdate, "BuddySkill", OnBuddySkillUpdate);
+        _addonLifecycle.UnregisterListener(AddonEvent.PostSetup, "LotteryDaily", OnLotteryDailyOpen);
         _addonLifecycle.UnregisterListener(AddonEvent.PostUpdate, "Character", OnCharacterUpdate);
         _addonLifecycle.UnregisterListener(AddonEvent.PostUpdate, "MountNoteBook", OnMountNoteBookUpdate);
         _addonLifecycle.UnregisterListener(AddonEvent.PostUpdate, "JournalDetail", OnQuestWindowUpdate);

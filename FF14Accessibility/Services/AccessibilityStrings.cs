@@ -233,6 +233,80 @@ public static partial class AccessibilityStrings
     /// toggle they can flip - not just an informational label.</summary>
     public static string SwitchControl => L("Schalter", "switch", "переключатель");
 
+    // ── Jumbo-Glueckskaktor (LotteryWeeklyInput) ─────────────────────
+    /// <summary>Close chrome on windows that only show the WindowA_Button icon.</summary>
+    public static string CloseControl => L("Schließen", "Close", "Закрыть");
+
+    /// <summary>Digit key on the Jumbo Cactpot pad, with the slot that will receive it.</summary>
+    public static string LotteryWeeklyDigit(string digit, int slot) =>
+        L($"Ziffer {digit}, Stelle {slot}", $"Digit {digit}, position {slot}", $"Цифра {digit}, позиция {slot}");
+
+    /// <summary>Digit key when no slot radio is marked selected.</summary>
+    public static string LotteryWeeklyDigitOnly(string digit) =>
+        L($"Ziffer {digit}", $"Digit {digit}", $"Цифра {digit}");
+
+    /// <summary>One of the four ticket digit slots.</summary>
+    public static string LotteryWeeklySlot(int slot, string digit, bool selected)
+    {
+        var state = selected ? RadioSelected : RadioNotSelected;
+        return L($"Stelle {slot}, {digit}, {state}", $"Position {slot}, {digit}, {state}",
+            $"Позиция {slot}, {digit}, {state}");
+    }
+
+    /// <summary>Empty digit on a slot that has not been filled yet.</summary>
+    public static string LotteryWeeklyEmptyDigit => L("leer", "empty", "пусто");
+
+    /// <summary>Buy button enriched with the number currently on the four slots.</summary>
+    public static string LotteryWeeklyBuy(string buyLabel, string number) =>
+        L($"{buyLabel}, Nummer {number}", $"{buyLabel}, number {number}", $"{buyLabel}, номер {number}");
+
+    // ── Mini-Glueckskaktor (LotteryDaily) ────────────────────────────
+    /// <summary>Fallback when title nodes are not ready yet on open.</summary>
+    public static string LotteryDailyFallbackTitle =>
+        L("Mini-Glückskaktor.", "Mini Cactpot.", "Мини-кактпот.");
+
+    public static string LotteryDailyRevealCount(int count) =>
+        L($"Noch {count} Felder aufdecken.", $"Uncover {count} more cells.",
+            $"Открой клетки: осталось {count}.");
+
+    /// <summary>Covered board cell (row/col 1-based).</summary>
+    public static string LotteryDailyCellCovered(int row, int col) =>
+        L($"Feld Zeile {row}, Spalte {col}, verdeckt", $"Cell row {row}, column {col}, covered",
+            $"Клетка: строка {row}, столбец {col}, закрыта");
+
+    /// <summary>Revealed board cell with its digit.</summary>
+    public static string LotteryDailyCell(int row, int col, string digit) =>
+        L($"Feld Zeile {row}, Spalte {col}, {digit}", $"Cell row {row}, column {col}, {digit}",
+            $"Клетка: строка {row}, столбец {col}, {digit}");
+
+    public static string LotteryDailyRow(int n) =>
+        L($"Zeile {n}", $"Row {n}", $"Строка {n}");
+
+    public static string LotteryDailyColumn(int n) =>
+        L($"Spalte {n}", $"Column {n}", $"Столбец {n}");
+
+    /// <summary>Major diagonal (top-left to bottom-right) — LaneSelector.MajorDiagonal.</summary>
+    public static string LotteryDailyMajorDiagonal =>
+        L("Diagonale links oben nach rechts unten", "Diagonal top-left to bottom-right",
+            "Диагональ слева сверху направо вниз");
+
+    /// <summary>Minor diagonal (top-right to bottom-left) — LaneSelector.MinorDiagonal.</summary>
+    public static string LotteryDailyMinorDiagonal =>
+        L("Diagonale rechts oben nach links unten", "Diagonal top-right to bottom-left",
+            "Диагональ справа сверху налево вниз");
+
+    public static string LotteryDailyLane(string lane, string digits, string state) =>
+        $"{lane}, {digits}, {state}";
+
+    public static string LotteryDailyLaneWithSum(string lane, string digits, int sum, string state) =>
+        L($"{lane}, {digits}, Summe {sum}, {state}", $"{lane}, {digits}, sum {sum}, {state}",
+            $"{lane}, {digits}, сумма {sum}, {state}");
+
+    public static string LotteryDailyLaneWithPayout(
+        string lane, string digits, int sum, string mgp, string state) =>
+        L($"{lane}, {digits}, Summe {sum}, {mgp} MGP, {state}", $"{lane}, {digits}, sum {sum}, {mgp} MGP, {state}",
+            $"{lane}, {digits}, сумма {sum}, {mgp} МГП, {state}");
+
     /// <summary>
     /// A switch that has NO name of its own - neither text nor tooltip - named by
     /// the heading of its row plus where it sits in that row.
@@ -2543,7 +2617,7 @@ public static partial class AccessibilityStrings
           "Ctrl+F7, надеть рекомендованное снаряжение. " +
           "Ctrl+F8, случайная внешность при создании персонажа. " +
           "Ctrl+Numpad 0, открыть меню назначения: сначала выбери клавишу, затем что на неё поставить. Numpad 8 и 2 листают, Numpad 0 выбирает, Numpad 4 и 6 меняют список, Numpad запятая возвращает назад. " +
-          "Ctrl+Numpad 2, записная книжка собирателя: Miner, Botanist, Fisher. Numpad 0 идёт к месту находки. " +
+          "Ctrl+Numpad 2, журнал собирателя: рудокоп, ботаник, рыбак. Numpad 0 ведёт к месту находки. " +
           "Ctrl+Shift+F6, запись следа включить или выключить: пройди один раз сам участок, которого не знает навигационная сетка. " +
           "Ctrl+Shift+F7, прочитать список задач текущего занятия: ливквест, подземелье или ФЕЙТ. " +
           "Ctrl+F4, прочитать бестиарий; в открытой книжке ремесленника вместо этого что сумка может сделать сейчас, вместе с бонусом за первый раз. " +

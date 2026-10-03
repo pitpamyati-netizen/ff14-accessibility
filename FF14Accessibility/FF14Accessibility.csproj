@@ -6,9 +6,9 @@
          um Updates im Custom-Repo zu erkennen - bei JEDEM Release erhÃ¶hen, sonst
          zieht der Plugin-Installer keine neue Version. MUSS mit der PluginVersion-
          Konstante in Plugin.cs synchron bleiben (dort speist sie die Sprachansage). -->
-    <Version>6.08.91</Version>
-    <AssemblyVersion>6.08.91.0</AssemblyVersion>
-    <FileVersion>6.08.91.0</FileVersion>
+    <Version>6.08.92</Version>
+    <AssemblyVersion>6.08.92.0</AssemblyVersion>
+    <FileVersion>6.08.92.0</FileVersion>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
@@ -37,6 +37,8 @@
     <EmbeddedResource Include="Resources\RussianCharacterText.json.gz" />
     <EmbeddedResource Include="Resources\RussianCharaMakeClasses.json" />
     <EmbeddedResource Include="Resources\RussianActionNames.json.gz" />
+    <EmbeddedResource Include="Resources\RussianAuthorText.json.gz" />
+    <EmbeddedResource Include="Resources\RussianLotteryLabels.json" />
     <EmbeddedResource Include="Resources\RussianDescriptionTerms.json.gz" />
     <PackageReference Include="DalamudPackager" Version="15.0.0" />
     <!-- Audio-Beacon (Gehhilfe): erzeugter Sinuston mit Panning/Pitch -->

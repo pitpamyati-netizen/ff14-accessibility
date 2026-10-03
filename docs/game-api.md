@@ -1720,6 +1720,12 @@ Lumina.Excel.Sheets.Action dekompiliert):
   Job-Filter (in-game belegt 2026-07-17 12:01: fünfmal „Ausweichen" +
   „Perfekter Hieb" bei Job 26). OFFEN: exakter Abgleich mit dem Fenster
   „Aktionen & Traits" (Log `[Hotbar] Skill-Liste gebaut` zeigt Anzahl).
+- **Handwerker / Sammler (2026-09-28):** DoH-Skills sind `CraftAction`-
+  Zeilen (`HotbarSlotType.CraftAction`), nicht `IsPlayerAction`-Actions.
+  Log ALC Job 14: 0 Skills bei reinem Action-Filter. DoH = ClassJobCategory
+  33 → CraftAction mit `ClassJob.RowId == job`. DoL = Kategorie 32 → Action
+  wie Kampfjobs, Fallback ohne IsPlayerAction wenn die Liste leer bleibt
+  (`ClassJob.RowId == job`).
 - KEINE Unlock-Methode in `ActionManager` (komplett durchgesehen 2026-07-17)
   — Action-Freischaltung läuft nur über UIState/UnlockLink.
 - LEISTEN-ANZAHL (ilspycmd 2026-07-17): `RaptureHotbarModule.Hotbars` =
@@ -1784,6 +1790,21 @@ Lumina.Excel.Sheets.Action dekompiliert):
   ToastService.cs sie vor (Fehler = Interrupt, Info/Quest = Queue
   mit WasRecentlySpoken-Echo-Schutz, da manche Info-Toasts parallel
   als `_WideText`/`_ScreenText` gezeichnet werden).
+- FALLE (Log 2026-09-28 09:16:00 / 09:19:58): Ausrüstungsset/Waffe
+  „Anlegen“ im Arsenal scheitert mit ErrorToast + ErrorMessage
+  („… abzulegenden Ausrüstungsgegenstände nicht in dein Arsenal
+  passen."). Der Toast wird gesprochen, ~25 ms später stellt das
+  Spiel den Fokus auf denselben ArmouryBoard-Slot zurück — der
+  globale Fokus-Leser SpeakInterrupt überschreibt die Fehlermeldung
+  mit dem Gegenstandsnamen. Fix: nach ErrorToast
+  `TolkService.ProtectFocusInterrupts` (~3,5 s);
+  Fokus nutzt `SpeakFocusInterrupt` (Log `[Speak] FOCUS-SUPPRESSED`).
+
+### Arsenal ohne Set → Inventar (2026-09-28, lokal)
+- Filter: `RaptureGearsetModule.IsItemRegisteredToGearset` — dieselbe
+  Prüfung wie die Gearset-Marke am Inventar-Symbol (STATUS 2026-08-14).
+- Transfer: `InventoryManager.MoveItemSlot` (Armory* → Inventory1–4).
+- **Nicht im öffentlichen Release** bis Freigabe (STATUS NIE-PUSHEN).
 
 ## Werkzeuge / Traps
 
@@ -2319,6 +2340,20 @@ Client) — die Zuordnung JA/EN/DE/FR von links ist damit belegt.
   `TryReadLookingForGroupConditionFocus` — IsChecked + Sprachzeile wie
   ContentsFinderSetting (JA/EN/DE/FR), Dropdowns mit Name, Kommentar/Passwort
   benannt.
+
+- **Jumbo-Glückskaktor `LotteryWeeklyInput` (Dump+Log 2026-09-26):** Öffnen
+  sagte Titel + „Nr. …“; Zifferntasten und Stellen waren `[Focus] STUMM`.
+  Fokus sitzt auf Collision (leerer Text); Ziffer im Text-Kind id=2
+  (einstellig). `GetTextFromNodeTree` verwirft `t.Length > 1`. Fix:
+  `TryReadLotteryWeeklyInputFocus` — Ziffer+aktive Stelle, vier
+  Radio-Stellen links→rechts, Kaufen mit aktueller Nummer, Schließen id=35.
+
+- **Mini-Glückskaktor `LotteryDaily` (Dump+Log 2026-09-26):** Öffnen scrapte
+  Auszahlungstabelle („MGP. Summe…“); Felder/Reihen STUMM auf Collision.
+  Fix: SpecialSetup `OnLotteryDailyOpen` (Titel+Nr.+Hinweis);
+  `TryReadLotteryDailyFocus` über `AddonLotteryDaily.GameBoard` /
+  `LaneSelector` — Feld Zeile/Spalte + Ziffer oder verdeckt; Reihe mit
+  Summe/MGP aus Auszahlungstabelle; Bestätigen.
 
 ### Fensteraufbau `ContentsFinderSetting` (Dump 2026-08-19, 31 Knoten)
 
