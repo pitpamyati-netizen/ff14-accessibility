@@ -30,7 +30,26 @@
   `287D461CE0556DE4A2E06F4ED28DC2151398BFD7607F6AB80974A23E5E02B5C7`.
   SHA-256 DLL:
   `6653AF9D887A50BA1F8C6103166448A05898E2C5B1A55370736B158A683A8C8F`.
-  Публикация ещё выполняется.
+- Коммит `f0d13bbe13d6efefe6c5ba8b02c4499592f3865d` отправлен в
+  `origin/feature/russian-accessibility-recovery`. `Publish-Release.ps1 -CheckOnly`
+  успешно сверил отправленный коммит, источники, DLL и весь архив; затем
+  тем же скриптом опубликован
+  [v6.08.93](https://github.com/pitpamyati-netizen/ff14-accessibility/releases/tag/v6.08.93)
+  в 20:53 по Томску. GitHub подтвердил: draft=false, prerelease=false,
+  latest=v6.08.93; метка и target_commitish совпали с коммитом.
+- Около 20:55 все четыре файла выпуска скачаны обратно в
+  `artifacts/publication-check/6.08.93-20261003`. Размеры, SHA-256, GitHub digest
+  и SHA256SUMS совпали. Все 141 файла ZIP мода совпали со сборкой и инструкцией;
+  все 24 файла отдельного ZIP исходников установщика совпали с исходниками.
+  Текст GitHub Release совпал с `docs/releases/6.08.93.md`.
+  Отчёт: `verified-assets.json` в этой проверочной папке.
+- EXE установщика: 116 819 067 байт, FileVersion 1.1.2.0,
+  SHA-256 `A5F2BEA776BE244FCB5F6CF839AD35F3CDAAA9A3D97EF4410B2660CAF12B3939`.
+  Его исходники: 70 628 байт,
+  SHA-256 `C451D52F7BD08A85DA182A0E3804B26E2B919CADE34803D39A9893692AD0D0BB`.
+- Настоящий метод `ReleaseClient.Latest` через обычный HTTP-клиент установщика
+  получил с GitHub 6.08.93, правильное имя ZIP, URL и SHA-256. Отчёт:
+  `installer-latest.json` в той же папке. Сам установщик и игра не запускались.
 - Установка и игровая проверка новой версии не выполнены. Перечень для игры:
   ARC/BRD Hawk's Eye, расход и повтор, несколько одновременных готовностей,
   RDM/DNC/другой класс, смена цели без повтора, `/acc cooldowns`, выключенный
