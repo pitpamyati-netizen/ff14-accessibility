@@ -60,6 +60,7 @@ public sealed partial class Plugin : IDalamudPlugin
     private readonly EscapeRouteService _escape;
     private readonly CueService         _cue;
     private readonly CooldownService    _cooldown;
+    private readonly ReadyAnnouncementBatch _readyAnnouncements = new();
     private readonly JobGaugeService    _jobGauge;
     private readonly DutyActionService  _dutyActions;
     private readonly NocturneWarpService _nocturneWarp;
@@ -213,7 +214,7 @@ public sealed partial class Plugin : IDalamudPlugin
     // 6.08.18 lokal: Chat-Absender Kontextmenü (Strg+Umschalt+BildAuf) + Numpad3-Ziel.
     // 6.08.19: Charakterauswahl — eine Ansage (Name, Job, Ort) statt Scan-Sturm.
     // 6.08.20: Mitstreiter-Taste (PR 27 Port) — Strg+Umschalt+C öffnet/vorliest.
-    private const string PluginVersion    = "6.08.92";
+    private const string PluginVersion    = "6.08.93";
     // Der Tag nennt, was diese Fassung MITBRINGT, nicht woher sie stammt: die
     // russische Schicht auf dem Stand des Autors 6.08.35 (Auftragstext im
     // Quest-Tracker des Autors, siehe package-Schritt).
@@ -652,8 +653,8 @@ public sealed partial class Plugin : IDalamudPlugin
         _aoeWarn    = new AoeWarningService(_config, Log);
         _warnVoice  = new WarningVoiceService(_config, Log);
         _combat     = new CombatService(ObjectTable, TargetManager, GameGui, DataManager, _tolk, _config, _history, _aoeWarn, _escape, _warnVoice, _leveEnemies, Log, descriptions);
-        _cooldown   = new CooldownService(ClientState, DataManager, _cue, _tolk, _warnVoice, _config, Log);
-        _jobGauge   = new JobGaugeService(JobGauges, ObjectTable, DataManager, _warnVoice, _tolk, _cue, _config, Log);
+        _cooldown   = new CooldownService(ClientState, DataManager, _cue, _config, Log, ObjectTable);
+        _jobGauge   = new JobGaugeService(JobGauges, ObjectTable, DataManager, _tolk, _cue, _config, Log);
         _dutyActions = new DutyActionService(DataManager, _tolk, _cue, _config, Log);
         _nocturneWarp = new NocturneWarpService(
             ClientState, ObjectTable, TargetManager, _cue, _config, Log);
@@ -2740,10 +2741,12 @@ public sealed partial class Plugin : IDalamudPlugin
         // Vergibt die Farb-Rufnamen der Gegner. VOR allem, was Ziele ansagt: die
         // Zielansage fragt gleich danach, welche Farbe der Gegner traegt.
         _enemyMarkers.Update();
-        _cooldown.Update();
+        _readyAnnouncements.Clear();
+        _cooldown.Update(_readyAnnouncements);
         // Job-eigene Ressourcenleiste: meldet nur, wenn etwas WIEDER verfuegbar
         // wird - im Kampf wie ausserhalb.
-        _jobGauge.Update();
+        _jobGauge.Update(_readyAnnouncements);
+        _readyAnnouncements.Speak(_warnVoice.Speak, text => _tolk.Speak(text));
         // Sonderaktionsleiste eines Auftrags: sagt an, wenn sie auftaucht. Das
         // Spiel bietet sie NUR per Mausklick an, ein blinder Spieler erfaehrt
         // sonst nie, dass sie da ist.

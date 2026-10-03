@@ -286,7 +286,7 @@ public static partial class AccessibilityStrings
     /// wäre von einem Fehler des Plugins nicht zu unterscheiden.</summary>
     public static string ChatVoiceUnavailable => L("Keine Sprachausgabe des Systems verfügbar. Der Chat wird über den Screenreader vorgelesen.", "No system speech available. Chat is read through the screen reader.", "Системной речи нет. Чат читает экранный диктор.");
 
-    public static string OptSkillReady => L("Fähigkeit bereit", "Ability ready", "Умение готово");
+    public static string OptSkillReady => L("Fähigkeit bereit und Effekte", "Ability ready and effects", "Готовность умений и эффекты");
     public static string OptSkillReadyVolume => L("Fähigkeit bereit Lautstärke", "Ability ready volume", "Громкость готовности умений");
     public static string OptJobGauge => L("Job-Anzeige wieder verfügbar", "Job gauge back up", "Индикатор профессии снова доступен");
     public static string OptGaugeCueVolume => L("Job-Anzeige Ton Lautstärke", "Job gauge tone volume", "Громкость звука индикатора профессии");

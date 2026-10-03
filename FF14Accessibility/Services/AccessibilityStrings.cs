@@ -3384,12 +3384,14 @@ public static partial class AccessibilityStrings
     // ── CooldownService: Fähigkeit wieder bereit ──
     public static string SkillReady(string name) =>
         L($"{name} bereit.", $"{name} ready.", $"{name} готово.");
+    public static string JobProcReady(string name) =>
+        L($"Effekt: {name}.", $"Effect: {name}.", $"Эффект: {name}.");
     public static string SkillChargeReady(string name, uint charges, ushort maxCharges) =>
         L($"{name} bereit, {charges} von {maxCharges} Ladungen.", $"{name} ready, {charges} of {maxCharges} charges.", $"{name} готово, {charges} из {maxCharges} зарядов.");
     public static string SkillReadyAnnounceOn =>
-        L("Fähigkeit-bereit-Ansage an.", "Ability-ready announcements on.", "Оповещение о готовности умений включено.");
+        L("Fähigkeit-bereit- und Effekt-Ansagen an.", "Ability-ready and effect announcements on.", "Оповещения о готовности умений и эффектах включены.");
     public static string SkillReadyAnnounceOff =>
-        L("Fähigkeit-bereit-Ansage aus.", "Ability-ready announcements off.", "Оповещение о готовности умений выключено.");
+        L("Fähigkeit-bereit- und Effekt-Ansagen aus.", "Ability-ready and effect announcements off.", "Оповещения о готовности умений и эффектах выключены.");
 
     // ── JobGaugeService: Job-Anzeige, etwas ist wieder verfügbar ──
     // Karfunkel-Arten (Rubin/Topas/Smaragd) und Primae (Ifrit/Titan/Garuda)

@@ -700,7 +700,8 @@ public sealed class Configuration : IPluginConfiguration
 
     // Fähigkeit-bereit-Ansage (User-Wunsch 2026-07-30): wenn eine Fähigkeit mit
     // echter Abklingzeit (oGCD) wieder einsatzbereit ist, Ton + Name ansagen.
-    // GCD-Angriffsskills ausgeschlossen (CooldownService). STANDARD AN.
+    // Cooldown ready edges and special-action player status effects. GCD
+    // cycling stays excluded; proc effects do include GCD actions. DEFAULT ON.
     public bool AnnounceSkillReady = true;
     public float SkillReadyCueVolume = 0.5f;    // 0 = stumm, 1 = volle Lautstärke
     /// <summary>Volume for per-resource job-gauge ready tones (0 = mute).</summary>
