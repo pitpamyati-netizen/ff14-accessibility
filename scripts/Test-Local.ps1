@@ -18,6 +18,7 @@ $required = @($requiredJson | ForEach-Object { [string]$_ })
 $actual = @($projects | ForEach-Object { $_.FullName.Substring($root.Length + 1).Replace('\', '/') })
 if (Compare-Object $required $actual) { throw 'Test projects differ from tests/required-projects.json. Account for every suite.' }
 $total = 0
+& (Join-Path $PSScriptRoot 'Test-AuthorNavigation.ps1')
 & (Join-Path $PSScriptRoot 'Test-VerificationGate.ps1')
 foreach ($project in $projects) {
     $results = Join-Path $root ("artifacts\test-results\$stamp\" + $project.BaseName)

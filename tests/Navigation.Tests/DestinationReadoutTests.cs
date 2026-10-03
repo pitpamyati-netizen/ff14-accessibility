@@ -106,10 +106,7 @@ public class DestinationReadoutTests
         Assert.Equal("Resolved", readout.Result);
         Assert.Equal("Выбранный NPC", readout.Name);
         Assert.Equal(position, readout.Position);
-        Set(plugin, "Log", StrictProxy.Of<IPluginLog>(_ => null));
-        // Walk resolution must also preserve the actual NPC floor. No
-        // AutoWalkService is supplied: calling map-height projection fails.
-        Assert.Equal(position, Read(plugin, forReadout: false).Position);
+
     }
 
     [Fact]
@@ -133,21 +130,6 @@ public class DestinationReadoutTests
         Assert.Equal(0, searchType.GetProperty("Index")!.GetValue(search));
     }
 
-    [Fact]
-    public void AutoWalkReadoutDoesNotExposeAStoppedDestination()
-    {
-        var walk = (AutoWalkService)RuntimeHelpers.GetUninitializedObject(typeof(AutoWalkService));
-        Field(walk, "_targetName", "Координаты");
-        Field(walk, "_destPosition", new Vector3(12, 3, 45));
-        var phaseType = typeof(AutoWalkService).GetNestedType("Phase", BindingFlags.NonPublic)!;
-        Field(walk, "_phase", Enum.Parse(phaseType, "Walking"));
-        Assert.Equal(new Vector3(12, 3, 45), walk.CurrentDestination!.Value.Position);
-        Field(walk, "_phase", Enum.Parse(phaseType, "Guarding"));
-        Assert.Null(walk.CurrentDestination);
-        Field(walk, "_phase", Enum.Parse(phaseType, "Idle"));
-        Assert.Null(walk.CurrentDestination);
-    }
-
     private static (Plugin, NavigationService) Create()
     {
         var plugin = (Plugin)RuntimeHelpers.GetUninitializedObject(typeof(Plugin));
@@ -159,10 +141,10 @@ public class DestinationReadoutTests
         return (plugin, navigation);
     }
 
-    private static (string Result, Vector3 Position, string Name, bool HeightIsGuess) Read(Plugin plugin, bool forReadout = true)
+    private static (string Result, Vector3 Position, string Name, bool HeightIsGuess) Read(Plugin plugin)
     {
-        object?[] args = [default(Vector3), "", 0f, false, false, forReadout];
-        var method = typeof(Plugin).GetMethod("TryResolveMarkerDestination", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        object?[] args = [default(Vector3), "", 0f, false, false];
+        var method = typeof(Plugin).GetMethod("TryResolveDestinationReadout", BindingFlags.Instance | BindingFlags.NonPublic)!;
         var result = method.Invoke(plugin, args)!;
         return (result.ToString()!, (Vector3)args[0]!, (string)args[1]!, (bool)args[3]!);
     }

@@ -241,7 +241,7 @@ public sealed class TrailService
         List<Vector3>? best = null;
         var bestGain = MinGain;
 
-        foreach (var trail in _config.Trails.Where(t => t.Territory == territory && ValidPoints(t)))
+        foreach (var trail in _config.Trails.Where(t => t.Territory == territory && t.Points.Count >= 2))
         {
             var points = ToVectors(trail);
 
@@ -269,10 +269,6 @@ public sealed class TrailService
 
         return best;
     }
-
-    internal static bool ValidPoints(NavTrail trail)
-        => trail.Points is { Count: >= 2 and <= 8192 }
-            && trail.Points.All(p => p is { Length: 3 } && p.All(float.IsFinite));
 
     private static List<Vector3> ToVectors(NavTrail trail)
         => trail.Points.Select(p => new Vector3(p[0], p[1], p[2])).ToList();

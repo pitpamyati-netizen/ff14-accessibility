@@ -40,6 +40,8 @@ function Get-LocalVerificationFingerprint([string]$Root) {
             Where-Object { $_.FullName -notmatch '[\\/](bin|obj|TestResults)[\\/]' } |
             ForEach-Object { $_.FullName }
     })
+    # The pinned author hashes are verification input, not ordinary prose.
+    $files = [string[]]@($files + (Join-Path $Root 'docs\maintenance\AUTHOR_NAVIGATION.json'))
     [Array]::Sort($files, [StringComparer]::Ordinal)
     foreach ($file in $files) {
         $lines += $file.Substring($Root.Length + 1).Replace('\', '/') + ':' +

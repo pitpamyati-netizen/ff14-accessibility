@@ -213,7 +213,7 @@ public sealed partial class Plugin : IDalamudPlugin
     // 6.08.18 lokal: Chat-Absender Kontextmenü (Strg+Umschalt+BildAuf) + Numpad3-Ziel.
     // 6.08.19: Charakterauswahl — eine Ansage (Name, Job, Ort) statt Scan-Sturm.
     // 6.08.20: Mitstreiter-Taste (PR 27 Port) — Strg+Umschalt+C öffnet/vorliest.
-    private const string PluginVersion    = "6.08.90";
+    private const string PluginVersion    = "6.08.91";
     // Der Tag nennt, was diese Fassung MITBRINGT, nicht woher sie stammt: die
     // russische Schicht auf dem Stand des Autors 6.08.34 (Auftragstext im
     // Quest-Tracker des Autors, siehe package-Schritt).
@@ -1625,8 +1625,8 @@ public sealed partial class Plugin : IDalamudPlugin
             // A browser selection can be a map position, not a game target.
             // Reading it must not start a walk, retarget a monster or advance
             // the hunt search. Use the same selection order as Numpad3.
-            switch (TryResolveMarkerDestination(out var position, out var name, out _,
-                        out var heightIsGuess, out _, forReadout: true))
+            switch (TryResolveDestinationReadout(out var position, out var name, out _,
+                        out var heightIsGuess, out _))
             {
                 case MarkerResolve.Resolved:
                     _navigation.AnnounceDestinationDirection(name, position, heightIsGuess);
@@ -2526,9 +2526,9 @@ public sealed partial class Plugin : IDalamudPlugin
                 // the nearest live one, or tell the user where it lives.
                 TrackBestiaryMonster(bestiaryMonster);
             }
-            else switch (TryResolveMarkerDestination(out var pos, out var name, out var stop, out var heightIsGuess, out var isTransition))
+            else switch (TryResolveMarkerDestination(out var pos, out var name, out var stop, out _, out var isTransition))
             {
-                case MarkerResolve.Resolved: _autoWalk.ToggleToPosition(pos, name, stop, isTransition, heightIsGuess); break;
+                case MarkerResolve.Resolved: _autoWalk.ToggleToPosition(pos, name, stop, isTransition); break;
                 case MarkerResolve.None:     _autoWalk.Toggle();                          break;
                 case MarkerResolve.Failed:   break; // reason already announced
             }
@@ -2916,7 +2916,9 @@ public sealed partial class Plugin : IDalamudPlugin
         if (!IsJustPressed(_config.KeyAutoWalk, allowTextInput: readingInput, consume: true)
             && !(_autoWalk.IsFollowing
                 && IsJustPressed(_config.KeyFollowTarget, allowTextInput: readingInput, consume: true))) return false;
-        _autoWalk.StopMovement();
+        _autoWalk.StopFollowQuiet();
+        _autoWalk.StopQuiet();
+        _transitions?.Stop(silent: true);
         return true;
     }
 
@@ -2939,9 +2941,526 @@ public sealed partial class Plugin : IDalamudPlugin
     /// after teleports); 2D map markers get their height from the navmesh.
     /// </summary>
     private MarkerResolve TryResolveMarkerDestination(out Vector3 position, out string name, out float stopRange,
-                                                      out bool heightIsGuess, out bool isZoneTransition,
-                                                      bool forReadout = false)
+                                                      out bool heightIsGuess, out bool isZoneTransition)
     {
+        // Vorbelegen: jeder Rueckgabepfad muss den Wert setzen, und nur der
+        // Uebergangs-Zweig weiter unten setzt ihn auf true.
+        isZoneTransition = false;
+        position = default;
+        name = string.Empty;
+        stopRange = _config.AutoWalkPlaceStopRange;
+        // Map data is 2D. Everything resolved from it has a GUESSED height, and
+        // the guess uses the player's own - which picks the wrong storey when
+        // they stand far away and lower (measured 2026-08-07: aetheryte
+        // HerbstkÃ¼rbis-See, mesh at Y -49 and Y -39 above the same spot, the
+        // guess took -49 and only -39 was reachable). The auto-walk needs to
+        // know this to tell a wrong storey from a genuinely unreachable target.
+        heightIsGuess = false;
+
+        var quest = _navigation.SelectedQuestDestination;
+        var place = _navigation.SelectedPlaceDestination;
+
+        if (quest != null)
+        {
+            if (quest.TerritoryTypeId != ClientState.TerritoryType)
+            {
+                // Quest is in another zone: walk to the transition that leads
+                // there (route over the static map graph) instead of refusing.
+                var hop = _places.FindFirstHopToMap(quest.MapId, out _);
+                if (hop == null)
+                {
+                    _tolk.SpeakInterrupt(AccessibilityStrings.QuestInAnotherZoneNoHop(quest.QuestName));
+                    return MarkerResolve.Failed;
+                }
+                var playerY = ObjectTable.LocalPlayer?.Position.Y ?? 0f;
+                var floor   = _autoWalk.ResolveFloorPoint(hop.Position with { Y = playerY });
+                if (floor == null)
+                {
+                    _tolk.SpeakInterrupt(AccessibilityStrings.NoWalkablePointAt(hop.Name));
+                    return MarkerResolve.Failed;
+                }
+                position = floor.Value;
+                name = hop.Name;
+                // Transition: stop almost on the marker so the zone line triggers.
+                stopRange = _config.AutoWalkTransitionStopRange;
+                heightIsGuess = true;
+                return MarkerResolve.Resolved;
+            }
+
+            // Prefer a path-connected mesh point: NearestPoint alone can sit on a
+            // disconnected patch, then the walk ends a few metres short (log
+            // 2026-09-09 20:43: "Die Gabe der Unsterblichkeit", shortfall 3,9 m
+            // at stopRange 1; flight ended "Noch 3 Meter nach Norden").
+            position = _autoWalk.ResolveReachablePoint(quest.Position)
+                       ?? _autoWalk.ResolveFloorPoint(quest.Position)
+                       ?? quest.Position;
+            name = quest.QuestName;
+            heightIsGuess = true;
+            // Aim near the centre, not the rim (rim = Radius left the player
+            // outside the trigger). Pure PlaceStop (~1 m) never "arrives" when
+            // the mesh stops ~4 m short of a large map pin. For map goal circles
+            // allow up to 5 m. EventRange walk-ins (QuestTrigger, ~5 m radius)
+            // keep the tight stop so the player actually enters the small volume.
+            stopRange = quest.Role == QuestMarkerRole.QuestTrigger
+                ? _config.AutoWalkPlaceStopRange
+                : quest.Radius > 0f
+                    ? MathF.Max(_config.AutoWalkPlaceStopRange, MathF.Min(5f, quest.Radius))
+                    : _config.AutoWalkPlaceStopRange;
+            return MarkerResolve.Resolved;
+        }
+
+        if (place != null)
+        {
+            // Map markers are 2D - resolve the walkable height via the
+            // navmesh first (player height as search origin).
+            var playerY = ObjectTable.LocalPlayer?.Position.Y ?? 0f;
+            // Fishing spots are water CENTRES: snap to the nearest bank (wide
+            // search) so the player lands at the water, not on a floor the
+            // generic 10 m snap happens to find. Fall back to the generic
+            // resolver if no bank is found (e.g. vnavmesh not ready).
+            // Named places are the CENTRE of a map symbol, not a spot to stand on:
+            // a room marker sits in the middle of the room, and there stand tables,
+            // chairs and pillars. Measured on "Rudererquartier" in Sastasha
+            // (log 2026-08-21 22:11): the marker at (-97|64) has background objects
+            // 1.1 m away and five ChairMarkers around it - the walk stopped 2.44 m
+            // short because the destination itself is not a place one can stand.
+            // ResolveReachablePoint asks vnavmesh the stronger question - a point
+            // the player can actually GET to - exactly as the deep dungeon already
+            // does for its room origins. It falls back to ResolveFloorPoint itself,
+            // so a mesh that cannot answer behaves as before.
+            // Uebergaenge zielen auf die ECHTE Grenze, nicht auf ihr Kartensymbol.
+            // Das Symbol liegt in der Mitte der Grenze, und die Mitte kann weit
+            // ausserhalb des begehbaren Netzes liegen: Neu-Gridania -> Tiefer Wald
+            // endete 18,6 m davor, waehrend der Rand der Grenze nur 2,0 m entfernt
+            // war (Log 2026-08-22, docs/game-api.md). Ohne passende Grenze - Tueren
+            // und Instanz-Eingaenge haben keine - bleibt alles wie bisher.
+            // Die Grenze ist 30 m breit, und nur ein Teil davon ist ein Durchgang:
+            // am Uebergang Neu-Gridania -> Tiefer Wald stehen Faesser und ein
+            // Torbauwerk, gemessen mit tools/zone-probe am 2026-08-22. Deshalb
+            // bekommt die Grenzsuche vnavmeshs Erreichbarkeitspruefung mit und
+            // nimmt den naechsten Punkt, den das Netz auch annimmt.
+            var borderPoint = place.IsZoneTransition
+                ? _zoneBorders.FindBorderPoint(place.TargetMapId, ObjectTable.LocalPlayer?.Position ?? place.Position,
+                                               _autoWalk.ProbeReachable)
+                : null;
+            var approach = borderPoint ?? place.Position with { Y = playerY };
+
+            var floor   = place.IsWaterSpot
+                ? (_autoWalk.ResolveNearestBank(place.Position with { Y = playerY })
+                   ?? _autoWalk.ResolveFloorPoint(place.Position with { Y = playerY }))
+                : _autoWalk.ResolveReachablePoint(approach);
+            if (floor == null)
+            {
+                _tolk.SpeakInterrupt(AccessibilityStrings.NoWalkablePointNear(place.Name));
+                return MarkerResolve.Failed;
+            }
+            position = floor.Value;
+            name = place.Name;
+            heightIsGuess = true;
+            // Transitions get an extra-tight range so the player walks right
+            // into the zone line; other places stop on the spot.
+            stopRange = place.IsZoneTransition
+                ? _config.AutoWalkTransitionStopRange
+                : _config.AutoWalkPlaceStopRange;
+            // Nur echte Zonengrenzen duerfen am Ende angeschoben werden - und nur,
+            // wenn wir wirklich die Grenze anzielen. Ohne borderPoint ist das Ziel
+            // das Kartensymbol, und das liegt nicht zwingend im Ausloeser.
+            isZoneTransition = place.IsZoneTransition && borderPoint != null;
+            return MarkerResolve.Resolved;
+        }
+
+        // Blaumagie-Zauber aus dem Browser. Gleiche Wegfuehrung wie beim
+        // Jagdziel darunter, mit einem Unterschied, der aus den Daten kommt und
+        // nicht aus einer Designentscheidung: es gibt KEIN Monster, zu dem
+        // gelaufen werden koennte. Das Spiel fuehrt fuer Blaumagie nur einen
+        // Fundort - ein Gebiet oder eine Instanz (siehe AozSpellSourceService).
+        // Also fuehrt der Weg dorthin, und im Gebiet endet er.
+        var spell = _navigation.SelectedBlueMagicTarget;
+        if (spell != null)
+        {
+            switch (spell.Kind)
+            {
+                case AozSourceKind.World when spell.MapId != 0 && spell.MapId != ClientState.MapId:
+                {
+                    // Andere Zone: zum Uebergang, exakt wie beim Jagdziel.
+                    var hop = _places.FindFirstHopToMap(spell.MapId, out _);
+                    if (hop == null)
+                    {
+                        _tolk.SpeakInterrupt(
+                            AccessibilityStrings.BlueMagicNoRoute(spell.SpellName, spell.PlaceName));
+                        return MarkerResolve.Failed;
+                    }
+                    var hopY    = ObjectTable.LocalPlayer?.Position.Y ?? 0f;
+                    var hopWalk = _autoWalk.ResolveFloorPoint(hop.Position with { Y = hopY });
+                    if (hopWalk == null)
+                    {
+                        _tolk.SpeakInterrupt(AccessibilityStrings.NoWalkablePointAt(hop.Name));
+                        return MarkerResolve.Failed;
+                    }
+                    position      = hopWalk.Value;
+                    name          = hop.Name;
+                    stopRange     = _config.AutoWalkTransitionStopRange;
+                    heightIsGuess = true;
+                    return MarkerResolve.Resolved;
+                }
+
+                case AozSourceKind.World:
+                    // Schon im richtigen Gebiet. Es gibt hier NICHTS Feineres:
+                    // das Sheet nennt nur die Zone, keinen Unterort. Ein Lauf
+                    // ins Nichts waere schlechter als die ehrliche Auskunft.
+                    _tolk.SpeakInterrupt(AccessibilityStrings.BlueMagicHere);
+                    return MarkerResolve.Failed;
+
+                case AozSourceKind.Duty:
+                {
+                    // Instanz: Ziel ist ihr Eingang. Der steht bereits in der
+                    // weltweiten Tuerliste - dieselbe Quelle, die die Kategorie
+                    // "Alle Inhalte" benutzt, samt echter Hoehe.
+                    var door = _dutyEntrances.GetAll()
+                        .Where(d => d.ContentId == spell.InstanceContentId)
+                        .OrderBy(d => d.MapId == ClientState.MapId ? 0 : 1)
+                        .FirstOrDefault();
+                    if (door == null)
+                    {
+                        _tolk.SpeakInterrupt(
+                            AccessibilityStrings.BlueMagicNoDoor(spell.SpellName, spell.PlaceName));
+                        return MarkerResolve.Failed;
+                    }
+
+                    if (door.MapId != 0 && door.MapId != ClientState.MapId)
+                    {
+                        var hop = _places.FindFirstHopToMap(door.MapId, out _);
+                        if (hop == null)
+                        {
+                            _tolk.SpeakInterrupt(
+                                AccessibilityStrings.BlueMagicNoRoute(spell.SpellName, door.ZoneName));
+                            return MarkerResolve.Failed;
+                        }
+                        var hopY    = ObjectTable.LocalPlayer?.Position.Y ?? 0f;
+                        var hopWalk = _autoWalk.ResolveFloorPoint(hop.Position with { Y = hopY });
+                        if (hopWalk == null)
+                        {
+                            _tolk.SpeakInterrupt(AccessibilityStrings.NoWalkablePointAt(hop.Name));
+                            return MarkerResolve.Failed;
+                        }
+                        position      = hopWalk.Value;
+                        name          = hop.Name;
+                        stopRange     = _config.AutoWalkTransitionStopRange;
+                        heightIsGuess = true;
+                        return MarkerResolve.Resolved;
+                    }
+
+                    // Tuer in dieser Zone: die Position ist volle 3D mit echter
+                    // Hoehe, sie braucht keinen Boden-Schaetzer.
+                    position  = door.Position;
+                    name      = door.Name;
+                    stopRange = AutoWalkService.StopRange;
+                    return MarkerResolve.Resolved;
+                }
+
+                default:
+                    // Karneval-Belohnung oder Startzauber: kein Ort, kein Weg.
+                    _tolk.SpeakInterrupt(AccessibilityStrings.BlueMagicNoPlace);
+                    return MarkerResolve.Failed;
+            }
+        }
+
+        // Bestie aus dem Bestienbuch-Browser. Wie Jagd: lebendes Exemplar zuerst,
+        // sonst Hop zur Zone, sonst Arealsuche / Wegpunkt des Untergebiets.
+        var beast = _navigation.SelectedBeastTarget;
+        if (beast != null)
+        {
+            var live = _xbmSources.FindNearestLive(beast.Name);
+            if (live != null)
+            {
+                var accepted = _navigation.TargetFromBrowser(live);
+                Log.Info($"[XbmZiel] Lebendes '{beast.Name}' in " +
+                         $"{Vector3.Distance(ObjectTable.LocalPlayer?.Position ?? live.Position, live.Position):F1} m, " +
+                         $"id={live.GameObjectId:X}, anvisiert={accepted}");
+                if (accepted) return MarkerResolve.None;
+
+                position = _autoWalk.ResolveFloorPoint(live.Position) ?? live.Position;
+                name = beast.Name;
+                stopRange = AutoWalkService.StopRange;
+                return MarkerResolve.Resolved;
+            }
+
+            if (beast.MapId != 0 && beast.MapId != ClientState.MapId)
+            {
+                var hop = _places.FindFirstHopToMap(beast.MapId, out _);
+                if (hop == null)
+                {
+                    _tolk.SpeakInterrupt(
+                        AccessibilityStrings.BeastmasterNoRoute(beast.Name, beast.ZoneName));
+                    return MarkerResolve.Failed;
+                }
+                var hopY    = ObjectTable.LocalPlayer?.Position.Y ?? 0f;
+                var hopWalk = _autoWalk.ResolveFloorPoint(hop.Position with { Y = hopY });
+                if (hopWalk == null)
+                {
+                    _tolk.SpeakInterrupt(AccessibilityStrings.NoWalkablePointAt(hop.Name));
+                    return MarkerResolve.Failed;
+                }
+                position      = hopWalk.Value;
+                name          = hop.Name;
+                stopRange     = _config.AutoWalkTransitionStopRange;
+                heightIsGuess = true;
+                return MarkerResolve.Resolved;
+            }
+
+            if (beast.MapId != 0 && beast.MapId == ClientState.MapId)
+            {
+                var playerPos = ObjectTable.LocalPlayer?.Position ?? Vector3.Zero;
+                var searchPart = _navigation.NextHuntSearchPart(playerPos);
+                var area = searchPart?.Position ?? beast.Position;
+                if (area is not { } areaPos)
+                {
+                    if (beast.AreaName.Length > 0)
+                    {
+                        _tolk.SpeakInterrupt(
+                            AccessibilityStrings.BeastmasterAreaUnknown(beast.Name, beast.AreaName));
+                        return MarkerResolve.Failed;
+                    }
+
+                    _tolk.SpeakInterrupt(AccessibilityStrings.BeastmasterHere);
+                    return MarkerResolve.Failed;
+                }
+
+                var areaY    = ObjectTable.LocalPlayer?.Position.Y ?? 0f;
+                var areaSeed = searchPart != null ? areaPos : areaPos with { Y = areaY };
+                var areaWalk = _autoWalk.ResolveFloorPoint(areaSeed);
+                if (areaWalk == null)
+                {
+                    _tolk.SpeakInterrupt(AccessibilityStrings.NoWalkablePointNear(
+                        beast.AreaName.Length > 0 ? beast.AreaName : beast.ZoneName));
+                    return MarkerResolve.Failed;
+                }
+
+                position = areaWalk.Value;
+                name = searchPart is { Name.Length: > 0 }
+                    ? searchPart.Value.Name
+                    : beast.AreaName.Length > 0 ? beast.AreaName : beast.Name;
+                stopRange     = _config.AutoWalkPlaceStopRange;
+                heightIsGuess = searchPart == null;
+                return MarkerResolve.Resolved;
+            }
+
+            _tolk.SpeakInterrupt(AccessibilityStrings.BeastmasterNoPlace);
+            return MarkerResolve.Failed;
+        }
+
+        // Jagdziel aus dem Browser. Same routing as a quest goal, for the same
+        // reason: the monster's home area is a place on the map, and in another
+        // zone the only thing worth walking to is the transition that leads
+        // there. Zone checked FRESH here - the flag stored at selection time is
+        // stale after a teleport.
+        var hunt = _navigation.SelectedHuntTarget;
+        if (hunt != null)
+        {
+            // A live specimen in range beats every marker: the habitat marker is
+            // the middle of an area, the monster is what the player wants to
+            // reach (user request 2026-08-17). Targeting it is part of the
+            // answer - a monster is reached in order to be attacked - and once
+            // the game holds it as the hard target, MarkerResolve.None hands the
+            // walk to the TARGET path, which re-reads the position every frame.
+            // That is what makes walking to a patrolling monster work at all;
+            // a fixed position would aim at where it stood at key-press time.
+            var live = _huntingLog.FindNearestLive(hunt.MonsterName);
+            if (live != null)
+            {
+                var accepted = _navigation.TargetFromBrowser(live);
+                Log.Info($"[Jagd] Lebendes '{hunt.MonsterName}' in " +
+                         $"{Vector3.Distance(ObjectTable.LocalPlayer?.Position ?? live.Position, live.Position):F1} m, " +
+                         $"id={live.GameObjectId:X}, anvisiert={accepted}");
+                if (accepted) return MarkerResolve.None;
+
+                // Game refused the target (quest-locked mobs do): walk to the
+                // position it was last seen at instead of falling back to the
+                // area marker, which would be much further off.
+                position = _autoWalk.ResolveFloorPoint(live.Position) ?? live.Position;
+                name = hunt.MonsterName;
+                stopRange = AutoWalkService.StopRange;
+                return MarkerResolve.Resolved;
+            }
+            _huntingLog.LogNearbyBattleNpcs(hunt.MonsterName);
+
+            if (hunt.MapId != 0 && hunt.MapId != ClientState.MapId)
+            {
+                var hop = _places.FindFirstHopToMap(hunt.MapId, out _);
+                if (hop == null)
+                {
+                    _tolk.SpeakInterrupt(AccessibilityStrings.HuntingNoRoute(hunt.MonsterName, hunt.ZoneName));
+                    return MarkerResolve.Failed;
+                }
+                var hopY    = ObjectTable.LocalPlayer?.Position.Y ?? 0f;
+                var hopWalk = _autoWalk.ResolveFloorPoint(hop.Position with { Y = hopY });
+                if (hopWalk == null)
+                {
+                    _tolk.SpeakInterrupt(AccessibilityStrings.NoWalkablePointAt(hop.Name));
+                    return MarkerResolve.Failed;
+                }
+                position = hopWalk.Value;
+                name = hop.Name;
+                stopRange = _config.AutoWalkTransitionStopRange;
+                heightIsGuess = true;
+                return MarkerResolve.Resolved;
+            }
+
+            // AREAL ABSUCHEN. Der Lebensraum ist ein GEBIET, und die
+            // Kartenbeschriftung ist nur einer seiner Punkte - "Sandtor"
+            // besteht aus sechs Teilstuecken ueber rund 500 mal 400 Meter, und
+            // wer zur Beschriftung laeuft, steht am Rand und findet nichts
+            // (User 2026-09-02). Der Suchlauf fuehrt deshalb der Reihe nach
+            // durch die Teilstuecke; jeder weitere Tastendruck geht zum
+            // naechsten, sobald der Spieler am aktuellen war. Siehe
+            // AreaRangeService und NavigationService.NextHuntSearchPart.
+            var playerPos = ObjectTable.LocalPlayer?.Position ?? Vector3.Zero;
+            var searchPart = _navigation.NextHuntSearchPart(playerPos);
+
+            // 40 of the 647 habitats are dungeon areas the map never marks, and
+            // for some of those the layout has no named range either. Say so
+            // instead of walking somewhere arbitrary.
+            var area = searchPart?.Position ?? hunt.Position;
+            if (area is not { } areaPos)
+            {
+                _tolk.SpeakInterrupt(AccessibilityStrings.HuntingAreaUnknown(hunt.MonsterName, hunt.AreaName));
+                return MarkerResolve.Failed;
+            }
+
+            var areaY    = ObjectTable.LocalPlayer?.Position.Y ?? 0f;
+            // Ein Teilstueck aus dem Zonen-Layout traegt eine ECHTE Hoehe, ein
+            // Kartenmarker nicht (Kartendaten sind flach). Die eigene Hoehe
+            // unterzuschieben waere dort also schlechter als das, was die Datei
+            // sagt - deshalb nur beim Marker.
+            var areaSeed = searchPart != null ? areaPos : areaPos with { Y = areaY };
+            var areaWalk = _autoWalk.ResolveFloorPoint(areaSeed);
+            if (areaWalk == null)
+            {
+                _tolk.SpeakInterrupt(AccessibilityStrings.NoWalkablePointNear(hunt.AreaName));
+                return MarkerResolve.Failed;
+            }
+            position = areaWalk.Value;
+            // Both parts are spoken: the monster is what the player picked, the
+            // area is where they are actually being taken - the marker is the
+            // centre of the area, not the monster.
+            var areaLabel = searchPart is { Name.Length: > 0 } ? searchPart.Value.Name : hunt.AreaName;
+            name = areaLabel.Length > 0 ? $"{hunt.MonsterName}, {areaLabel}" : hunt.MonsterName;
+            heightIsGuess = true;
+            stopRange = _config.AutoWalkPlaceStopRange;
+            if (searchPart is { } sp)
+                Log.Info($"[Jagd] Suchpunkt {sp.Index}/{sp.Count} '{sp.Name}' " +
+                         $"({sp.Position.X:F0}|{sp.Position.Y:F0}|{sp.Position.Z:F0}) fuer '{hunt.MonsterName}'.");
+            return MarkerResolve.Resolved;
+        }
+
+        // Inhalts-Eingang aus der Kategorie "Alle Inhalte". Dieselbe Wegfuehrung
+        // wie beim Quest-Ziel und aus demselben Grund: die Tuer ist ein fester Ort
+        // auf der Karte, und in einer anderen Zone ist das einzig Sinnvolle der
+        // Uebergang, der dorthin fuehrt. Zone FRISCH geprueft - das Merkmal aus
+        // dem Moment der Auswahl ist nach einem Teleport veraltet.
+        var duty = _navigation.SelectedDutyEntrance;
+        if (duty != null)
+        {
+            if (duty.TerritoryTypeId != ClientState.TerritoryType)
+            {
+                var hop = _places.FindFirstHopToMap(duty.MapId, out _);
+                if (hop == null)
+                {
+                    _tolk.SpeakInterrupt(AccessibilityStrings.DutyNoRouteTo(duty.Name, duty.ZoneName));
+                    return MarkerResolve.Failed;
+                }
+                var hopY    = ObjectTable.LocalPlayer?.Position.Y ?? 0f;
+                var hopWalk = _autoWalk.ResolveFloorPoint(hop.Position with { Y = hopY });
+                if (hopWalk == null)
+                {
+                    _tolk.SpeakInterrupt(AccessibilityStrings.NoWalkablePointAt(hop.Name));
+                    return MarkerResolve.Failed;
+                }
+                position = hopWalk.Value;
+                name = hop.Name;
+                stopRange = _config.AutoWalkTransitionStopRange;
+                heightIsGuess = true;
+                return MarkerResolve.Resolved;
+            }
+
+            // In dieser Zone: die Tuer steht mit VOLLER Hoehe im Level-Sheet, die
+            // Hoehe ist also nicht geraten (anders als bei jedem Kartenmarker).
+            // ResolveFloorPoint bleibt trotzdem davor - es setzt den Punkt auf die
+            // begehbare Flaeche, falls die Sheet-Stelle knapp daneben liegt.
+            position = _autoWalk.ResolveFloorPoint(duty.Position) ?? duty.Position;
+            name = duty.Name;
+            // Interaktionsreichweite wie bei einem Objekt: der Spieler will die
+            // Tuer benutzen, nicht in ihrer Naehe stehenbleiben.
+            stopRange = AutoWalkService.StopRange;
+            Log.Info($"[Inhalte] Laufe zu '{duty.Name}' in Zone {duty.TerritoryTypeId} auf {position}.");
+            return MarkerResolve.Resolved;
+        }
+
+        // Station des Dungeon-Wegs. Sie steht IMMER in der aktuellen Zone - ein
+        // Weg gilt fuer genau eine Instanz, und wer sie verlaesst, verliert die
+        // Kategorie ohnehin. Deshalb keine Zonenlogik wie bei Tuer oder Quest.
+        var dungeonStep = _navigation.SelectedDungeonStep;
+        if (dungeonStep != null)
+        {
+            // Die Hoehe stammt aus der Pfaddatei und ist echt gemessen, nicht wie
+            // bei Kartenmarkern geraten. ResolveFloorPoint bleibt trotzdem davor,
+            // weil ein aufgezeichneter Punkt in der Luft stehen kann, wenn die
+            // Aufnahme im Sprung lag - und dann faende der Lauf nichts.
+            position = _autoWalk.ResolveFloorPoint(dungeonStep.Position) ?? dungeonStep.Position;
+            var kindWord = AccessibilityStrings.DungeonStepKindWord(dungeonStep.Kind);
+            name = dungeonStep.Name.Length > 0 ? dungeonStep.Name
+                 : kindWord.Length > 0        ? kindWord
+                 : AccessibilityStrings.DungeonWaypointWord;
+
+            // Etwas zum Benutzen will in Reichweite erreicht werden, ein
+            // Wegpunkt nur ueberhaupt. Dieselbe Unterscheidung wie zwischen
+            // Objekt und Kartenmarker.
+            stopRange = dungeonStep.Kind == DungeonStepKind.Waypoint
+                ? _config.AutoWalkPlaceStopRange
+                : AutoWalkService.StopRange;
+
+            Log.Info($"[Dungeon] Laufe zu Station {dungeonStep.Number} " +
+                     $"({dungeonStep.Kind}) auf {position}.");
+            return MarkerResolve.Resolved;
+        }
+
+        var obj = _navigation.SelectedObjectDestination;
+        if (obj != null)
+        {
+            // The game took the pick as its hard target: leave it to the target
+            // path, which re-reads the position every frame - that is what makes
+            // walking to a moving NPC work. Only when the target did NOT stick
+            // (quest props are listed but not targetable) do we steer by
+            // position, which is the whole point of remembering the object.
+            if ((TargetManager.Target?.GameObjectId ?? 0) == obj.ObjectId) return MarkerResolve.None;
+
+            // Fresh position from the object table; the remembered one is the
+            // fallback for an object that has since despawned.
+            var live = ObjectTable.FirstOrDefault(o => o.GameObjectId == obj.ObjectId);
+            var raw  = live?.Position ?? obj.Position;
+            position = _autoWalk.ResolveFloorPoint(raw) ?? raw;
+            // The browser already stored a RESOLVED name (gathering node type,
+            // sheet name, or the honest "Objekt ohne Namen"), so this only has
+            // to guard against a pick made before that resolution existed.
+            name = ObjectNameService.IsSpeakable(obj.Name)
+                ? obj.Name
+                : AccessibilityStrings.UnnamedOfKind(live?.ObjectKind ?? ObjectKind.EventObj);
+            // Interaction range, same as the auto-walk to a game target: the
+            // player has to end up close enough to actually use the object.
+            stopRange = AutoWalkService.StopRange;
+            Log.Info($"[Nav] Objekt-Auswahl '{name}' (id={obj.ObjectId:X}) nicht anvisiert - " +
+                     $"laufe zur Position {position} (Objekt {(live != null ? "da" : "weg")}).");
+            return MarkerResolve.Resolved;
+        }
+
+        return MarkerResolve.None;
+    }
+
+    // Read-only Num5 selection; never used to start movement.
+    private MarkerResolve TryResolveDestinationReadout(out Vector3 position, out string name, out float stopRange,
+                                                      out bool heightIsGuess, out bool isZoneTransition)
+    {
+        var forReadout = true; // This resolver is exclusively for speech.
         // Speech needs a location, not a walkable surface. In particular it
         // must still work while vnavmesh is unavailable or building its mesh.
         Vector3? FloorPoint(Vector3 point) => forReadout ? point : _autoWalk.ResolveFloorPoint(point);
@@ -3053,7 +3572,7 @@ public sealed partial class Plugin : IDalamudPlugin
                 ? (_autoWalk.ResolveNearestBank(place.Position with { Y = playerY })
                    ?? FloorPoint(place.Position with { Y = playerY }))
                 : place.IsZoneTransition ? ReachablePoint(approach)
-                : _autoWalk.ResolveMapMarkerPoint(approach);
+                : _autoWalk.ResolveReachablePoint(approach);
             if (floor == null)
             {
                 _tolk.SpeakInterrupt(AccessibilityStrings.NoWalkablePointNear(place.Name));

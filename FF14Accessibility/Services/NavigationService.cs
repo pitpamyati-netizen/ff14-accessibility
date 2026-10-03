@@ -1049,13 +1049,6 @@ public sealed class NavigationService
                 return Distance2D(sortFrom, a.Centre).CompareTo(Distance2D(sortFrom, b.Centre));
             });
         }
-        var spawns = _huntingLog.GetSpawnPoints(target.MonsterName, target.TerritoryId, playerPosition);
-        if (spawns.Count > 0 && !parts.Any(p => Distance2D(p.Centre, spawns[0]) <= HuntPartReached))
-        {
-            var spawn = spawns[0];
-            parts.Add(new AreaPart(spawn, target.AreaName, 0f));
-            parts.Sort((a, b) => Distance2D(sortFrom, a.Centre).CompareTo(Distance2D(sortFrom, b.Centre)));
-        }
         if (parts.Count == 0) return;
 
         _huntSearch = new HuntSearch
@@ -4814,13 +4807,6 @@ public sealed class NavigationService
         var target = _targetManager.Target ?? _targetManager.SoftTarget;
         if (target == null)
         {
-            // Coordinate walks can have neither a browser pick nor a game
-            // target. Report their destination while the walk is active.
-            if (AutoWalk?.CurrentDestination is { } destination)
-            {
-                AnnounceDestinationDirection(destination.Name, destination.Position);
-                return;
-            }
             _log.Info("[Nav] Numpad5: no guide, browser destination, game target or active walk");
             _tolk.SpeakInterrupt(AccessibilityStrings.FaceNoRoute);
             return;

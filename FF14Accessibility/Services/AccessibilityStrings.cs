@@ -2840,9 +2840,6 @@ public static partial class AccessibilityStrings
         L($"Auto-Lauf beendet, noch {MetersRemaining(distance)}.", $"Auto-walk ended, {MetersRemaining(distance)} remaining.", $"Автобег завершён, осталось {MetersRemaining(distance)}.");
     public static string StuckRemaining(float distance) =>
         L($"Ich stecke fest, noch {MetersRemaining(distance)}. Auto-Lauf beendet.", $"I'm stuck, {MetersRemaining(distance)} remaining. Auto-walk ended.", $"Я застрял, осталось {MetersRemaining(distance)}. Автобег завершён.");
-    public static string GroundDetourSearching => L("Ich suche einen anderen Zugang zum Anstieg.", "Looking for another approach to the rise.", "Ищу другой подход к подъёму.");
-    public static string GroundDetourWalking => L("Ich gehe um die Kante herum.", "Walking around the corner.", "Обхожу край подъёма.");
-    public static string GroundDetourFailed => L("Der Anstieg konnte nicht umgangen werden. Auto-Lauf beendet.", "Could not walk around the rise. Auto-walk ended.", "Обойти подъём не удалось. Автобег завершён.");
     /// <summary>Same, with the culprit named (see <see cref="ObstacleService"/>).
     /// "Ich stecke fest" says nothing about what to do; the blocker does.</summary>
     public static string StuckBehind(string blocker, float distance) =>
