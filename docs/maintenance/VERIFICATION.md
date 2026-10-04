@@ -33,6 +33,15 @@
   `C:\Users\krean\AppData\Roaming\XIVLauncher\installer-backups\20261004-144709-3e1182456cb546c882ff01bfda393ce1`.
   Настройки Dalamud, плагина, дополнительные настройки и личные клавиши сохранены.
   Отчёт: `artifacts/logs/install-system-volume-6.08.97.json`.
+- Выпуск `v6.08.97` опубликован 4 октября в 14:49:55 по Томску:
+  https://github.com/pitpamyati-netizen/ff14-accessibility/releases/tag/v6.08.97
+  Метка и target указывают на `92652447a29a07fe76b009a44a969c9cda329286`;
+  stable/Latest, draft=false, prerelease=false. Текст совпал с описанием выпуска.
+  Скачаны все четыре файла: ZIP плагина, EXE установщика, его исходники и SHA256SUMS.
+  Размеры, все GitHub digest и суммы совпали; DLL в ZIP совпала со сборкой и установкой.
+  Настоящий `ReleaseClient.Latest` выбрал архив 6.08.97 с правильным SHA-256.
+  Отчёт: `artifacts/publication-check-v6.08.97/verified-assets.json`.
+  Последующий коммит документации не меняет функциональный код метки выпуска.
 - Работа нажатий,
   речи FFXIV/NVDA/Tolk, mute, «Применить» и отмена сохранения требуют игры.
 
