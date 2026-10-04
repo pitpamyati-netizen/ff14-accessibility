@@ -417,7 +417,7 @@ public static partial class AccessibilityStrings
     public static string ConfigSystemDiscarded =>
         L("Änderungen verworfen", "Changes discarded", "Изменения отменены");
 
-    public static string HelpForConfigSystem => L("Pfeile hoch und runter wechseln Option. Links und rechts ändern Wert oder Tab. Enter speichert, Escape verwirft, Strg+F1 für Hilfe.", "Up and down arrows move between options. Left and right change value or tab. Enter saves, Escape discards, Ctrl+F1 for help.", "Стрелки вверх и вниз переключают пункт. Влево и вправо меняют значение или вкладку. Enter сохраняет, Escape отменяет, Ctrl+F1 — справка.");
+    public static string HelpForConfigSystem => L("Pfeile hoch und runter wechseln Option. Links und rechts ändern Wert oder Tab. Enter speichert, Escape verwirft, Strg+F1 für Hilfe.", "Up and down arrows move between options. Left and right change value or tab. Enter saves, Escape discards, Ctrl+F1 for help.", "Стрелки вверх и вниз переключают пункт. Влево и вправо меняют значение или вкладку. Enter сохраняет, Escape отменяет, Ctrl+F1 — справка.") + " " + SystemVolumeEditHint;
 
     public static string CheckboxOn  => L("an", "on", "вкл");
     public static string CheckboxOff => L("aus", "off", "выкл");

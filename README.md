@@ -8,8 +8,8 @@
 **[Скачать автоустановщик для Windows](https://github.com/pitpamyati-netizen/ff14-accessibility/releases/latest/download/FF14AccessibilityInstaller.exe)** ·
 [Все файлы выпуска](https://github.com/pitpamyati-netizen/ff14-accessibility/releases/latest) · [Инструкция](docs/installation.md)
 
-Версия плагина — **6.08.93**, автоустановщика — **1.1.2**.
-[Описание выпуска](docs/releases/6.08.93.md).
+Версия плагина — **6.08.97**, автоустановщика — **1.1.2**.
+[Описание выпуска](docs/releases/6.08.97.md).
 Специальные эффекты классов, включая «Ястребиный глаз» барда, озвучиваются
 тем же голосом, что и готовность умений. Команда `/acc cooldowns` включает
 или выключает оба вида объявлений. Одновременные сообщения объединяются,
@@ -55,7 +55,7 @@ EXE скачивает последний стабильный выпуск эт
 
 ## Ручная установка
 
-[ZIP с готовым модом](https://github.com/pitpamyati-netizen/ff14-accessibility/releases/download/v6.08.93/FF14Accessibility-6.08.93-RU-no-source.zip) предназначен для ручного копирования и настройки
+[ZIP с готовым модом](https://github.com/pitpamyati-netizen/ff14-accessibility/releases/download/v6.08.97/FF14Accessibility-6.08.97-RU-no-source.zip) предназначен для ручного копирования и настройки
 плагина в Dalamud. Внутри — папка `plugin`, инструкция и лицензии;
 **установочных скриптов, EXE и исходного кода в этом ZIP нет**.
 [Пошаговая ручная установка](docs/installation.md#ручная-установка-из-zip).
@@ -516,3 +516,7 @@ Enter задаёт количество. Затем подтвердите **с�
 в [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
 Лицензия мода — [GNU AGPL-3.0](LICENSE). Проект не связан с Square Enix.
+
+В системных настройках звука каждый ползунок называет свой канал и процент.
+Для точного значения: выберите ползунок, Ctrl+Enter, число от 0 до 100, Enter.
+Затем сохраните настройки штатной кнопкой «Применить».

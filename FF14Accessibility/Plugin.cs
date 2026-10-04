@@ -172,6 +172,7 @@ public sealed partial class Plugin : IDalamudPlugin
     private readonly SpokenMenu         _menu;
     private readonly MenuInput          _menuInput;
     private readonly MenuInput          _shopQuantityInput;
+    private readonly MenuInput          _systemVolumeInput;
     private readonly MenuInput          _tableInput;
     private readonly OptionsMenu        _options;
     private readonly ToastService       _toasts;
@@ -214,7 +215,7 @@ public sealed partial class Plugin : IDalamudPlugin
     // 6.08.18 lokal: Chat-Absender Kontextmenü (Strg+Umschalt+BildAuf) + Numpad3-Ziel.
     // 6.08.19: Charakterauswahl — eine Ansage (Name, Job, Ort) statt Scan-Sturm.
     // 6.08.20: Mitstreiter-Taste (PR 27 Port) — Strg+Umschalt+C öffnet/vorliest.
-    private const string PluginVersion    = "6.08.96";
+    private const string PluginVersion    = "6.08.97";
     // Der Tag nennt, was diese Fassung MITBRINGT, nicht woher sie stammt: die
     // russische Schicht auf dem Stand des Autors 6.08.35 (Auftragstext im
     // Quest-Tracker des Autors, siehe package-Schritt).
@@ -684,6 +685,7 @@ public sealed partial class Plugin : IDalamudPlugin
         _menu       = new SpokenMenu(_tolk, Log);
         _menuInput  = new MenuInput(KeyState, Log, SpokenMenu.AllKeys());
         _shopQuantityInput = new MenuInput(KeyState, Log, UIReaderService.ShopQuantityKeys);
+        _systemVolumeInput = new MenuInput(KeyState, Log, UIReaderService.ShopQuantityKeys);
         _tableInput = new MenuInput(KeyState, Log, UIReaderService.TableKeys);
         _options    = new OptionsMenu(_config, () => PluginInterface.SavePluginConfig(_config),
                                       _tolk, Log, _heading, _chatFilters, _aoeWarn, _warnVoice, _chatVoice, _cue,
@@ -2376,6 +2378,7 @@ public sealed partial class Plugin : IDalamudPlugin
         UpdateKeyEdges();
         SuppressOwnedWorldConfirmHold();
         _shopQuantityInput.Poll();
+        _systemVolumeInput.Poll();
         _tableInput.Poll();
         _hotbar.UpdateCrossHotbar(GameGui, IsControllerMode());
 #if DEBUG
@@ -2429,9 +2432,9 @@ public sealed partial class Plugin : IDalamudPlugin
         _transitions.Update();
         FacingService.Tick(ObjectTable.LocalPlayer);
         _armouryTransfer.Update(GameWindowFocus.IsActive && !_uiReader.IsTableReading
-            && !_uiReader.IsShopQuantityEditing && !_menu.IsOpen && !_hotbar.IsSkillMenuOpen);
+            && !_uiReader.IsShopQuantityEditing && !_uiReader.IsSystemVolumeEditing && !_menu.IsOpen && !_hotbar.IsSkillMenuOpen);
 
-        var readingInput = _uiReader.IsTableReading || _uiReader.IsShopQuantityEditing;
+        var readingInput = _uiReader.IsTableReading || _uiReader.IsShopQuantityEditing || _uiReader.IsSystemVolumeEditing;
         if (HandleNavigationStopKeys(readingInput)) return;
         if (readingInput && IsJustPressed(_config.KeySilence)) { _tolk.Silence(); _chatVoice.Silence(); }
         if (readingInput && IsJustPressed(_config.KeyHelp)) _uiReader.AnnounceContextHelp();
@@ -2439,6 +2442,17 @@ public sealed partial class Plugin : IDalamudPlugin
                 KeyState[Dalamud.Game.ClientState.Keys.VirtualKey.CONTROL],
                 KeyState[Dalamud.Game.ClientState.Keys.VirtualKey.SHIFT],
                 KeyState[Dalamud.Game.ClientState.Keys.VirtualKey.MENU])) return;
+        var volumeModifiers = KeyState[Dalamud.Game.ClientState.Keys.VirtualKey.CONTROL]
+            || KeyState[Dalamud.Game.ClientState.Keys.VirtualKey.SHIFT]
+            || KeyState[Dalamud.Game.ClientState.Keys.VirtualKey.MENU];
+        if (_uiReader.HandleSystemVolumeKeys(_systemVolumeInput, GameWindowFocus.IsActive, volumeModifiers)) return;
+        if (!_menu.IsOpen && !_hotbar.IsSkillMenuOpen && !_uiReader.IsShopQuantityEditing
+            && GameWindowFocus.IsActive && IsJustPressed("Ctrl+Return", allowTextInput: true)
+            && _uiReader.BeginSystemVolume())
+        {
+            _systemVolumeInput.ConsumeAll();
+            return;
+        }
         if (!_menu.IsOpen && !_hotbar.IsSkillMenuOpen && !_uiReader.IsShopQuantityEditing
             && GameWindowFocus.IsActive && IsJustPressed(_config.KeyReadTable))
         {

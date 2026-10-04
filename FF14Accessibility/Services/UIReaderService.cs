@@ -7654,6 +7654,7 @@ public sealed partial class UIReaderService : IDisposable
     {
         var addon = (AtkUnitBase*)(nint)args.Addon;
         if (addon == null) return;
+        ResetConfigGlobalFocus();
 
         _csPendingSave       = true;  // Default: OK = gespeichert; Escape setzt auf false
         _activeScreenContext = ScreenContext.ConfigSystem;
@@ -7715,6 +7716,7 @@ public sealed partial class UIReaderService : IDisposable
 
     private void OnConfigSystemClose(AddonEvent type, AddonArgs args)
     {
+        ResetConfigGlobalFocus();
         _focusTrackFlags.Remove("ConfigSystem");
         _csTabs.Clear();
         _csLastTabIndex = -1;
@@ -7924,6 +7926,7 @@ public sealed partial class UIReaderService : IDisposable
             _configSystemLastTexts.Clear();
             _csOptionFlags.Clear();
             _csTextChanges.Clear();
+            ResetConfigGlobalFocus();
             // _csLiveTexts NICHT leeren: die Bildfrequenz-Anzeige laeuft auf
             // allen Seiten mit, einmal ueberfuehrt bleibt sie stumm.
             ScanConfigSystemTexts(addon); // Cache bef�llen, nichts ansagen
@@ -7978,12 +7981,23 @@ public sealed partial class UIReaderService : IDisposable
     // Control - Slider links/rechts, Dropdown-Auswahl - sprechen nur den
     // neuen Wert, nicht die ganze Zeile).
     private nint _csFocusPtr;
+    private nint _csFocusAddon;
     private nint _csFocusTop;
     private int _csFocusTopIdx = -1;
     private string _csFocusValue = string.Empty;
     // True while the focused control is a 0..100 slider - its value is spoken as
     // a percentage ("100 %") on focus AND while adjusting. Reset per fresh focus.
     private bool _csFocusPercent;
+    private string _csFocusLabel = string.Empty;
+    private bool _csFocusSystemVolume;
+
+    private void ResetConfigGlobalFocus()
+    {
+        _csFocusPtr = _csFocusAddon = _csFocusTop = 0;
+        _csFocusTopIdx = -1;
+        _csFocusValue = _csFocusLabel = string.Empty;
+        _csFocusPercent = _csFocusSystemVolume = false;
+    }
 
     /// <summary>
     /// Announces text-less config controls (sliders, drop-downs, category
@@ -7999,13 +8013,21 @@ public sealed partial class UIReaderService : IDisposable
     /// </summary>
     private unsafe void AnnounceConfigGlobalFocus(AtkUnitBase* addon)
     {
+        if (IsSystemVolumeEditing) return;
         var stage = AtkStage.Instance();
-        if (stage == null || stage->AtkInputManager == null) return;
+        if (stage == null || stage->AtkInputManager == null) { ResetConfigGlobalFocus(); return; }
         var focus = stage->AtkInputManager->FocusedNode;
-        if (focus == null) return;
+        if (focus == null) { ResetConfigGlobalFocus(); return; }
+
+        // Re-resolve ownership every time. The game can reuse a focus address
+        // after a tab/window change; cached pointers then name the old slider.
+        var owner = FindTopLevelOwner(addon, focus, out var ownerIdx);
+        if (owner == null || !IsEffectivelyVisible(owner)) { ResetConfigGlobalFocus(); return; }
+        var isVolume = TrySystemVolumeLabel(addon, owner, out var volumeLabel);
 
         AtkResNode* top;
-        if ((nint)focus == _csFocusPtr)
+        if ((nint)focus == _csFocusPtr && (nint)addon == _csFocusAddon && (nint)owner == _csFocusTop
+            && (!isVolume || volumeLabel == _csFocusLabel))
         {
             // Focus unchanged: reuse the cached control, only track its value.
             if (_csFocusTop == 0) return;
@@ -8015,17 +8037,21 @@ public sealed partial class UIReaderService : IDisposable
             {
                 _csFocusValue = newValue;
                 _log.Info($"[CS] Wert-Änderung: '{newValue}'");
-                _tolk.SpeakInterrupt(FormatSliderSpeech(newValue, _csFocusPercent));
+                _tolk.SpeakInterrupt(_csFocusSystemVolume
+                    ? AccessibilityStrings.SliderPercent(_csFocusLabel, newValue)
+                    : FormatSliderSpeech(newValue, _csFocusPercent));
             }
             return;
         }
 
         // Fresh focus: find the top-level component that CONTAINS the node.
         _csFocusPtr = (nint)focus;
-        var owner = FindTopLevelOwner(addon, focus, out var ownerIdx);
+        _csFocusAddon = (nint)addon;
         _csFocusTop = (nint)owner;
         _csFocusTopIdx = ownerIdx;
         _csFocusPercent = false; // only 0..100 sliders set this true below
+        _csFocusSystemVolume = false;
+        _csFocusLabel = string.Empty;
         if (owner == null)
         {
             _log.Info($"[CS] Fokus (global): Node 0x{(nint)focus:X} gehört keinem Top-Level-Control");
@@ -8048,7 +8074,10 @@ public sealed partial class UIReaderService : IDisposable
                 // value-change branch above still detects changes reliably.
                 _csFocusPercent = slider->MinValue == 0 && slider->MaxValue == 100;
                 _csFocusValue = slider->Value.ToString();
-                var sliderLabel = ConfigControlLabel(addon, top, _csFocusTopIdx, forwardFirst: false);
+                _csFocusSystemVolume = isVolume && _csFocusPercent;
+                var sliderLabel = _csFocusSystemVolume ? volumeLabel
+                    : ConfigControlLabel(addon, top, _csFocusTopIdx, forwardFirst: false);
+                _csFocusLabel = sliderLabel;
                 // Percentage sliders (volumes) get the SHORT form "label, value %"
                 // so it finishes speaking before the user moves on; other sliders
                 // keep the full form with their real min/max range.
@@ -8056,6 +8085,7 @@ public sealed partial class UIReaderService : IDisposable
                     ? AccessibilityStrings.SliderPercent(sliderLabel, _csFocusValue)
                     : AccessibilityStrings.SliderDesc(sliderLabel, _csFocusValue,
                         slider->MinValue, slider->MaxValue);
+                if (_csFocusSystemVolume) desc += ". " + AccessibilityStrings.SystemVolumeEditHint;
                 break;
             }
             case ComponentType.DropDownList:
@@ -10999,6 +11029,11 @@ public sealed partial class UIReaderService : IDisposable
 
     public void AnnounceContextHelp()
     {
+        if (IsSystemVolumeEditing)
+        {
+            _tolk.SpeakInterrupt(AccessibilityStrings.SystemVolumeEditInstructions);
+            return;
+        }
         if (IsTableReading)
         {
             _tolk.SpeakInterrupt(AccessibilityStrings.TableInstructions);
