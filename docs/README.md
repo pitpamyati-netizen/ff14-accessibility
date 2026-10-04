@@ -17,6 +17,7 @@
 - [Сборка русской версии](../README-RU.md).
 - [Текущее состояние](maintenance/CURRENT_STATE.md) и [результаты проверок](maintenance/VERIFICATION.md).
 - [Карта дополнений](maintenance/LOCAL_CHANGES.md).
+- [Анализ проекта и стратегия развития](maintenance/DEVELOPMENT_STRATEGY.md).
 - [Обновления исходного проекта](maintenance/UPSTREAM_SYNC.md).
 - [Выпуск новой версии](maintenance/RELEASES.md).
 - [Прежняя история русских изменений](history/russian-changes-through-6.08.73.md).

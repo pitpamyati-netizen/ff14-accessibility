@@ -181,7 +181,7 @@ public sealed partial class CombatService
         // Enemy cast announcements + AoE danger tone. Runs regardless of the InCombat
         // flag: a cast telegraph can appear the instant before combat officially
         // starts, and the flag lags.
-        UpdateEnemyCastWarnings(player.GameObjectId, player.Position, player.Rotation);
+        // Area warnings are refreshed separately before modal UI returns.
 
         var inCombat = (player.StatusFlags & StatusFlags.InCombat) != 0;
 
@@ -1031,12 +1031,13 @@ public sealed partial class CombatService
     {
         var castOn   = _config.AnnounceEnemyCast;
         var aoeOn    = _config.AnnounceAoeWarning;
+        var autoTurnOn = _config.AutoTurnAoe;
         // Die Fluchtrichtung haengt am selben Schalter wie der Warnton: sie ist
         // dessen zweite Haelfte. Der Ton sagt "du stehst falsch", die Richtung
         // sagt "dorthin" - getrennt abschaltbar waere nur die halbe Auskunft.
         var escapeOn = aoeOn;
         _zoneBuf.Clear();
-        if (!castOn && !aoeOn)
+        if (!castOn && !aoeOn && !autoTurnOn)
         {
             _aoeWarn.SetActive(false);
             _escape.Clear();
@@ -1082,15 +1083,19 @@ public sealed partial class CombatService
 
             LuminaAction? shapeRow = null;
             var inZone = false;
+            // An unresolved cast may overlap the proposed walk. The absence of
+            // a sheet row is uncertainty, not evidence that the ground is safe.
+            if (autoTurnOn && !sheet.TryGetRow(bc.CastActionId, out _)) AutoTurnUncertain = true;
             // Die Flucht braucht die Flaeche JEDES Werfers, nicht nur der
             // angesagten: der sichere Punkt muss aus allen zugleich heraus
             // liegen, sonst weicht man einer Flaeche in die naechste aus.
-            if ((wantShape || wantZone || escapeOn)
+            if ((wantShape || wantZone || escapeOn || autoTurnOn)
                 && sheet.TryGetRow(bc.CastActionId, out var row)
                 && row.EffectRange > 0)         // single-target / self-buff: no ground danger
             {
                 shapeRow = row;
                 var zone = BuildZone(bc, row, playerId, out var followsPlayer);
+                if (autoTurnOn) CollectAutoTurnZone(bc, row, zone, followsPlayer, playerPos);
                 if (wantZone && zone is { } z)
                 {
                     inZone = z.Contains(playerPos);
@@ -1148,7 +1153,7 @@ public sealed partial class CombatService
         _aoeWarn.SetActive(inDanger);
         // Zuletzt, damit die Suche die Flaechen dieses Frames sieht: der Ton
         // sagt, DASS man falsch steht, die Flucht sagt, wohin.
-        if (escapeOn)
+        if (escapeOn && !autoTurnOn)
         {
             _escape.Update(playerPos, _zoneBuf);
             AnnounceEscapeOnce(playerPos, playerRot);

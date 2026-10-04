@@ -2542,6 +2542,7 @@ public static partial class AccessibilityStrings
           "/acc keys, Spiel-Tastenbelegung auf den Desktop speichern. " +
           "/acc translate off oder on, russische Gegenstands- und Faehigkeitsuebersetzung aus oder an. " +
           "/acc cooldowns, Fähigkeit-bereit-Ansage an oder aus. " +
+          "/acc aoeturn on oder off, automatisch zum Flaechenausgang ausrichten. " +
           "/acc fly, Fliegen beim Auto-Lauf an oder aus, und sagt ob es hier geht. " +
           "/acc gegner, alle Gegner im Kampf mit Farbe, Leben und wer auf dir ist. " +
           "/acc trails, aufgezeichnete Spuren in diesem Gebiet auflisten. " +
@@ -2585,6 +2586,7 @@ public static partial class AccessibilityStrings
           "/acc keys, save the game's key bindings to the desktop. " +
           "/acc translate off or on, Russian item and ability translation off or on. " +
           "/acc cooldowns, ability-ready announcements on or off. " +
+          "/acc aoeturn on or off, automatically face the area attack exit. " +
           "/acc fly, flying during auto-walk on or off, and whether it works here. " +
           "/acc enemies, every engaged enemy with colour, health and who is on you. " +
           "/acc trails, list the trails recorded in this area. " +
@@ -2633,6 +2635,7 @@ public static partial class AccessibilityStrings
           "/acc keys, сохранить игровые привязки клавиш на рабочий стол. " +
           "/acc translate off или on, отключить или включить русский перевод предметов и умений. " +
           "/acc cooldowns, оповещение о готовности умений включить или выключить. " +
+          "/acc aoeturn on или off, включить или выключить автоповорот к выходу из AoE. " +
           "/acc fly, полёт при автопередвижении включить или выключить, и говорит, можно ли здесь. " +
           "/acc enemies, все противники в бою с цветом, жизнью и тем, кто на тебе. " +
           "/acc trails, перечислить записанные следы в этой местности. " +

@@ -178,6 +178,7 @@ public sealed partial class Plugin : IDalamudPlugin
     private readonly ToastService       _toasts;
     private readonly CombatService      _combat;
     private readonly AoeWarningService  _aoeWarn;
+    private readonly AoeAutoTurnService _aoeAutoTurn;
     // [Warnstimme] Zweiter Sprachkanal fuer die vier Kampfwarnungen.
     private readonly WarningVoiceService _warnVoice;
     // [Chatstimme] Eigener Sprachkanal fuer den Chat, je Kanal mit eigener Stimme.
@@ -215,7 +216,7 @@ public sealed partial class Plugin : IDalamudPlugin
     // 6.08.18 lokal: Chat-Absender Kontextmenü (Strg+Umschalt+BildAuf) + Numpad3-Ziel.
     // 6.08.19: Charakterauswahl — eine Ansage (Name, Job, Ort) statt Scan-Sturm.
     // 6.08.20: Mitstreiter-Taste (PR 27 Port) — Strg+Umschalt+C öffnet/vorliest.
-    private const string PluginVersion    = "6.08.97";
+    private const string PluginVersion    = "6.08.98";
     // Der Tag nennt, was diese Fassung MITBRINGT, nicht woher sie stammt: die
     // russische Schicht auf dem Stand des Autors 6.08.35 (Auftragstext im
     // Quest-Tracker des Autors, siehe package-Schritt).
@@ -654,6 +655,7 @@ public sealed partial class Plugin : IDalamudPlugin
         _aoeWarn    = new AoeWarningService(_config, Log);
         _warnVoice  = new WarningVoiceService(_config, Log);
         _combat     = new CombatService(ObjectTable, TargetManager, GameGui, DataManager, _tolk, _config, _history, _aoeWarn, _escape, _warnVoice, _leveEnemies, Log, descriptions);
+        _aoeAutoTurn = new AoeAutoTurnService(_config, ObjectTable, ClientState, Condition, _combat, Log, _warnVoice, _tolk);
         _cooldown   = new CooldownService(ClientState, DataManager, _cue, _config, Log, ObjectTable);
         _jobGauge   = new JobGaugeService(JobGauges, ObjectTable, DataManager, _tolk, _cue, _config, Log);
         _dutyActions = new DutyActionService(DataManager, _tolk, _cue, _config, Log);
@@ -946,7 +948,7 @@ public sealed partial class Plugin : IDalamudPlugin
         // /acc diag â†’ Diagnosedatei auf den Desktop (Fehlerbericht)
         CommandManager.AddHandler("/acc", new CommandInfo(OnCommand)
         {
-            HelpMessage = "FF14 Accessibility: nav, set, near, translate, mods, fps, perform, spawn, keys, diag, stop, help"
+            HelpMessage = "FF14 Accessibility: nav, set, near, translate, aoeturn, mods, fps, perform, spawn, keys, diag, stop, help"
         });
     }
 
@@ -996,6 +998,14 @@ public sealed partial class Plugin : IDalamudPlugin
     private void OnCommand(string command, string args)
     {
         var trimmed = args.Trim();
+
+        var autoTurnReply = AoeAutoTurn.HandleCommand(trimmed, _config,
+            () => PluginInterface.SavePluginConfig(_config));
+        if (autoTurnReply != null)
+        {
+            _tolk.SpeakInterrupt(autoTurnReply);
+            return;
+        }
 
         var translationReply = GameTextTranslation.HandleCommand(trimmed, _config,
             () => PluginInterface.SavePluginConfig(_config));
@@ -1068,6 +1078,8 @@ public sealed partial class Plugin : IDalamudPlugin
                 _navigation.AnnounceNearbyObjects(_config.NearbyDistance);
                 break;
             case "stop":
+                _aoeAutoTurn.Cancel();
+                _warnVoice.Silence();
                 _tolk.Silence();
                 _chatVoice.Silence();
                 break;
@@ -2435,7 +2447,21 @@ public sealed partial class Plugin : IDalamudPlugin
             && !_uiReader.IsShopQuantityEditing && !_uiReader.IsSystemVolumeEditing && !_menu.IsOpen && !_hotbar.IsSkillMenuOpen);
 
         var readingInput = _uiReader.IsTableReading || _uiReader.IsShopQuantityEditing || _uiReader.IsSystemVolumeEditing;
-        if (HandleNavigationStopKeys(readingInput)) return;
+        if (HandleNavigationStopKeys(readingInput))
+        {
+            _aoeAutoTurn.Cancel();
+            return;
+        }
+        HandleAoeTurnCancelKeys(readingInput);
+        _combat.UpdateAreaWarnings();
+        _aoeAutoTurn.Update(_config.AutoTurnAoe && _combat.AutoTurnInDanger
+            && !textInputActive && !readingInput && !_menu.IsOpen && !_hotbar.IsSkillMenuOpen
+            && !_uiReader.HasActiveMenu && _uiReader.BlockingFocusedAddonForPlayerMenu() == null
+            && !_autoWalk.IsActive && !_autoWalk.IsFollowing
+            && !IsJustPressed(_config.KeyAutoWalk) && !IsJustPressed(_config.KeyFollowTarget)
+            && !IsJustPressed(_config.KeyFaceWaypoint) && !IsJustPressed(_config.KeyToggleAoeWarning)
+            && !IsJustPressed(_config.KeyOptionsMenu) && !IsJustPressed(_config.KeySkillMenu)
+            && !IsJustPressed(_config.KeyReadTable) && !IsJustPressed(_config.KeyShopQuantity));
         if (readingInput && IsJustPressed(_config.KeySilence)) { _tolk.Silence(); _chatVoice.Silence(); }
         if (readingInput && IsJustPressed(_config.KeyHelp)) _uiReader.AnnounceContextHelp();
         if (_uiReader.HandleTableKeys(_tableInput, GameWindowFocus.IsActive, textInputActive,
@@ -2929,6 +2955,14 @@ public sealed partial class Plugin : IDalamudPlugin
             if (GamepadState.Pressed(GamepadButtons.DpadLeft)  > 0) _uiReader.NavigateGamepad(-1);
             if (GamepadState.Pressed(GamepadButtons.DpadRight) > 0) _uiReader.NavigateGamepad(+1);
         }
+    }
+
+    private bool HandleAoeTurnCancelKeys(bool readingInput)
+    {
+        if (!_config.AutoTurnAoe || !IsJustPressed(_config.KeySilence, allowTextInput: readingInput)) return false;
+        _aoeAutoTurn.Cancel();
+        _warnVoice.Silence();
+        return true;
     }
 
     private bool HandleNavigationStopKeys(bool readingInput)

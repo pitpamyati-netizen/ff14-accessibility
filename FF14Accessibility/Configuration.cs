@@ -629,6 +629,9 @@ public sealed class Configuration : IPluginConfiguration
     // aufgezwungen werden. Opt-in per KeyToggleAoeWarning; spaeterer Release dreht den
     // Standard auf AN, sobald bestaetigt.
     public bool AnnounceAoeWarning = false;
+
+    // Explicit opt-in: rotates character and camera, never starts movement.
+    public bool AutoTurnAoe = false;
     public bool AnnounceAttacker = true;
     public bool WarnStrongerEnemies = true;
     public bool AnnounceQuestObjectiveChanges = true;

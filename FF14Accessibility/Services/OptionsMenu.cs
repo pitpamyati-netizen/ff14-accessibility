@@ -125,6 +125,8 @@ public sealed class OptionsMenu
         level.Entries.Add(new MenuEntry { Label = AccessibilityStrings.OptionsSounds,        Submenu = BuildSounds });
         level.Entries.Add(new MenuEntry { Label = AccessibilityStrings.OptionsAnnouncements, Submenu = BuildAnnouncements });
         level.Entries.Add(new MenuEntry { Label = AccessibilityStrings.OptionsOrder,         Submenu = BuildOrder });
+        level.Entries.Add(Toggle(AccessibilityStrings.OptAoeAutoTurn,
+            () => _config.AutoTurnAoe, v => _config.AutoTurnAoe = v));
 
         // [Dungeon-Wege] Steht im HAUPTMENUE und nicht unter "Ansagen", weil es
         // keine Ansage ist, die man abstellt, sondern die Datengrundlage einer
