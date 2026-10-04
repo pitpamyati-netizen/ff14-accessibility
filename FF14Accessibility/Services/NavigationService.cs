@@ -3312,14 +3312,30 @@ public sealed class NavigationService
         else if (SelectedQuestDestination is { TargetLevelType: 45 } || _selectedGatherSpot != null)
             candidate = ResolveSelectionObject();
         var system = FFXIVClientStructs.FFXIV.Client.Game.Control.TargetSystem.Instance();
-        var accepted = system != null && candidate != null
-            && BrowserTargetSelection.ConfirmWorldObject(_targetManager, candidate,
-                obj => system->InteractWithObject((CSGameObject*)obj.Address, checkLineOfSight: true));
-        _log.Info($"[Nav] World-object Confirm: requested={candidate?.GameObjectId ?? 0:X}, accepted={accepted}");
-        if (accepted) _ownSelectionId = candidate!.GameObjectId;
-        else _tolk.SpeakInterrupt(AccessibilityStrings.SelectedObjectUnavailable(
-            SelectedObjectDestination?.Name ?? SelectedQuestDestination?.QuestName
-                ?? (candidate == null ? CurrentCategoryLabel : _objectNames.Describe(candidate))));
+        var hardBefore = _targetManager.Target?.GameObjectId ?? 0;
+        var request = system != null && candidate != null
+            ? BrowserTargetSelection.ConfirmWorldObject(_targetManager, candidate,
+                obj => system->InteractWithObject((CSGameObject*)obj.Address, checkLineOfSight: true))
+            : default;
+        var hardAfter = _targetManager.Target?.GameObjectId ?? 0;
+        var distance = candidate != null && _objectTable.LocalPlayer is { } player
+            ? Vector3.Distance(player.Position, candidate.Position) : float.NaN;
+        _log.Info($"[Nav] World-object Confirm: object={candidate?.GameObjectId ?? 0:X}, " +
+                  $"kind={candidate?.ObjectKind}, targetable={candidate?.IsTargetable}, distance={distance:F1}, " +
+                  $"targetAccepted={request.TargetAccepted}, interactionRequested={request.Requested}, " +
+                  $"nativeResult={request.NativeResult:X}, hardBefore={hardBefore:X}, hardAfter={hardAfter:X}");
+        if (request.Requested)
+        {
+            if (hardAfter == candidate!.GameObjectId) _ownSelectionId = hardAfter;
+            return;
+        }
+        var name = SelectedObjectDestination?.Name ?? SelectedQuestDestination?.QuestName
+            ?? (candidate == null ? CurrentCategoryLabel : _objectNames.Describe(candidate));
+        _tolk.SpeakInterrupt(candidate == null
+            ? AccessibilityStrings.SelectedObjectMissing(name)
+            : !candidate.IsTargetable
+                ? AccessibilityStrings.SelectedObjectUnavailable(name)
+                : AccessibilityStrings.WorldObjectInteractionUnavailable);
     }
 
     /// <summary>
@@ -3553,10 +3569,9 @@ public sealed class NavigationService
         var listed = inRange.Where(IsWorthBrowsing).ToList();
 
         // One line per key press, and only when something was actually dropped:
-        // it shows in the log how much the filter takes off the list - and would
-        // show at once if it ever took too much. Two rules drop things here:
-        // nameless-and-untargetable extras, and gathering nodes the game does not
-        // currently raise (see IsWorthBrowsing).
+        // it shows in the log how much the filter takes off the list: nameless
+        // extras, emptied chests, and currently unavailable gathering/quest
+        // props (see IsWorthBrowsing).
         if (listed.Count != inRange.Count)
             _log.Info($"[Nav] Browser: {listed.Count} von {inRange.Count} Objekten " +
                       $"({inRange.Count - listed.Count} nicht nutzbar ausgeblendet).");
@@ -3578,7 +3593,8 @@ public sealed class NavigationService
     /// What stays:
     ///  - gathering nodes the game lets you TARGET (their type and level ARE the
     ///    description, see DescribeGatheringPoint),
-    ///  - anything with a speakable name, the object's own or the sheets' one,
+    ///  - targetable event props, including quest objects,
+    ///  - other objects with a speakable name, the object's own or the sheets' one,
     ///  - nameless things the game lets you TARGET: the game marks those as
     ///    interactive, so hiding them could hide something usable. They are
     ///    announced as "Objekt ohne Namen" rather than as a blank.
@@ -3617,7 +3633,10 @@ public sealed class NavigationService
     /// </summary>
     private bool IsWorthBrowsing(IGameObject o)
         => !IsEmptiedTreasure(o)
-           && (o.ObjectKind == ObjectKind.GatheringPoint
+           // A named event prop can remain loaded after it has been used.
+           // Use the game's current availability, not quest ownership/name or
+           // visit history. It returns automatically if the game enables it.
+           && (o.ObjectKind is ObjectKind.GatheringPoint or ObjectKind.EventObj
                ? o.IsTargetable
                : _objectNames.Resolve(o) != null || o.IsTargetable);
 

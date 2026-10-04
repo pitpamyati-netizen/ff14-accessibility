@@ -57,25 +57,81 @@ public sealed class WorldObjectConfirmTests
         var exact = BrowserTargetSelection.FindExact([enemy, sameNameNest, selected], 0x10039A457);
         Assert.Same(selected, exact);
         IGameObject? interacted = null;
-        Assert.True(BrowserTargetSelection.ConfirmWorldObject(targets, exact!, o => interacted = o));
+        var request = BrowserTargetSelection.ConfirmWorldObject(targets, exact!, o => { interacted = o; return 7; });
+        Assert.True(request.Requested);
+        Assert.True(request.TargetAccepted);
+        Assert.Equal(7UL, request.NativeResult);
         Assert.Same(selected, interacted);
         Assert.Same(selected, targets.Target);
         Assert.Null(targets.SoftTarget);
     }
 
     [Theory]
-    [InlineData(false, true, ObjectKind.EventObj)]
     [InlineData(true, false, ObjectKind.EventObj)]
+    [InlineData(true, false, ObjectKind.GatheringPoint)]
+    [InlineData(true, false, ObjectKind.Treasure)]
+    [InlineData(true, false, ObjectKind.Aetheryte)]
     [InlineData(true, true, ObjectKind.BattleNpc)]
     [InlineData(true, true, ObjectKind.Pc)]
-    public void RejectionUnavailableObjectOrCombatTargetNeverRequestsInteraction(bool accepts, bool targetable, ObjectKind kind)
+    public void UnavailableObjectOrCombatTargetNeverRequestsInteraction(bool accepts, bool targetable, ObjectKind kind)
     {
         var obj = Object(11, kind, targetable);
         var targets = DispatchProxy.Create<ITargetManager, NavigationInputTests.TargetProxy>();
         ((NavigationInputTests.TargetProxy)targets).Accepts = accepts;
         var calls = 0;
-        Assert.False(BrowserTargetSelection.ConfirmWorldObject(targets, obj, _ => calls++));
+        Assert.False(BrowserTargetSelection.ConfirmWorldObject(targets, obj, _ => { calls++; return 0; }).Requested);
         Assert.Equal(0, calls);
+    }
+
+    [Theory]
+    [InlineData(0UL)]
+    [InlineData(0x10039A457UL)]
+    public void HardTargetFilterRefusalStillRequestsExactAvailableNest(ulong nativeResult)
+    {
+        var nest = Object(0x10039A457, ObjectKind.EventObj);
+        var enemy = Object(0x400162A1, ObjectKind.BattleNpc);
+        var targets = DispatchProxy.Create<ITargetManager, NavigationInputTests.TargetProxy>();
+        var state = (NavigationInputTests.TargetProxy)targets;
+        state.Accepts = false; state.Hard = enemy; state.Soft = enemy;
+        var calls = 0;
+        var request = BrowserTargetSelection.ConfirmWorldObject(targets, nest, actual =>
+        {
+            Assert.Same(nest, actual);
+            calls++;
+            return nativeResult;
+        });
+        Assert.True(request.Requested);
+        Assert.False(request.TargetAccepted);
+        Assert.Equal(nativeResult, request.NativeResult);
+        Assert.Equal(1, calls);
+        Assert.Same(enemy, targets.Target);
+    }
+
+    [Fact]
+    public void NullNativeAddressCannotBePassedToInteraction()
+    {
+        var nest = Object(0x10039A457, ObjectKind.EventObj);
+        ((WorldObjectProxy)nest).Address = 0;
+        var targets = DispatchProxy.Create<ITargetManager, NavigationInputTests.TargetProxy>();
+        var calls = 0;
+        Assert.False(BrowserTargetSelection.ConfirmWorldObject(targets, nest, _ => { calls++; return 0; }).Requested);
+        Assert.Equal(0, calls);
+        Assert.Equal(0, ((NavigationInputTests.TargetProxy)targets).Requests);
+    }
+
+    [Theory]
+    [InlineData(ObjectKind.EventObj)]
+    [InlineData(ObjectKind.GatheringPoint)]
+    public void BrowserUsesCurrentAvailabilityAndRestoresReactivatedProp(ObjectKind kind)
+    {
+        var nav = (NavigationService)RuntimeHelpers.GetUninitializedObject(typeof(NavigationService));
+        var browse = typeof(NavigationService).GetMethod("IsWorthBrowsing", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var obj = Object(0x10039A457, kind, false);
+        Assert.False((bool)browse.Invoke(nav, [obj])!);
+        ((WorldObjectProxy)obj).Targetable = true;
+        Assert.True((bool)browse.Invoke(nav, [obj])!);
+        ((WorldObjectProxy)obj).Targetable = false;
+        Assert.False((bool)browse.Invoke(nav, [obj])!);
     }
 
     [Fact]
@@ -127,9 +183,11 @@ public sealed class WorldObjectConfirmTests
         public ulong Id;
         public ObjectKind Kind;
         public bool Targetable;
+        public nint Address = (nint)123;
         protected override object? Invoke(MethodInfo? method, object?[]? args) => method?.Name switch
         {
             "get_GameObjectId" => Id, "get_ObjectKind" => Kind, "get_IsTargetable" => Targetable,
+            "get_Address" => Address,
             _ => throw new NotSupportedException(method?.Name),
         };
     }

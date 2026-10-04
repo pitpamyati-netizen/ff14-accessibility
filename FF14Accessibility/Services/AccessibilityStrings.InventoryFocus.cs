@@ -10,7 +10,15 @@ public static partial class AccessibilityStrings
     public static string ArmourySlotFilter(string slot) => L(
         $"{slot}, Platzfilter", $"{slot}, slot filter", $"{slot}, фильтр слота");
     public static string SelectedObjectUnavailable(string name) => L(
-        $"{name} kann noch nicht anvisiert werden. Geh näher heran.",
-        $"{name} cannot be targeted yet. Move closer.",
-        $"{name} пока нельзя выбрать целью. Подойди ближе.");
+        $"{name} ist derzeit nicht benutzbar. Wähle ein anderes Objekt.",
+        $"{name} is currently unavailable for interaction. Choose another object.",
+        $"{name} сейчас недоступен для взаимодействия. Выбери другой объект.");
+    public static string SelectedObjectMissing(string name) => L(
+        $"{name} ist nicht mehr in der Nähe. Wähle das Objekt erneut.",
+        $"{name} is no longer nearby. Select the object again.",
+        $"{name} больше нет рядом. Выбери объект заново.");
+    public static string WorldObjectInteractionUnavailable => L(
+        "Die Interaktion konnte nicht angefordert werden. Bitte versuche es erneut.",
+        "Could not request interaction. Please try again.",
+        "Не удалось запросить взаимодействие. Попробуй ещё раз.");
 }
