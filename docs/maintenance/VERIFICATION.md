@@ -29,7 +29,20 @@
   Копия: `installer-backups/20261004-152226-089ccfd4f2dd48b782af4f8697eb0c80`.
   Настройки Dalamud, плагина и личные клавиши сохранены, автозагрузка проверена.
   Отчёт: `artifacts/logs/install-aoe-6.08.98.json`. Игра и лаунчер были закрыты.
-  Публикация выполняется; её результаты добавляются после завершения.
+- Коммит исходников `559eb03f1fdac54d8b55ee344f324375e2b8c63e` отправлен в
+  `origin/feature/russian-accessibility-recovery`. `Publish-Release.ps1 -CheckOnly`
+  пройден до публикации. Выпуск v6.08.98 опубликован в 15:27:51 по Томску:
+  https://github.com/pitpamyati-netizen/ff14-accessibility/releases/tag/v6.08.98
+  Подтверждены `draft=false`, `prerelease=false`, Latest, описание и метка коммита.
+- В 15:30 все четыре файла скачаны обратно. Сверены размер, GitHub digest,
+  SHA256SUMS, состав ZIP, DLL и локальный пакет. SHA-256 EXE установщика:
+  `FF34E2250ADEAF4436998AA7450F29BF88A90852530F410A667B2C0F83856198`.
+  SHA-256 его исходников: `C451D52F7BD08A85DA182A0E3804B26E2B919CADE34803D39A9893692AD0D0BB`.
+  Настоящий `ReleaseClient.Latest` выбрал 6.08.98 и нужный ZIP с правильным SHA-256.
+  Отчёты: `artifacts/publication-check-v6.08.98/verified-assets.json` и
+  `installer-latest-check.json` в той же папке.
+- Сборка соответствует исходникам `8EEC9DA33F99724DE94E639DA0101F824961C94EB2852414C4E39040EE2EC0EA`.
+  Проверенные входные файлы: `AE95AC117020D9CF2CC9210987F6FB600D289F7E6987996706ADC42BB4D162AB`.
 - Не проверены: речь и реальные повороты FFXIV/NVDA/Tolk, движение вперёд в
   стандартном и наследуемом режиме, круг/конус/перекрытие атак, узкий проход,
   низкий барьер/обрыв, ручное вмешательство, Alt+Tab и нагрузка на кадр.
