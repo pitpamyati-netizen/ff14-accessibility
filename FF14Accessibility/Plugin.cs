@@ -214,7 +214,7 @@ public sealed partial class Plugin : IDalamudPlugin
     // 6.08.18 lokal: Chat-Absender Kontextmenü (Strg+Umschalt+BildAuf) + Numpad3-Ziel.
     // 6.08.19: Charakterauswahl — eine Ansage (Name, Job, Ort) statt Scan-Sturm.
     // 6.08.20: Mitstreiter-Taste (PR 27 Port) — Strg+Umschalt+C öffnet/vorliest.
-    private const string PluginVersion    = "6.08.93";
+    private const string PluginVersion    = "6.08.95";
     // Der Tag nennt, was diese Fassung MITBRINGT, nicht woher sie stammt: die
     // russische Schicht auf dem Stand des Autors 6.08.35 (Auftragstext im
     // Quest-Tracker des Autors, siehe package-Schritt).
@@ -2374,6 +2374,7 @@ public sealed partial class Plugin : IDalamudPlugin
         }
 
         UpdateKeyEdges();
+        SuppressOwnedWorldConfirmHold();
         _shopQuantityInput.Poll();
         _tableInput.Poll();
         _hotbar.UpdateCrossHotbar(GameGui, IsControllerMode());
@@ -2653,9 +2654,12 @@ public sealed partial class Plugin : IDalamudPlugin
             if (_hotbar.IsSkillMenuOpen) _hotbar.CloseSkillMenu();
             else _hotbar.OpenSkillMenuDirect();
         }
-        HandlePlayerMenuKey();
-        // ContextMenu: nur Auswahl setzen, Numpad0 NICHT schlucken (Spiel-OK).
-        PrepareContextMenuForGameOk();
+        if (!HandleWorldObjectConfirmKey())
+        {
+            HandlePlayerMenuKey();
+            // ContextMenu: nur Auswahl setzen, Numpad0 NICHT schlucken (Spiel-OK).
+            PrepareContextMenuForGameOk();
+        }
         // [Job-Anzeige] Zustand auf Nachfrage, ohne auf eine Flanke zu warten.
         if (IsJustPressed(_config.KeyJobGauge))      _jobGauge.AnnounceCurrent();
         HandleFaceWaypointKey();

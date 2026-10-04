@@ -3410,26 +3410,19 @@ public sealed partial class UIReaderService : IDisposable
     // instant the focus lands; the tooltip DESCRIPTION is only queued after the
     // focus has dwelled on the SAME item for the same interval (user choice
     // 2026-07-31, mirrors the skill window) - so quickly scanning the bag never
-    // drowns in descriptions. Keyed by Item sheet row, not node pointer, so
-    // moving between two stacks of the same item does not re-read the text.
-    // The focus reader waits for AgentItemDetail to catch up with the cursor
-    // rather than announcing the slot it just left - see ResolveFocusedItemName.
-    // Counted per node, so a slot the agent never claims cannot stall forever.
+    // drowns in descriptions. RefreshItemFocus resets this state when the slot,
+    // contents or page changes, even if the game reuses the same node pointer.
+    // Owned inventory/armoury slots use the native display sort map; other
+    // windows allow AgentItemDetail a short, bounded catch-up interval.
     private nint _itemDeferNode;
     private int  _itemDeferFrames;
     private int  _itemDeferBudget = ItemDeferMaxFrames;
     private bool _itemSlotDeferring;    // set while this frame must not announce yet
     private uint _lastSpokenSlotItemId; // item the PREVIOUS focus announced
     private const int ItemDeferMaxFrames = 4;
-    // Waiting for the detail window to OPEN is a different order of magnitude from
-    // waiting for it to catch up. Measured 2026-09-05 00:19: opening the bag, the
-    // first focused slot still had no agent after four frames and fell back to the
-    // icon - the one miss in 101 focus changes. Half a second covers it, costs
-    // nothing when the agent is already there, and is spent while the window is
-    // announcing "Inventory" and its tab anyway. It can only ever be spent in the
-    // three windows the agent provably serves; everywhere else SlotWait.None means
-    // no wait at all.
-    private const int ItemDeferOpeningFrames = 30;
+    // Do not spend half a second waiting for a keyboard tooltip that may never
+    // open. This budget only applies to the remaining agent-based windows.
+    private const int ItemDeferOpeningFrames = 4;
 
     private uint _itemDwellId;            // item id the dwell clock is timing (0 = none)
     private long _itemDwellTick;          // Stopwatch timestamp the focus reached it
@@ -3481,6 +3474,12 @@ public sealed partial class UIReaderService : IDisposable
         if (input == null) return;
 
         var node = input->FocusedNode;
+        RefreshItemFocus(node);
+        if (_retryItemFocusSpeech && !_tolk.IsFocusInterruptProtected)
+        {
+            _retryItemFocusSpeech = false;
+            _lastFocusedNodePtr = 0;
+        }
         if (node == null)
         {
             _lastFocusedNodePtr  = 0;
@@ -3511,7 +3510,7 @@ public sealed partial class UIReaderService : IDisposable
         // ohne Rang-Namen - unbrauchbar. Solange das Fenster offen ist, schweigt
         // der generische Leser fuer diese Zeilen (State wird zurueckgesetzt, damit
         // nach dem Schliessen wieder frisch angesagt wird).
-        if (IsAddonVisible("MonsterNote"))
+        if (FindAddonNameForNode(node) == "MonsterNote")
         {
             _lastFocusedNodePtr  = 0;
             _lastFocusedNodeText   = string.Empty;
@@ -3620,7 +3619,11 @@ public sealed partial class UIReaderService : IDisposable
         // on a duty-finder setting, so leaving that window ends the help dwell by
         // itself instead of leaving a stale control behind.
         _settingHelpOwner = 0;
-        if (TryReadCharacterStat(node, out var statText))
+        if (TryReadArmouryFilterFocus(node, out var armouryFilter))
+        {
+            text = armouryFilter;
+        }
+        else if (TryReadCharacterStat(node, out var statText))
         {
             text = statText;
         }
@@ -4008,7 +4011,7 @@ public sealed partial class UIReaderService : IDisposable
             // an edge flag, so it stays true for the whole time a key is held.
             if (!string.IsNullOrEmpty(_lastFocusedItemName)
                 && IsAddonVisible("JournalResult")
-                && FindAddonNameForNode(node) != "JournalRewardItem"
+                && FindAddonNameForNode(node) == "JournalResult"
                 && !navKeyHeld) return;
             // JournalAccept: game auto-focuses Annehmen/Ablehnen on open. Speaking
             // them interrupts the quest summary (log 2026-09-23/24). Only announce
@@ -4070,7 +4073,8 @@ public sealed partial class UIReaderService : IDisposable
             // The name is going out now, so the description dwell may follow it.
             // A shop row counts as well: its name comes from the row text, not
             // from an icon slot, but it is just as much an item name.
-            _itemDwellArmed = itemBranchActive || _shopRowItemActive;
+            _itemDwellArmed = (itemBranchActive || _shopRowItemActive) && !_tolk.IsFocusInterruptProtected;
+            _retryItemFocusSpeech = (itemBranchActive || _shopRowItemActive) && _tolk.IsFocusInterruptProtected;
             // Der Knoten geht als Quelle mit: identische Doppel-Ansagen DESSELBEN
             // Knotens faengt der 0,5s-Debounce weiterhin ab, ein Schritt auf einen
             // ANDEREN Knoten mit gleichem Wort ("Einfach" -> "Einfach" in der
@@ -4874,6 +4878,26 @@ public sealed partial class UIReaderService : IDisposable
                 var icon = FindSlotIcon(comp);
                 if (icon == null) return string.Empty; // a real control, but not an item slot
 
+                // Owned slots are resolved through the client's display sort map.
+                // No tooltip-opening delay or ambiguous reverse icon lookup.
+                var owned = _focusedOwnedSlot;
+                if (owned.Status == ItemSlotService.OwnedSlotStatus.Updating)
+                {
+                    if ((nint)node != _itemDeferNode)
+                    {
+                        _itemDeferNode = (nint)node;
+                        _itemDeferFrames = 0;
+                    }
+                    if (_itemDeferFrames++ < ItemDeferMaxFrames)
+                    {
+                        _itemSlotDeferring = true;
+                        return string.Empty;
+                    }
+                    return AccessibilityStrings.FocusedItemUnavailable;
+                }
+                if (owned.Status == ItemSlotService.OwnedSlotStatus.Ready && owned.ItemId == 0)
+                    return AccessibilityStrings.EmptySlot;
+
                 // Empty slots must SPEAK (user 2026-07-16: silent cursor moves
                 // in the bag/armoury are indistinguishable from a stuck cursor).
                 // Only genuine slot components (Icon/DragDrop) with icon id 0
@@ -4911,12 +4935,14 @@ public sealed partial class UIReaderService : IDisposable
                     _itemDeferBudget = ItemDeferMaxFrames;
                 }
                 var deferExhausted = _itemDeferFrames >= _itemDeferBudget;
-                var agentItemId    = _itemSlots.TryResolve(comp, icon->IconId, _lastSpokenSlotItemId,
-                                                           deferExhausted, out var agentWait);
+                var agentWait = SlotWait.None;
+                var agentItemId = owned.Status == ItemSlotService.OwnedSlotStatus.Ready
+                    ? owned.ItemId : _itemSlots.TryResolve(comp, icon->IconId, _lastSpokenSlotItemId,
+                                                           deferExhausted, out agentWait);
                 if (agentItemId == 0 && agentWait != SlotWait.None && !deferExhausted)
                 {
-                    // A window that has not opened its detail yet needs the long
-                    // budget; one that is merely a frame behind needs the short one.
+                    // Both an unopened detail and a stale detail have a short
+                    // bounded wait; owned slots never depend on either.
                     if (agentWait == SlotWait.AgentOpening) _itemDeferBudget = ItemDeferOpeningFrames;
                     _itemDeferFrames++;
                     _itemSlotDeferring = true;
@@ -4974,7 +5000,8 @@ public sealed partial class UIReaderService : IDisposable
                 var conditionSource = "-";
                 if (agentItemId != 0)
                 {
-                    condition       = ReadTooltipCondition();
+                    condition       = owned.Status == ItemSlotService.OwnedSlotStatus.Ready
+                        ? string.Empty : ReadTooltipCondition();
                     conditionSource = "tooltip";
                     if (condition.Length == 0)
                     {

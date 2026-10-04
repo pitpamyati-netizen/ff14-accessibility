@@ -1,10 +1,27 @@
 using Dalamud.Game.ClientState.Objects.Types;
+using Dalamud.Game.ClientState.Objects.Enums;
 using Dalamud.Plugin.Services;
 
 namespace FF14Accessibility.Services;
 
 internal static class BrowserTargetSelection
 {
+    internal static bool IsWorldObject(IGameObject? obj) => obj?.ObjectKind
+        is ObjectKind.EventObj or ObjectKind.Treasure or ObjectKind.GatheringPoint or ObjectKind.Aetheryte;
+
+    internal static IGameObject? FindExact(IEnumerable<IGameObject> objects, ulong id)
+        => id == 0 ? null : objects.FirstOrDefault(o => o.GameObjectId == id);
+
+    internal static bool ConfirmWorldObject(ITargetManager targets, IGameObject obj,
+        Action<IGameObject> nativeConfirm)
+    {
+        if (!IsWorldObject(obj) || !obj.IsTargetable || !Select(targets, obj)) return false;
+        // The native interaction is for this exact object. Generic Confirm may
+        // choose the nearest enemy again after soft-target/UI churn.
+        nativeConfirm(obj);
+        return true;
+    }
+
     internal static bool Select(ITargetManager targets, IGameObject obj)
     {
         // Keep the native game checks. An explicit browser choice replaces an

@@ -104,7 +104,8 @@ internal enum NavCategory
 /// <param name="Name">Spoken name, for the "walking to X" announcement.</param>
 /// <param name="Position">World position at selection time (fallback once the
 /// object has left the object table, e.g. after a zone reload).</param>
-public sealed record ObjectDestination(ulong ObjectId, string Name, Vector3 Position);
+public sealed record ObjectDestination(ulong ObjectId, string Name, Vector3 Position,
+    ObjectKind Kind = ObjectKind.None);
 
 public sealed class NavigationService
 {
@@ -1205,6 +1206,7 @@ public sealed class NavigationService
     /// for the current selection; 0 while it has not (yet) aimed. Kept so the
     /// aim happens once per arrival instead of every frame - see there.</summary>
     private ulong _aimedAtId;
+    private long _nextSelectionAimTick;
 
     private int _categoryIndex;
     private int _cycleIndex = -1;
@@ -1565,7 +1567,7 @@ public sealed class NavigationService
             obj.ObjectKind == ObjectKind.GatheringPoint
                 ? DescribeGatheringPoint(obj)
                 : _objectNames.Describe(obj),
-            obj.Position);
+            obj.Position, obj.ObjectKind);
 
         // Audit probe: the game may REFUSE the change (SetHardTarget returns
         // bool, Dalamud discards it; rejections seen in log 2026-07-10 16:39
@@ -1750,7 +1752,7 @@ public sealed class NavigationService
         SelectedObjectDestination = new ObjectDestination(
             obj.GameObjectId,
             _objectNames.Describe(obj),
-            obj.Position);
+            obj.Position, obj.ObjectKind);
 
         var actualId = _targetManager.Target?.GameObjectId ?? 0;
         var rejected = actualId != obj.GameObjectId;
@@ -2288,7 +2290,7 @@ public sealed class NavigationService
         _ownSelectionId = BrowserTargetSelection.Select(_targetManager, obj) ? obj.GameObjectId : 0;
 
         SelectedObjectDestination = new ObjectDestination(
-            obj.GameObjectId, _objectNames.Describe(obj), obj.Position);
+            obj.GameObjectId, _objectNames.Describe(obj), obj.Position, obj.ObjectKind);
 
         var actualId = _targetManager.Target?.GameObjectId ?? 0;
         var rejected = actualId != obj.GameObjectId;
@@ -3117,6 +3119,9 @@ public sealed class NavigationService
         }
 
         if (_aimedAtId == candidate.GameObjectId) return;
+        var now = System.Diagnostics.Stopwatch.GetTimestamp();
+        if (now < _nextSelectionAimTick) return;
+        _nextSelectionAimTick = now + System.Diagnostics.Stopwatch.Frequency / 4;
 
         // Whatever the player picked themselves stays picked - but only while it
         // matters. Out of combat the browser selection IS the player's pick: the
@@ -3129,7 +3134,7 @@ public sealed class NavigationService
         if (current != null && !IsWorldProp(current) && IsInCombat()) return;
 
         var accepted = TargetFromBrowser(candidate);
-        _aimedAtId = candidate.GameObjectId;
+        _aimedAtId = accepted ? candidate.GameObjectId : 0;
         _log.Info($"[Nav] Ziel zur Auswahl: id={candidate.GameObjectId:X} " +
                   $"({candidate.Name.TextValue}), anvisiert={accepted}");
         // Only when the game took it: a refused target is not something the
@@ -3149,6 +3154,11 @@ public sealed class NavigationService
     /// </summary>
     private IGameObject? ResolveSelectionObject()
     {
+        // Retain the exact live browser pick; do not substitute a nearby enemy
+        // or another nest with the same name.
+        if (SelectedObjectDestination is { } selected)
+            return BrowserTargetSelection.FindExact(_objectTable, selected.ObjectId);
+
         // Sammelstelle: exakt ueber die Basis-Id des Knotens plus Naehe - eine
         // Basis-Id deckt einen kleinen Schwarm einzelner Knoten ab.
         if (_selectedGatherSpot is { } spot)
@@ -3276,6 +3286,40 @@ public sealed class NavigationService
     {
         _ownSelectionId = BrowserTargetSelection.Select(_targetManager, obj) ? obj.GameObjectId : 0;
         return (_targetManager.Target?.GameObjectId ?? 0) == obj.GameObjectId;
+    }
+
+    public bool HasWorldObjectConfirmSelection()
+    {
+        // A fresh explicit prop choice owns Confirm even in combat or after a
+        // rejected target set. Letting generic Confirm through could attack the
+        // enemy still left in the target window instead of the chosen nest.
+        if (SelectedObjectDestination?.Kind is ObjectKind.EventObj or ObjectKind.Treasure
+            or ObjectKind.GatheringPoint or ObjectKind.Aetheryte) return true;
+        if (IsInCombat() && _targetManager.Target is { } combatTarget
+            && !BrowserTargetSelection.IsWorldObject(combatTarget)) return false;
+        var candidate = ResolveSelectionObject() ?? _targetManager.Target ?? _targetManager.SoftTarget;
+        return BrowserTargetSelection.IsWorldObject(candidate)
+            || !IsInCombat() && (SelectedQuestDestination is { TargetLevelType: 45 }
+                || _selectedGatherSpot != null);
+    }
+
+    public unsafe void ConfirmSelectedWorldObject()
+    {
+        var candidate = ResolveSelectionObject() ?? _targetManager.Target ?? _targetManager.SoftTarget;
+        // Missing explicit selections cannot fall back to the game's target.
+        if (SelectedObjectDestination is { } selected)
+            candidate = BrowserTargetSelection.FindExact(_objectTable, selected.ObjectId);
+        else if (SelectedQuestDestination is { TargetLevelType: 45 } || _selectedGatherSpot != null)
+            candidate = ResolveSelectionObject();
+        var system = FFXIVClientStructs.FFXIV.Client.Game.Control.TargetSystem.Instance();
+        var accepted = system != null && candidate != null
+            && BrowserTargetSelection.ConfirmWorldObject(_targetManager, candidate,
+                obj => system->InteractWithObject((CSGameObject*)obj.Address, checkLineOfSight: true));
+        _log.Info($"[Nav] World-object Confirm: requested={candidate?.GameObjectId ?? 0:X}, accepted={accepted}");
+        if (accepted) _ownSelectionId = candidate!.GameObjectId;
+        else _tolk.SpeakInterrupt(AccessibilityStrings.SelectedObjectUnavailable(
+            SelectedObjectDestination?.Name ?? SelectedQuestDestination?.QuestName
+                ?? (candidate == null ? CurrentCategoryLabel : _objectNames.Describe(candidate))));
     }
 
     /// <summary>
