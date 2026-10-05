@@ -59,7 +59,8 @@ public sealed class ArmouryListSessionTests : IDisposable
     [InlineData(true, false, true, "ArmouryBoard")]
     [InlineData(true, false, false, "SelectYesno")]
     [InlineData(true, false, false, "Inventory")]
-    public void OtherWindowsTypingAndFocusLossKeepTheirKeyboard(bool active, bool typing, bool menu, string focus)
+    [InlineData(true, false, false, null)]
+    public void OtherWindowsTypingAndFocusLossKeepTheirKeyboard(bool active, bool typing, bool menu, string? focus)
     {
         var f = new Fixture(); f.Tick(); f.Keys.Down[0x62] = true;
         f.Tick(active, typing, menu, focus);
@@ -81,6 +82,68 @@ public sealed class ArmouryListSessionTests : IDisposable
         Assert.Null(f.Access.Requested);
         f.Release(); f.Access.Ready = true; f.Now += TimeSpan.FromSeconds(1); f.Tick();
         Assert.Contains("все предметы: 2", f.Speech.Last());
+    }
+
+    [Theory]
+    [InlineData(false)] [InlineData(true)]
+    public void TemporaryUpdateKeepsTheSelectedPhysicalItemAndRestoresItsSpeech(bool manualRead)
+    {
+        var f = new Fixture(); f.Tick(); f.Press(0x66); f.Release();
+        f.Access.Ready = false;
+        if (manualRead) f.Service.ReadSelected(true);
+        else { f.Now += TimeSpan.FromSeconds(1); f.Tick(); }
+        Assert.Contains("загружается", f.Speech.Last());
+        f.Press(0x60); Assert.Equal(0, f.Access.OpenCount); f.Release();
+        f.Access.Ready = true; f.Now += TimeSpan.FromSeconds(1); f.Tick();
+        Assert.Contains("Body", f.Speech.Last());
+        f.Press(0x60);
+        Assert.Equal(InventoryType.ArmoryBody, f.Access.Requested!.Container);
+        Assert.Equal(17, f.Access.Requested.Slot);
+    }
+
+    [Fact]
+    public void ItemRemovedDuringAnUpdateCannotReceiveTheRecoveryConfirmPress()
+    {
+        var f = new Fixture(); f.Tick(); f.Press(0x66); f.Release();
+        f.Access.Ready = false; f.Now += TimeSpan.FromSeconds(1); f.Tick();
+        f.Access.Items.RemoveAt(1); f.Access.Ready = true;
+        f.Press(0x60);
+        Assert.Equal(0, f.Access.OpenCount);
+        Assert.Equal(AccessibilityStrings.ArmouryListItemChanged, f.Speech.Last());
+        f.Release(); f.Press(0x60);
+        Assert.Equal(100u, f.Access.Requested!.ItemId);
+    }
+
+    [Theory]
+    [InlineData(0x64)] [InlineData(0x25)] [InlineData(0x68)] [InlineData(0x26)]
+    [InlineData(0x62)] [InlineData(0x28)] [InlineData(0x24)] [InlineData(0x23)]
+    [InlineData(0x66)] [InlineData(0x27)]
+    public void BrowsingWhileDataIsUnavailableCannotMoveTheRememberedSelection(int key)
+    {
+        var f = new Fixture();
+        f.Access.Items.AddRange(Enumerable.Range(0, 10).Select(i => new ArmouryListItem(
+            InventoryType.ArmoryBody, 18 + i, (uint)(102 + i), 1, false, "extra " + i, "Extra " + i)));
+        f.Tick(); f.Press(0x66); f.Release();
+        f.Access.Ready = false; f.Press(key); f.Release();
+        f.Access.Ready = true; f.Now += TimeSpan.FromSeconds(1); f.Tick();
+        Assert.Contains("Body", f.Speech.Last());
+        f.Press(0x60); Assert.Equal(17, f.Access.Requested!.Slot);
+    }
+
+    [Theory]
+    [InlineData(false)] [InlineData(true)]
+    public void LoadingSpeechDoesNotRepeatOnEveryFrameWithoutANewKey(bool previouslyReady)
+    {
+        var f = new Fixture();
+        if (previouslyReady) f.Tick();
+        f.Access.Ready = false; f.Now += TimeSpan.FromSeconds(1); f.Tick();
+        Assert.Contains("загружается", f.Speech.Last());
+        var count = f.Speech.Count;
+        for (var i = 0; i < 10; i++)
+        {
+            f.Now += TimeSpan.FromMilliseconds(300); f.Tick(); f.Service.HandleKeys(false);
+        }
+        Assert.Equal(count, f.Speech.Count);
     }
 
     [Fact]

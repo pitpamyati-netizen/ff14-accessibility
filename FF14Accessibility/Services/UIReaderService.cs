@@ -491,19 +491,29 @@ public sealed partial class UIReaderService : IDisposable
     /// Shops, inventory and dialogs still own the game's Confirm key.
     /// </summary>
     public unsafe string? BlockingFocusedAddonForPlayerMenu()
+        => BlockingFocusedAddon((AtkUnitManager*)RaptureAtkUnitManager.Instance());
+
+    internal static unsafe string? BlockingFocusedAddon(AtkUnitManager* mgr)
     {
-        var mgr = RaptureAtkUnitManager.Instance();
         if (mgr == null) return null;
+        // FocusedUnitsList can also retain background windows. In the player's
+        // log it was [PlayGuide, AchievementInfo, ArmouryBoard], although the
+        // keyboard cursor was in ArmouryBoard. The native active addon wins.
+        var focused = mgr->FocusedAddon;
+        if (focused != null && focused->IsVisible)
+            return IsPlayerMenuHud(focused->NameString) ? null : focused->NameString;
         for (var i = 0; i < mgr->FocusedUnitsList.Count && i < 256; i++)
         {
             var a = mgr->FocusedUnitsList.Entries[i].Value;
             if (a == null || !a->IsVisible) continue;
-            if (a->NameString is "_TargetInfo" or "_TargetInfoMainTarget" or
-                "_TargetInfoBuffDebuff" or "_PartyList" or "NamePlate") continue;
+            if (IsPlayerMenuHud(a->NameString)) continue;
             return a->NameString;
         }
         return null;
     }
+
+    private static bool IsPlayerMenuHud(string name) => name is
+        "_TargetInfo" or "_TargetInfoMainTarget" or "_TargetInfoBuffDebuff" or "_PartyList" or "NamePlate";
 
     /// <summary>
     /// Logs why Escape might not open System Menu: spoken menu, YesNo, focus.

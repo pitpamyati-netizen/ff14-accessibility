@@ -81,7 +81,7 @@ public sealed class ArmouryListService
             else if (context) _sawContext = true;
             else if (now >= _contextDeadline) { _requested = null; _refreshAt = default; failure = true; }
         }
-        var available = active && !typing && !otherMenu && focusedAddon is null or "ArmouryBoard";
+        var available = active && !typing && !otherMenu && focusedAddon == "ArmouryBoard";
         IsBrowsing = available && _requested == null && !context;
         _waiting = available && _requested != null && !context;
         var changed = false;
@@ -90,8 +90,12 @@ public sealed class ArmouryListService
         {
             _refreshAt = now.AddMilliseconds(250);
             var previous = _model.Selected;
+            var wasReady = _ready;
             if (_access.TryCollect(out var items)) { changed = _model.Replace(items); _ready = true; }
-            else { _model.Clear(); _ready = false; }
+            else _ready = false;
+            // A temporary sort/load must not erase the physical selection or
+            // silently send the next Num0 to the first item after recovery.
+            changed |= wasReady != _ready;
             _selectionInvalidated = previous != null && !ArmouryListModel.CanAct(previous, _model.Selected);
         }
         if (IsBrowsing && (!_wasBrowsing || !_announced || changed))
@@ -117,6 +121,7 @@ public sealed class ArmouryListService
         {
             _access.Close(_owner); Reset(); _speak(AccessibilityStrings.MenuClosed);
         }
+        else if (!_ready) { if (_input.JustAny(Keys)) ReadSelected(); }
         else if (_input.JustAny(0x68, 0x26)) { _model.MoveRow(-1); ReadSelected(); }
         else if (_input.JustAny(0x62, 0x28)) { _model.MoveRow(1); ReadSelected(); }
         else if (_input.JustAny(0x64, 0x25)) { _model.Move(-1); ReadSelected(); }
@@ -135,7 +140,7 @@ public sealed class ArmouryListService
             // A manual read can happen between periodic refreshes. Read the
             // live item again rather than describing the row that disappeared.
             if (_access.TryCollect(out var items)) { _model.Replace(items); _ready = true; }
-            else { _model.Clear(); _ready = false; }
+            else _ready = false;
         }
         var text = SelectionText();
         if (description && _ready && _model.Selected is { } item)
