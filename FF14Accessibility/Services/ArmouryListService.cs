@@ -7,7 +7,7 @@ namespace FF14Accessibility.Services;
 public sealed class ArmouryListService
 {
     internal static readonly int[] Keys = [0x68, 0x26, 0x62, 0x28, 0x65, 0x0C, 0x66, 0x27,
-        0x60, 0x64, 0x25, 0x6E, 0x2E, 0x24, 0x23];
+        0x60, 0x64, 0x25, 0x6E, 0x2E, 0x67, 0x24, 0x69, 0x21, 0x23];
     private readonly IArmouryListAccess _access;
     private readonly Func<bool> _loggedIn;
     private readonly Func<uint> _territoryId;
@@ -126,7 +126,8 @@ public sealed class ArmouryListService
         else if (_input.JustAny(0x62, 0x28)) { _model.MoveRow(1); ReadSelected(); }
         else if (_input.JustAny(0x64, 0x25)) { _model.Move(-1); ReadSelected(); }
         else if (_input.JustAny(0x66, 0x27)) { _model.Move(1); ReadSelected(); }
-        else if (_input.Just(0x24)) { _model.End(false); ReadSelected(); }
+        else if (_input.JustAny(0x67, 0x24)) SwitchCategory(-1);
+        else if (_input.JustAny(0x69, 0x21)) SwitchCategory(1);
         else if (_input.Just(0x23)) { _model.End(true); ReadSelected(); }
         else if (_input.JustAny(0x65, 0x0C)) ReadSelected(description: true);
         else if (_input.Just(0x60)) { _confirmHeld = true; OpenSelectedMenu(); }
@@ -145,7 +146,7 @@ public sealed class ArmouryListService
         var text = SelectionText();
         if (description && _ready && _model.Selected is { } item)
         {
-            var detail = _description(item.ItemId);
+            var detail = _description(item.BaseItemId);
             if (!string.IsNullOrWhiteSpace(detail)) text += ". " + detail;
             if (!string.IsNullOrWhiteSpace(item.Detail)) text += ". " + item.Detail;
         }
@@ -155,6 +156,15 @@ public sealed class ArmouryListService
     private string SelectionText() => !_ready ? AccessibilityStrings.ArmouryListUpdating
         : _model.Selected is not { } item ? AccessibilityStrings.MenuEmpty
         : AccessibilityStrings.MenuEntry(item.Label, _model.Cursor + 1, _model.Items.Count);
+
+    private void SwitchCategory(int direction)
+    {
+        _model.MoveCategory(direction);
+        var text = SelectionText();
+        if (_model.Selected is { } item)
+            text = AccessibilityStrings.ArmouryListCategory(ArmouryListModel.CategoryName(item.Container), text);
+        _speak(text);
+    }
 
     private void OpenSelectedMenu()
     {

@@ -134,7 +134,7 @@ public sealed unsafe partial class ItemSlotService
 
         // The agent keeps the HQ/collectible offset applied; sheet lookups need the
         // base id. Dalamud owns that mapping - the same call DescribeGearsetMark uses.
-        var itemId = Dalamud.Utility.ItemUtil.GetBaseId(agent->ItemId).ItemId;
+        var itemId = GetBaseItemId(agent->ItemId);
         if (itemId == 0) return 0;
 
         // First verify the drawing even when Index matches: it is only an index

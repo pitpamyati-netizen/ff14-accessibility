@@ -7,6 +7,11 @@ namespace FF14Accessibility.Services;
 
 public sealed unsafe partial class ItemSlotService
 {
+    // Native GetItemId includes HQ/collectible flags. Item-sheet lookups use
+    // the base row; native actions and instance checks keep the original ID.
+    internal static uint GetBaseItemId(uint rawItemId)
+        => Dalamud.Utility.ItemUtil.GetBaseId(rawItemId).ItemId;
+
     internal enum OwnedSlotStatus { OtherWindow, Updating, Ready }
 
     internal readonly record struct OwnedSlot(
@@ -53,7 +58,7 @@ public sealed unsafe partial class ItemSlotService
         if (container == null || !container->IsLoaded || container->Items == null
             || physicalSlot < 0 || physicalSlot >= container->Size) return pending;
         var item = container->Items + physicalSlot;
-        var id = item->GetItemId();
+        var id = GetBaseItemId(item->GetItemId());
         var hq = (item->Flags & InventoryItem.ItemFlags.HighQuality) != 0;
         if (id == 0)
             return iconId == 0 ? new(OwnedSlotStatus.Ready, (nint)addon, page, displaySlot,

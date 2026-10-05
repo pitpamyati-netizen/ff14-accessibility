@@ -3,7 +3,10 @@ using FFXIVClientStructs.FFXIV.Client.Game;
 namespace FF14Accessibility.Services;
 
 internal sealed record ArmouryListItem(InventoryType Container, int Slot, uint ItemId,
-    uint Quantity, bool HighQuality, string Instance, string Label, string Detail = "");
+    uint Quantity, bool HighQuality, string Instance, string Label, string Detail = "")
+{
+    internal uint BaseItemId => ItemSlotService.GetBaseItemId(ItemId);
+}
 
 // A row identifies a physical item, never a displayed index or an icon.
 internal sealed class ArmouryListModel
@@ -48,6 +51,39 @@ internal sealed class ArmouryListModel
     }
 
     internal void End(bool last) => Cursor = last ? Math.Max(0, Items.Count - 1) : 0;
+    internal void MoveCategory(int direction)
+    {
+        if (Selected is not { } selected || direction is not (-1 or 1)) return;
+        var current = Array.IndexOf(Containers, selected.Container);
+        for (var step = 1; step <= Containers.Length; step++)
+        {
+            var category = (current + direction * step + Containers.Length) % Containers.Length;
+            for (var index = 0; index < Items.Count; index++)
+            {
+                if (Items[index].Container != Containers[category]) continue;
+                Cursor = index;
+                return;
+            }
+        }
+    }
+
+    internal static string CategoryName(InventoryType type) => type switch
+    {
+        InventoryType.ArmoryMainHand => AccessibilityStrings.ArmouryMainHand,
+        InventoryType.ArmoryHead => AccessibilityStrings.SlotHead,
+        InventoryType.ArmoryBody => AccessibilityStrings.SlotBody,
+        InventoryType.ArmoryHands => AccessibilityStrings.SlotHands,
+        InventoryType.ArmoryLegs => AccessibilityStrings.SlotLegs,
+        InventoryType.ArmoryFeets => AccessibilityStrings.SlotFeet,
+        InventoryType.ArmoryOffHand => AccessibilityStrings.SlotOffHand,
+        InventoryType.ArmoryEar => AccessibilityStrings.SlotEars,
+        InventoryType.ArmoryNeck => AccessibilityStrings.SlotNeck,
+        InventoryType.ArmoryWrist => AccessibilityStrings.SlotWrists,
+        InventoryType.ArmoryRings => AccessibilityStrings.SlotRing,
+        InventoryType.ArmorySoulCrystal => AccessibilityStrings.SlotSoulCrystal,
+        _ => string.Empty,
+    };
+
     internal void Clear() { Items = []; Cursor = 0; }
     internal static bool SameAddress(ArmouryListItem a, ArmouryListItem b)
         => a.Container == b.Container && a.Slot == b.Slot && a.ItemId == b.ItemId

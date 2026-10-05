@@ -72,9 +72,10 @@ internal sealed unsafe class ArmouryListAccess(IGameGui gui, InventoryService in
         var id = item->GetItemId();
         if (id == 0 || item->Quantity <= 0) return null;
         var hq = (item->Flags & InventoryItem.ItemFlags.HighQuality) != 0;
-        var label = inventory.ResolveItemLabel(id) + (hq ? AccessibilityStrings.HighQuality : string.Empty);
+        var baseId = ItemSlotService.GetBaseItemId(id);
+        var label = inventory.ResolveItemLabel(baseId) + (hq ? AccessibilityStrings.HighQuality : string.Empty);
         if (item->Quantity > 1) label = AccessibilityStrings.ItemQuantity(item->Quantity.ToString(), label);
-        var brief = gear.DescribeGear(id, briefWhenWearable: true);
+        var brief = gear.DescribeGear(baseId, briefWhenWearable: true);
         if (brief.Length > 0) label += ", " + brief;
         var sets = RaptureGearsetModule.Instance();
         var registered = sets != null && sets->NumGearsets > 0 && sets->IsItemRegisteredToGearset(item);

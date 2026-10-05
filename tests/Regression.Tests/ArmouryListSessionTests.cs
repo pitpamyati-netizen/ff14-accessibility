@@ -62,9 +62,12 @@ public sealed class ArmouryListSessionTests : IDisposable
     [InlineData(true, false, false, null)]
     public void OtherWindowsTypingAndFocusLossKeepTheirKeyboard(bool active, bool typing, bool menu, string? focus)
     {
-        var f = new Fixture(); f.Tick(); f.Keys.Down[0x62] = true;
-        f.Tick(active, typing, menu, focus);
-        Assert.False(f.Service.HandleKeys(false)); Assert.True(f.Keys.Down[0x62]);
+        foreach (var key in new[] { 0x62, 0x67, 0x24, 0x69, 0x21 })
+        {
+            var f = new Fixture(); f.Tick(); f.Keys.Down[key] = true;
+            f.Tick(active, typing, menu, focus);
+            Assert.False(f.Service.HandleKeys(false)); Assert.True(f.Keys.Down[key]);
+        }
     }
 
     [Fact]
@@ -118,6 +121,7 @@ public sealed class ArmouryListSessionTests : IDisposable
     [InlineData(0x64)] [InlineData(0x25)] [InlineData(0x68)] [InlineData(0x26)]
     [InlineData(0x62)] [InlineData(0x28)] [InlineData(0x24)] [InlineData(0x23)]
     [InlineData(0x66)] [InlineData(0x27)]
+    [InlineData(0x67)] [InlineData(0x69)] [InlineData(0x21)]
     public void BrowsingWhileDataIsUnavailableCannotMoveTheRememberedSelection(int key)
     {
         var f = new Fixture();
@@ -249,6 +253,52 @@ public sealed class ArmouryListSessionTests : IDisposable
         Assert.False(f.Service.IsOpen); Assert.Equal(1, f.Access.CloseCount);
         f.Access.Window = new(100, 137); f.Release(); Assert.True(f.Service.IsBrowsing);
         Assert.Contains("все предметы: 2", f.Speech.Last());
+    }
+
+    [Theory]
+    [InlineData(1908u, false)]
+    [InlineData(1001908u, true)]
+    [InlineData(501908u, false)]
+    public void ItemFromPlayerLogUsesBaseRowForDescriptionAndRawIdForNativeContext(uint rawId, bool hq)
+    {
+        var f = new Fixture();
+        f.Access.Items = [new(InventoryType.ArmoryMainHand, 9, rawId, 1, hq,
+            "logged instance", "Лук")];
+        f.Tick(); f.Service.ReadSelected(true);
+        Assert.Contains("description 1908", f.Speech.Last());
+        if (rawId != 1908) Assert.DoesNotContain("description " + rawId, f.Speech.Last());
+        f.Press(0x60);
+        Assert.Equal(rawId, f.Access.Requested!.ItemId);
+        Assert.Equal(9, f.Access.Requested.Slot);
+        Assert.Equal(hq, f.Access.Requested.HighQuality);
+    }
+
+    [Theory]
+    [InlineData(0x67, 11)] [InlineData(0x24, 11)]
+    [InlineData(0x69, 1)] [InlineData(0x21, 1)]
+    public void CategoryKeysWorkWithBothNumlockStatesAndKeepTheExactHqItem(int key, int category)
+    {
+        var f = new Fixture();
+        f.Access.Items = ArmouryListModel.Containers.SelectMany((type, i) => new[] {
+            new ArmouryListItem(type, 9, 1001908, 1, true, "HQ " + i, "First " + i),
+            new ArmouryListItem(type, 20, 1908, 1, false, "NQ " + i, "Second " + i) }).ToList();
+        f.Tick(); f.Press(0x66); f.Release(); f.Press(key);
+        Assert.Contains("First " + category + ",", f.Speech.Last());
+        Assert.Contains(ArmouryListModel.CategoryName(ArmouryListModel.Containers[category]), f.Speech.Last());
+        Assert.False(f.Keys.Down[key]);
+        var speechCount = f.Speech.Count;
+        for (var i = 0; i < 3; i++)
+        {
+            f.Keys.Down[key] = true; f.Tick(); f.Service.HandleKeys(false);
+            Assert.False(f.Keys.Down[key]);
+        }
+        Assert.Equal(speechCount, f.Speech.Count);
+        f.Release(); f.Service.ReadSelected(true);
+        Assert.Contains("description 1908", f.Speech.Last());
+        f.Press(0x60);
+        Assert.Equal(ArmouryListModel.Containers[category], f.Access.Requested!.Container);
+        Assert.Equal(9, f.Access.Requested.Slot);
+        Assert.Equal(1001908u, f.Access.Requested.ItemId);
     }
 
     private sealed class Fixture

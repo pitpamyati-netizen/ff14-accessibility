@@ -1,5 +1,23 @@
 # Карта наших изменений
 
+## Обычный номер для названий и Num7/9 в арсенале — 6.08.104
+
+ItemSlotService.GetBaseItemId использует штатный Dalamud ItemUtil.GetBaseId.
+ArmouryListAccess передаёт обычный номер в ResolveItemLabel/DescribeGear;
+ArmouryListItem.BaseItemId и ArmouryListService используют его для описания.
+Полный ItemId и проверка физического экземпляра для ContextMenu сохранены.
+ReadOwnedSlot исправляет такой же отказ поиска HQ/collectible строки Item.
+
+ArmouryListModel.MoveCategory обходит 12 контейнеров в порядке игры,
+пропускает пустые и выбирает первый предмет. ArmouryListService принимает
+Num7/Home и Num9/Page Up, произносит категорию и предмет через AccessibilityStrings.
+Home ранее ошибочно означал начало всего списка; справка приведена в соответствие.
+ArmouryListSessionTests/ArmouryListTests/InventoryFocusTests добавляют 17 проверок.
+tools/menu-reading-check/NativeItemIdChecks сверяет все именованные HQ-предметы
+из установленных таблиц. Другие чтения GetItemId проверены: нативные запросы
+и проверки переноса сохраняют полный номер, Hotbar/ItemCompare уже получали обычный.
+
+
 ## Исправление проверки пола и кругов для AoE — 6.08.103
 
 AoeEscapePath.GroundPoint нормализует заполненную нормаль, а при её отсутствии

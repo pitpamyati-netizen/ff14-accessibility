@@ -5,9 +5,50 @@ namespace Regression.Tests;
 
 public sealed class ArmouryListTests
 {
+    [Fact]
+    public void BothQualitiesReadOneSheetRowButCannotReplaceEachOtherForAnAction()
+    {
+        var nq = Item(id: 1908);
+        var hq = Item(id: 1001908, hq: true);
+        Assert.Equal(1908u, nq.BaseItemId);
+        Assert.Equal(nq.BaseItemId, hq.BaseItemId);
+        Assert.Equal(1001908u, hq.ItemId);
+        Assert.False(ArmouryListModel.CanAct(nq, hq));
+        Assert.False(ArmouryListModel.CanAct(hq, nq));
+        Assert.True(ArmouryListModel.CanAct(hq, hq));
+    }
+
     private static ArmouryListItem Item(InventoryType type = InventoryType.ArmoryHead,
         int slot = 0, uint id = 100, bool hq = false, string instance = "AA", string label = "Hat")
         => new(type, slot, id, 1, hq, instance, label);
+
+    [Fact]
+    public void CategoryNavigationSkipsEmptySectionsAndWrapsInTheNativeOrder()
+    {
+        var model = new ArmouryListModel();
+        model.Replace([Item(InventoryType.ArmoryMainHand, 8), Item(InventoryType.ArmoryMainHand, 20),
+            Item(InventoryType.ArmoryBody, 4), Item(InventoryType.ArmoryBody, 15),
+            Item(InventoryType.ArmoryRings, 6)]);
+        model.Move(1); model.MoveCategory(1);
+        Assert.Equal(InventoryType.ArmoryBody, model.Selected!.Container); Assert.Equal(4, model.Selected.Slot);
+        model.MoveCategory(1); Assert.Equal(InventoryType.ArmoryRings, model.Selected!.Container);
+        model.MoveCategory(1); Assert.Equal(InventoryType.ArmoryMainHand, model.Selected!.Container);
+        Assert.Equal(8, model.Selected.Slot);
+        model.MoveCategory(-1); Assert.Equal(InventoryType.ArmoryRings, model.Selected!.Container);
+        model.MoveCategory(-1); Assert.Equal(InventoryType.ArmoryBody, model.Selected!.Container);
+        foreach (var type in ArmouryListModel.Containers) Assert.NotEmpty(ArmouryListModel.CategoryName(type));
+    }
+
+    [Fact]
+    public void OneCategoryOrAnEmptyListCannotLeaveSelectionOutsideTheAvailableItems()
+    {
+        var model = new ArmouryListModel();
+        model.MoveCategory(-1); model.MoveCategory(1); Assert.Null(model.Selected);
+        model.Replace([Item(slot: 8), Item(slot: 20)]); model.Move(1);
+        model.MoveCategory(1); Assert.Equal(8, model.Selected!.Slot);
+        model.MoveCategory(-1); Assert.Equal(8, model.Selected!.Slot);
+        model.MoveCategory(0); Assert.Equal(8, model.Selected!.Slot);
+    }
 
     [Fact]
     public void AllTwelveNativeSectionsBecomeOneListWithoutGroupingOrIdDeduplication()

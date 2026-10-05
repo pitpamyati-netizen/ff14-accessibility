@@ -6,9 +6,12 @@ public static partial class AccessibilityStrings
         $"Arsenaltruhe, alle Gegenstände: {count}", $"Armoury Chest, all items: {count}",
         $"Арсенал, все предметы: {count}");
     public static string ArmouryListHelp => L(
-        "2 und 8: eine Reihe nach unten oder oben. 4 und 6: vorheriger oder nächster Gegenstand. 5: Beschreibung. 0: Spielmenü des Gegenstands. Escape oder Entf: schließen. Pos1 und Ende: erster und letzter Gegenstand.",
-        "2 and 8: move a row down or up. 4 and 6: previous or next item. 5: description. 0: game item menu. Escape or Delete: close. Home and End: first and last item.",
-        "2 и 8: на строку вниз или вверх. 4 и 6: предыдущий или следующий предмет. 5: описание. 0: игровое меню предмета. Escape или Delete: закрыть. Home и End: первый и последний предмет.");
+        "2 und 8: eine Reihe nach unten oder oben. 4 und 6: vorheriger oder nächster Gegenstand. 7 und 9: vorherige oder nächste nicht leere Kategorie, auch ohne NumLock über Pos1 und Bild auf. 5: Beschreibung. 0: Spielmenü des Gegenstands. Escape oder Entf: schließen. Ende: letzter Gegenstand.",
+        "2 and 8: move a row down or up. 4 and 6: previous or next item. 7 and 9: previous or next nonempty category, also with NumLock off via Home and Page Up. 5: description. 0: game item menu. Escape or Delete: close. End: last item.",
+        "2 и 8: на строку вниз или вверх. 4 и 6: предыдущий или следующий предмет. 7 и 9: предыдущая или следующая непустая категория, также при выключенном NumLock через Home и Page Up. 5: описание. 0: игровое меню предмета. Escape или Delete: закрыть. End: последний предмет.");
+    public static string ArmouryListCategory(string category, string selection) => L(
+        $"Kategorie: {category}. {selection}", $"Category: {category}. {selection}",
+        $"Категория: {category}. {selection}");
     public static string ArmouryListUpdating => L(
         "Die Arsenaltruhe wird geladen. Bitte warten.", "The Armoury Chest is loading. Please wait.",
         "Арсенал загружается. Подожди.");

@@ -17,6 +17,14 @@ public unsafe sealed class InventoryFocusTests : IDisposable
     public void Dispose() => Loc.Mode = previous;
 
     [Theory]
+    [InlineData(0u, 0u)]
+    [InlineData(1908u, 1908u)]
+    [InlineData(1001908u, 1908u)]
+    [InlineData(501908u, 1908u)]
+    public void NativeItemQualityDoesNotChangeTheSheetRow(uint rawId, uint expected)
+        => Assert.Equal(expected, ItemSlotService.GetBaseItemId(rawId));
+
+    [Theory]
     [InlineData("InventoryGrid", 0, -1, 0)]
     [InlineData("InventoryGrid", 3, -1, 3)]
     [InlineData("InventoryGrid", 4, -1, -1)]

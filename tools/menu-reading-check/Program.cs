@@ -46,15 +46,18 @@ if (!service.MainCommand(1).Contains("оружие")) throw new Exception("Missi
 data.Language = ClientLanguage.English; Loc.Mode = LanguageMode.English;
 if (service.GeneralAction(30) != "Change the order of hotbar-assigned actions.") throw new Exception("English fallback changed.");
 var translationAssertions = TranslationToggleChecks.Run(game, data, service, log);
+var nativeItems = NativeItemIdChecks.Run(data, service, log);
 var recipeChecks = RecipeChecks.Run(data, service);
 var report = new { CheckedAt = DateTimeOffset.Now, Cases = results, AdditionalAssertions = 3,
     TranslationToggleAssertions = translationAssertions,
+    NativeItems = nativeItems,
     RecipeChecks = recipeChecks,
     InGameVerified = false, DynamicNumbersEvaluated = false };
 File.WriteAllText(args[1], JsonSerializer.Serialize(report, new JsonSerializerOptions { WriteIndented = true,
     Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }));
 Console.WriteLine($"Passed {results.Count * 2 + 3} menu assertions and {translationAssertions} translation-toggle assertions using real game sheets. Dynamic formulas and native focus require the game.");
 Console.WriteLine($"Recipe checks: {recipeChecks}");
+Console.WriteLine($"Native item checks: {nativeItems}");
 
 public class SilentLog : DispatchProxy
 {
