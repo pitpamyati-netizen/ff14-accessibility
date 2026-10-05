@@ -9,6 +9,7 @@ public sealed partial class CombatService
     private readonly List<DangerZone> _autoTurnZones = new();
     internal IReadOnlyList<DangerZone> AutoTurnZones => _autoTurnZones;
     internal bool AutoTurnUncertain { get; private set; }
+    internal string? AutoTurnUncertainReason { get; private set; }
     internal bool AutoTurnInDanger { get; private set; }
 
     internal void SetAutoTurnGuidance(Vector3? spot) => _escape.SetAutoTurnGuidance(AutoTurnInDanger, spot);
@@ -19,6 +20,7 @@ public sealed partial class CombatService
     {
         _autoTurnZones.Clear();
         AutoTurnUncertain = false;
+        AutoTurnUncertainReason = null;
         AutoTurnInDanger = false;
         var player = _objectTable.LocalPlayer;
         if (player == null || player.CurrentHp == 0)
@@ -39,18 +41,39 @@ public sealed partial class CombatService
         if (zone is not { } geometry || !AoeEscapeGeometry.IsValid(geometry))
         {
             AutoTurnUncertain = true;
+            AutoTurnUncertainReason ??= $"invalid geometry: action={row.RowId}";
             return;
         }
         AutoTurnInDanger |= geometry.Contains(playerPos);
         var omen = row.Omen.ValueNullable?.Path.ExtractText() ?? string.Empty;
-        if (ReliableAutoTurnShape(row.CastType, omen, caster.CastTargetObjectId == caster.GameObjectId,
+        var circleOnCaster = CircleOnCaster(caster.GameObjectId, caster.CastTargetObjectId, row);
+        if (!row.AffectsPosition && ReliableAutoTurnShape(row.CastType, omen, circleOnCaster,
                 followsPlayer, row.XAxisModifier))
             _autoTurnZones.Add(geometry);
-        else if (!AoeShape.HasProvenShape(row.CastType)
+        else if (row.AffectsPosition || !AoeShape.HasProvenShape(row.CastType)
             || row.CastType is AoeShape.CastTypeCircle or AoeShape.CastTypeCircle5
-                && caster.CastTargetObjectId != caster.GameObjectId
+                && !circleOnCaster
             || AoeEscapeGeometry.ContainsWithMargin(geometry, playerPos, 25f))
+        {
             AutoTurnUncertain = true;
+            AutoTurnUncertainReason ??= $"unverified shape/centre: action={row.RowId}, type={row.CastType}, target={caster.CastTargetObjectId:X}, omen={omen}";
+        }
+    }
+
+    internal static bool CircleOnCaster(ulong casterId, ulong targetId, LuminaAction row)
+        => !row.AffectsPosition && CircleOnCaster(casterId, targetId, row.TargetArea, row.CanTargetSelf,
+            row.CanTargetParty || row.CanTargetAlliance || row.CanTargetHostile || row.CanTargetAlly
+            || row.CanTargetOwnPet || row.CanTargetPartyPet, row.Range);
+
+    internal static bool CircleOnCaster(ulong casterId, ulong targetId, bool targetArea,
+        bool canTargetSelf, bool canTargetOther, int range)
+    {
+        if (targetArea) return false;
+        if (targetId == casterId && casterId != 0) return true;
+        // Self AoEs can have no object target. Accept the game's no-target
+        // sentinels only for zero-range, self actions, never a ground target.
+        return casterId != 0 && targetId is 0 or 0xE0000000
+            && canTargetSelf && !canTargetOther && range == 0;
     }
 
     internal static bool ReliableAutoTurnShape(byte castType, string omen, bool circleOnCaster,

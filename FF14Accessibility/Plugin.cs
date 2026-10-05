@@ -217,7 +217,7 @@ public sealed partial class Plugin : IDalamudPlugin
     // 6.08.18 lokal: Chat-Absender Kontextmenü (Strg+Umschalt+BildAuf) + Numpad3-Ziel.
     // 6.08.19: Charakterauswahl — eine Ansage (Name, Job, Ort) statt Scan-Sturm.
     // 6.08.20: Mitstreiter-Taste (PR 27 Port) — Strg+Umschalt+C öffnet/vorliest.
-    private const string PluginVersion    = "6.08.102";
+    private const string PluginVersion    = "6.08.103";
     // Der Tag nennt, was diese Fassung MITBRINGT, nicht woher sie stammt: die
     // russische Schicht auf dem Stand des Autors 6.08.35 (Auftragstext im
     // Quest-Tracker des Autors, siehe package-Schritt).
@@ -2470,7 +2470,13 @@ public sealed partial class Plugin : IDalamudPlugin
             && !IsJustPressed(_config.KeyAutoWalk) && !IsJustPressed(_config.KeyFollowTarget)
             && !IsJustPressed(_config.KeyFaceWaypoint) && !IsJustPressed(_config.KeyToggleAoeWarning)
             && !IsJustPressed(_config.KeyOptionsMenu) && !IsJustPressed(_config.KeySkillMenu)
-            && !IsJustPressed(_config.KeyReadTable) && !IsJustPressed(_config.KeyShopQuantity));
+            && !IsJustPressed(_config.KeyReadTable) && !IsJustPressed(_config.KeyShopQuantity),
+            !_config.AutoTurnAoe || !_combat.AutoTurnInDanger ? null
+            : textInputActive ? "text input" : readingInput ? "reader owns input"
+            : _armouryList.IsOpen ? "ArmouryBoard" : _menu.IsOpen ? "spoken menu"
+            : _hotbar.IsSkillMenuOpen ? "skill menu" : _uiReader.HasActiveMenu ? "visible native menu"
+            : _uiReader.BlockingFocusedAddonForPlayerMenu() is { } aoeWindow ? $"focused addon={aoeWindow}"
+            : _autoWalk.IsActive || _autoWalk.IsFollowing ? "navigation running" : "control key pressed");
         if (readingInput && IsJustPressed(_config.KeySilence)) { _tolk.Silence(); _chatVoice.Silence(); }
         if (readingInput && !_armouryList.OwnsInput && IsJustPressed(_config.KeyHelp)) _uiReader.AnnounceContextHelp();
         if (_armouryList.OwnsInput)

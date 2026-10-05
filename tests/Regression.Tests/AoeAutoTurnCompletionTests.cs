@@ -219,6 +219,26 @@ public class AoeAutoTurnCompletionTests
         Assert.Null(f.Escape.SafeSpot);
     }
 
+    [Fact]
+    public void ShortCastLogsThePathRefusalWithoutWaitingForAnExhaustiveSearch()
+    {
+        var f = new Fixture();
+        f.Control.PathBlocked = true;
+        f.Update(0); f.Update(50); f.Update(100);
+        Assert.Empty(f.Control.Turned);
+        Assert.Empty(f.Spoken);
+        Assert.Contains("no supported ground hit", Assert.Single(f.Logged));
+    }
+
+    [Fact]
+    public void SuspendedControlRecordsTheActualUiCauseWithoutTurning()
+    {
+        var f = new Fixture();
+        f.Service.Update(false, "focused addon=Talk");
+        Assert.Empty(f.Control.Turned);
+        Assert.Contains("focused addon=Talk", Assert.Single(f.Logged));
+    }
+
     private static void Set(object target, string name, object value) => target.GetType()
         .GetField(name, BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(target, value);
 
@@ -229,6 +249,7 @@ public class AoeAutoTurnCompletionTests
         internal readonly CombatService Combat = (CombatService)RuntimeHelpers.GetUninitializedObject(typeof(CombatService));
         internal readonly FakeControl Control = new();
         internal readonly List<string> Spoken = new();
+        internal readonly List<string> Logged = new();
         internal readonly AoeAutoTurnService Service;
         internal ulong PlayerId = 1;
         internal uint Territory = 133;
@@ -247,7 +268,11 @@ public class AoeAutoTurnCompletionTests
                 "get_IsLoggedIn" => true, "get_TerritoryType" => Territory, _ => throw new Exception(m.Name),
             });
             var condition = AoeAutoTurnIntegrationTests.Proxy.Of<ICondition>((_, _) => false);
-            var log = AoeAutoTurnIntegrationTests.Proxy.Of<IPluginLog>((_, _) => null);
+            var log = AoeAutoTurnIntegrationTests.Proxy.Of<IPluginLog>((m, args) =>
+            {
+                if (m.Name == "Info") Logged.Add((string)args![0]!);
+                return null;
+            });
             Set(Combat, "_escape", Escape);
             Set(Combat, "_autoTurnZones", new List<DangerZone> { Circle });
             Set(Combat, "<AutoTurnInDanger>k__BackingField", true);
@@ -263,6 +288,7 @@ public class AoeAutoTurnCompletionTests
         internal readonly List<Vector3> Turned = new();
         internal bool ThrowOnRead;
         internal bool PathBlocked;
+        public string? LastPathFailure => PathBlocked ? "no supported ground hit" : null;
         public AoeControlState Read(IPlayerCharacter player) => ThrowOnRead ? throw new Exception("Unexpected native read") : State;
         public bool Turn(IPlayerCharacter player, Vector3 point)
         {

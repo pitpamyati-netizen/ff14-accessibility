@@ -26,6 +26,8 @@ internal sealed class AoeAutoTurnService
     private bool _guidanceOwned;
     private Vector3? _confirmedPoint;
     private bool _cancelNextFrame;
+    private string? _lastBlockReason;
+    private long _lastBlockAt;
 
     internal AoeAutoTurnService(Configuration config, IObjectTable objects, IClientState client,
         ICondition condition, CombatService combat, IPluginLog log, WarningVoiceService voice, TolkService tolk,
@@ -53,9 +55,10 @@ internal sealed class AoeAutoTurnService
         if (_guidanceOwned) _combat.SetAutoTurnGuidance(null);
         _guidanceOwned = false;
         _cancelNextFrame = false;
+        _lastBlockReason = null;
     }
 
-    internal void Update(bool allowControl)
+    internal void Update(bool allowControl, string? blockedReason = null)
     {
         if (!_config.AutoTurnAoe)
         {
@@ -68,7 +71,7 @@ internal sealed class AoeAutoTurnService
             Reset();
             return;
         }
-        allowControl &= GameWindowFocus.IsActive && player.Address != 0
+        var nativeAllowed = GameWindowFocus.IsActive && player.Address != 0
             && !_condition[ConditionFlag.BetweenAreas] && !_condition[ConditionFlag.BetweenAreas51]
             && !_condition[ConditionFlag.WatchingCutscene] && !_condition[ConditionFlag.WatchingCutscene78]
             && !_condition[ConditionFlag.OccupiedInEvent] && !_condition[ConditionFlag.OccupiedInQuestEvent]
@@ -76,11 +79,14 @@ internal sealed class AoeAutoTurnService
             && !_condition[ConditionFlag.InFlight] && !_condition[ConditionFlag.Jumping]
             && !_condition[ConditionFlag.Jumping61] && !_condition[ConditionFlag.Diving]
             && !_condition[ConditionFlag.Swimming] && !_condition[ConditionFlag.Mounted];
+        if (!nativeAllowed) blockedReason = "inactive window or blocked player state";
+        allowControl &= nativeAllowed;
         AoeControlState state = default;
         if (allowControl && _combat.AutoTurnInDanger)
         {
             state = _control.Read(player);
             allowControl &= state.Available && !state.ManualInput;
+            if (!allowControl) blockedReason = state.BlockedReason ?? "camera/input unavailable or manual steering";
         }
         var now = _clock();
         var territory = _client.TerritoryType;
@@ -137,8 +143,26 @@ internal sealed class AoeAutoTurnService
             _log.Info("[AoeTurn] No confirmed direct exit; no rotation applied.");
         }
         if (_turn.GuidanceSpot != _confirmedPoint) _confirmedPoint = null;
+        // Log the first refusal and changes of cause during this danger. A
+        // short cast ends before an exhaustive search can report NoPath.
+        if (!_combat.AutoTurnInDanger) _lastBlockReason = null;
+        else if (_combat.AutoTurnUncertain)
+            TraceBlock(_combat.AutoTurnUncertainReason ?? "unverified attack geometry");
+        else if (!allowControl) TraceBlock(blockedReason ?? "control suspended");
+        else if (_pendingPoint == null && _confirmedPoint == null && _control.LastPathFailure is { } failure)
+            TraceBlock(failure);
         _combat.SetAutoTurnGuidance(allowControl && !_combat.AutoTurnUncertain ? _confirmedPoint : null);
         _guidanceOwned = true;
+    }
+
+    private void TraceBlock(string reason)
+    {
+        if (_lastBlockReason == reason) return;
+        var now = _clock();
+        if (_lastBlockReason != null && now - _lastBlockAt < 1000) return;
+        _lastBlockReason = reason;
+        _lastBlockAt = now;
+        _log?.Info($"[AoeTurn] Blocked: {reason}; confirmedZones={_combat.AutoTurnZones.Count}.");
     }
 
     private void Speak(string text)

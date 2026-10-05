@@ -1085,7 +1085,11 @@ public sealed partial class CombatService
             var inZone = false;
             // An unresolved cast may overlap the proposed walk. The absence of
             // a sheet row is uncertainty, not evidence that the ground is safe.
-            if (autoTurnOn && !sheet.TryGetRow(bc.CastActionId, out _)) AutoTurnUncertain = true;
+            if (autoTurnOn && !sheet.TryGetRow(bc.CastActionId, out _))
+            {
+                AutoTurnUncertain = true;
+                AutoTurnUncertainReason ??= $"missing action={bc.CastActionId}";
+            }
             // Die Flucht braucht die Flaeche JEDES Werfers, nicht nur der
             // angesagten: der sichere Punkt muss aus allen zugleich heraus
             // liegen, sonst weicht man einer Flaeche in die naechste aus.

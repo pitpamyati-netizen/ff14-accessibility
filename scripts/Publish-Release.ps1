@@ -2,6 +2,7 @@
 param(
     [Parameter(Mandatory = $true)][string]$ArchivePath,
     [Parameter(Mandatory = $true)][string]$NotesFile,
+    [string]$InstallerBuildRoot,
     [switch]$CheckOnly
 )
 
@@ -34,7 +35,16 @@ try {
     if (($remote -split '\s+')[0] -ne $head) { throw 'Push the current branch before publishing.' }
 
     $version = Get-LocalVersion $root
-    $installer = Assert-InstallerBuild $root
+    # Reuse an independently verified installer with its full source asset.
+    # This avoids mixing unrelated installer work into the plugin commit.
+    $installerRoot = if ([string]::IsNullOrWhiteSpace($InstallerBuildRoot)) { $root } else {
+        (Resolve-Path -LiteralPath $InstallerBuildRoot).Path
+    }
+    $installer = & {
+        param($verifiedRoot)
+        . (Join-Path $verifiedRoot 'scripts/Installer-Common.ps1')
+        Assert-InstallerBuild $verifiedRoot
+    } $installerRoot
     $tag = "v$version"
     $existingTag = Invoke-ReleaseCommand 'git' @('ls-remote', '--tags', 'origin', "refs/tags/$tag", "refs/tags/$tag^{}")
     if ($existingTag) { throw "Tag $tag already exists. Use a new version; do not replace a published release." }

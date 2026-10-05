@@ -55,18 +55,50 @@ internal static class AoeEscapePath
         return zones.Any(z => AoeEscapeGeometry.ContainsWithMargin(z, previous, 2f)) ? null : previous;
     }
 
-    internal static unsafe Vector3? CheckLive(Vector3 from, Vector3 to, IReadOnlyList<DangerZone> zones)
+    internal static unsafe Vector3? CheckLive(Vector3 from, Vector3 to, IReadOnlyList<DangerZone> zones,
+        out string? failure)
     {
+        failure = null;
         var framework = Framework.Instance();
         if (framework == null || framework->BGCollisionModule == null
             || framework->BGCollisionModule->ShuttingDown || framework->BGCollisionModule->LoadInProgressCounter != 0)
+        {
+            failure = "collision scene unavailable or loading";
             return null;
-        return Check(from, to, zones, Floor, Clear);
+        }
+        string? floorFailure = null;
+        Vector3? ReadFloor(Vector3 sample)
+        {
+            var point = Floor(sample);
+            if (point == null) floorFailure = "no supported ground hit";
+            return point;
+        }
+        var result = Check(from, to, zones, ReadFloor, Clear);
+        if (result == null) failure = floorFailure ?? "path blocked, steep, unsupported or crosses another AoE";
+        return result;
     }
 
     private static unsafe Vector3? Floor(Vector3 sample) =>
         BGCollisionModule.RaycastMaterialFilter(sample + new Vector3(0, 0.6f, 0), -Vector3.UnitY, out var hit, 1.2f)
-        && Finite(hit.Point) && hit.Normal.Y >= 0.65f ? hit.Point : null;
+        ? GroundPoint(hit) : null;
+
+    internal static Vector3? GroundPoint(RaycastHit hit)
+    {
+        if (!Finite(hit.Point) || !Finite(hit.Normal)) return null;
+        var normal = hit.Normal;
+        // RaycastHit.Normal is not filled for every collider. Mesh raycasts
+        // still return the triangle; use its plane rather than reject all floor.
+        // Source: FFXIVClientStructs BGCollisionModule / RaycastHit.
+        if (normal == Vector3.Zero)
+        {
+            if (!Finite(hit.V1) || !Finite(hit.V2) || !Finite(hit.V3)) return null;
+            normal = Vector3.Cross(hit.V2 - hit.V1, hit.V3 - hit.V1);
+        }
+        var lengthSquared = normal.LengthSquared();
+        if (!Finite(normal) || !float.IsFinite(lengthSquared) || lengthSquared < 0.000001f) return null;
+        normal /= MathF.Sqrt(lengthSquared);
+        return normal.Y >= 0.65f ? hit.Point : null;
+    }
 
     private static unsafe bool Clear(Vector3 from, Vector3 to)
     {
