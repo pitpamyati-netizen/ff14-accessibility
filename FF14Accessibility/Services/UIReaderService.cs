@@ -417,7 +417,8 @@ public sealed partial class UIReaderService : IDisposable
     /// SuppressFlyTextSpam).
     /// </summary>
     private bool IsSuppressedAddon(string name) =>
-        HudNoiseAddons.Contains(name)
+        name == "ArmouryBoard" // ArmouryListService owns the unified item list.
+        || HudNoiseAddons.Contains(name)
         || (_config.SuppressStatusBarSpam && StatusBarSpamAddons.Contains(name))
         || IsSuppressedCombatHud(name)
         || IsSuppressedCharaMakeCity(name)
@@ -658,11 +659,6 @@ public sealed partial class UIReaderService : IDisposable
         // der nur "0/10, NEU" (Fortschritt ohne Rang-Namen) wiederholte.
         _addonLifecycle.RegisterListener(AddonEvent.PostUpdate, "MonsterNote", OnMonsterNoteUpdate);
 
-        // Armoury chest: the current category ("Kopf", "Waffe" ...) lives in
-        // its title text node - announce it on every tab change, because the
-        // category tabs themselves are icon-only (dump 2026-07-16: id=121
-        // Text, tabs = Base-wrapped icons without text).
-        _addonLifecycle.RegisterListener(AddonEvent.PostUpdate, "ArmouryBoard", OnArmouryBoardUpdate);
 
         // GrandCompanyExchange (Staatstaler-Shop): the 5 category tabs
         // (Waffen/Ruestung/... ) are RadioButtons without a shared title node,
@@ -2368,38 +2364,6 @@ public sealed partial class UIReaderService : IDisposable
         return AtkText.Read((AtkTextNode*)n).Trim();
     }
 
-    // -- ArmouryBoard (Arsenalkammer) ---------------------------------
-
-    // Category title of the armoury chest ("Kopf", "Waffe" ...) as last
-    // announced, so switching tabs speaks the new category exactly once.
-    private string _lastArmouryCategory = string.Empty;
-
-    private unsafe void OnArmouryBoardUpdate(AddonEvent type, AddonArgs args)
-    {
-        var addon = (AtkUnitBase*)(nint)args.Addon;
-        if (addon == null) return;
-        if (!addon->IsVisible)
-        {
-            _lastArmouryCategory = string.Empty;
-            return;
-        }
-
-        // Title text node id=121 (dump 2026-07-16: [5] id=121 Text V "Kopf").
-        var node = addon->GetNodeById(121);
-        if (node == null || node->Type != NodeType.Text) return;
-        var category = AtkText.Read((AtkTextNode*)node).Trim();
-        if (string.IsNullOrEmpty(category) || category == _lastArmouryCategory) return;
-
-        var isSwitch = _lastArmouryCategory.Length > 0;
-        _lastArmouryCategory = category;
-        _log.Info($"[Accessibility] ArmouryBoard Kategorie: '{category}'");
-        // On open the window announcer names the window first - queue the
-        // initial category behind it instead of cutting it off; tab switches
-        // interrupt as usual.
-        if (isSwitch) _tolk.SpeakInterrupt(AccessibilityStrings.CategoryLabel(category));
-        else          _tolk.Speak(AccessibilityStrings.CategoryLabel(category));
-    }
-
     // -- GrandCompanyExchange: Kategorie-Reiter -----------------------
 
     // Active category tab last announced, so switching speaks it once.
@@ -3494,7 +3458,8 @@ public sealed partial class UIReaderService : IDisposable
         // moving focus onto a cast bar cannot reintroduce the announcements.
         // Do not use the whole HudNoiseAddons set: it also contains quest and
         // character windows whose deliberate keyboard focus is read here.
-        if (IsSuppressedCombatHud(FindAddonNameForNode(node))
+        if (FindAddonNameForNode(node) == "ArmouryBoard"
+            || IsSuppressedCombatHud(FindAddonNameForNode(node))
             || IsSuppressedCharaMakeCity(FindAddonNameForNode(node))
             || IsSuppressedCharaSelect(FindAddonNameForNode(node)))
         {
@@ -15695,7 +15660,6 @@ public sealed partial class UIReaderService : IDisposable
         _addonLifecycle.UnregisterListener(AddonEvent.PostUpdate, "SelectOk", OnSelectOkUpdate);
         _addonLifecycle.UnregisterListener(AddonEvent.PostUpdate, "SelectYesno",   OnDialogButtonProbe);
         _addonLifecycle.UnregisterListener(AddonEvent.PostUpdate, "JournalResult", OnDialogButtonProbe);
-        _addonLifecycle.UnregisterListener(AddonEvent.PostUpdate, "ArmouryBoard",  OnArmouryBoardUpdate);
         _addonLifecycle.UnregisterListener(AddonEvent.PostUpdate, "GrandCompanyExchange", OnGrandCompanyUpdate);
         _addonLifecycle.UnregisterListener(AddonEvent.PostUpdate, "GrandCompanyRank", OnGrandCompanyRankUpdate);
         _addonLifecycle.UnregisterListener(AddonEvent.PostUpdate, "Inventory", OnInventoryUpdate);

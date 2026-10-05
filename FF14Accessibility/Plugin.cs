@@ -67,6 +67,7 @@ public sealed partial class Plugin : IDalamudPlugin
     private readonly HotbarService      _hotbar;
     private readonly InventoryService   _inventoryReader;
     private readonly ArmouryTransferService _armouryTransfer;
+    private readonly ArmouryListService _armouryList;
     // Sagt, welcher Gegenstand WIRKLICH im Platz unter dem Cursor liegt -
     // ueber Behaelter und Platznummer statt ueber das Symbol.
     private readonly ItemSlotService    _itemSlots;
@@ -216,7 +217,7 @@ public sealed partial class Plugin : IDalamudPlugin
     // 6.08.18 lokal: Chat-Absender Kontextmenü (Strg+Umschalt+BildAuf) + Numpad3-Ziel.
     // 6.08.19: Charakterauswahl — eine Ansage (Name, Job, Ort) statt Scan-Sturm.
     // 6.08.20: Mitstreiter-Taste (PR 27 Port) — Strg+Umschalt+C öffnet/vorliest.
-    private const string PluginVersion    = "6.08.100";
+    private const string PluginVersion    = "6.08.101";
     // Der Tag nennt, was diese Fassung MITBRINGT, nicht woher sie stammt: die
     // russische Schicht auf dem Stand des Autors 6.08.35 (Auftragstext im
     // Quest-Tracker des Autors, siehe package-Schritt).
@@ -575,6 +576,7 @@ public sealed partial class Plugin : IDalamudPlugin
         _charaMake  = new CharaMakeReader(ObjectTable, DataManager, GameGui, _tolk, Log, _tooltips);
         _uiReader   = new UIReaderService(AddonLifecycle, GameGui, _tolk, Log, ObjectTable, _inventoryReader, _gearInfo, _bestiary, _huntingLog, _history, _config, DataManager, _tooltips, _charaMake, _lootRolls, _itemSlots, _gatherLog, descriptions);
         _armouryTransfer = new ArmouryTransferService(DataManager, ClientState, GameGui, _uiReader, _tolk, Log);
+        _armouryList = new ArmouryListService(GameGui, ClientState, KeyState, _inventoryReader, _gearInfo, _tolk, Log);
         _chatPlayer = new ChatPlayerService(ObjectTable, DataManager, GameGui, _navigation, _tolk, Log);
         _synthesis   = new SynthesisService(GameGui, _tolk, Log, ObjectTable);
         // [Handwerker-Notizbuch] Die Frage, die das Spiel nur fuer das ausgewaehlte
@@ -2425,6 +2427,11 @@ public sealed partial class Plugin : IDalamudPlugin
             Log.Info($"[TextInput] active={_textInputActive} - mod hotkeys {(_textInputActive ? "suppressed" : "live")}");
         }
 
+        _armouryList.Update(GameWindowFocus.IsActive, textInputActive,
+            _menu.IsOpen || _hotbar.IsSkillMenuOpen || _uiReader.IsTableReading
+            || _uiReader.IsShopQuantityEditing || _uiReader.IsSystemVolumeEditing,
+            _uiReader.BlockingFocusedAddonForPlayerMenu());
+
         if (!_keybindsChecked && ClientState.IsLoggedIn && _keybinds.IsReady())
         {
             _keybindsChecked = true;
@@ -2444,9 +2451,11 @@ public sealed partial class Plugin : IDalamudPlugin
         _transitions.Update();
         FacingService.Tick(ObjectTable.LocalPlayer);
         _armouryTransfer.Update(GameWindowFocus.IsActive && !_uiReader.IsTableReading
-            && !_uiReader.IsShopQuantityEditing && !_uiReader.IsSystemVolumeEditing && !_menu.IsOpen && !_hotbar.IsSkillMenuOpen);
+            && !_uiReader.IsShopQuantityEditing && !_uiReader.IsSystemVolumeEditing
+            && !_armouryList.OwnsInput && !_menu.IsOpen && !_hotbar.IsSkillMenuOpen);
 
-        var readingInput = _uiReader.IsTableReading || _uiReader.IsShopQuantityEditing || _uiReader.IsSystemVolumeEditing;
+        var readingInput = _uiReader.IsTableReading || _uiReader.IsShopQuantityEditing || _uiReader.IsSystemVolumeEditing
+            || _armouryList.OwnsInput;
         if (HandleNavigationStopKeys(readingInput))
         {
             _aoeAutoTurn.Cancel();
@@ -2455,7 +2464,7 @@ public sealed partial class Plugin : IDalamudPlugin
         HandleAoeTurnCancelKeys(readingInput);
         _combat.UpdateAreaWarnings();
         _aoeAutoTurn.Update(_config.AutoTurnAoe && _combat.AutoTurnInDanger
-            && !textInputActive && !readingInput && !_menu.IsOpen && !_hotbar.IsSkillMenuOpen
+            && !textInputActive && !readingInput && !_armouryList.IsOpen && !_menu.IsOpen && !_hotbar.IsSkillMenuOpen
             && !_uiReader.HasActiveMenu && _uiReader.BlockingFocusedAddonForPlayerMenu() == null
             && !_autoWalk.IsActive && !_autoWalk.IsFollowing
             && !IsJustPressed(_config.KeyAutoWalk) && !IsJustPressed(_config.KeyFollowTarget)
@@ -2463,7 +2472,16 @@ public sealed partial class Plugin : IDalamudPlugin
             && !IsJustPressed(_config.KeyOptionsMenu) && !IsJustPressed(_config.KeySkillMenu)
             && !IsJustPressed(_config.KeyReadTable) && !IsJustPressed(_config.KeyShopQuantity));
         if (readingInput && IsJustPressed(_config.KeySilence)) { _tolk.Silence(); _chatVoice.Silence(); }
-        if (readingInput && IsJustPressed(_config.KeyHelp)) _uiReader.AnnounceContextHelp();
+        if (readingInput && !_armouryList.OwnsInput && IsJustPressed(_config.KeyHelp)) _uiReader.AnnounceContextHelp();
+        if (_armouryList.OwnsInput)
+        {
+            if (IsJustPressed(_config.KeyReadUI, consume: true)) { _armouryList.ReadSelected(description: true); return; }
+            if (IsJustPressed(_config.KeyHelp, consume: true)) { _tolk.SpeakInterrupt(AccessibilityStrings.ArmouryListHelp); return; }
+            var armouryModifiers = KeyState[Dalamud.Game.ClientState.Keys.VirtualKey.CONTROL]
+                || KeyState[Dalamud.Game.ClientState.Keys.VirtualKey.SHIFT]
+                || KeyState[Dalamud.Game.ClientState.Keys.VirtualKey.MENU];
+            if (_armouryList.HandleKeys(armouryModifiers)) return;
+        }
         if (_uiReader.HandleTableKeys(_tableInput, GameWindowFocus.IsActive, textInputActive,
                 KeyState[Dalamud.Game.ClientState.Keys.VirtualKey.CONTROL],
                 KeyState[Dalamud.Game.ClientState.Keys.VirtualKey.SHIFT],
