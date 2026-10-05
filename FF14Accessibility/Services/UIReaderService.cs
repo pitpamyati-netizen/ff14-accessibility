@@ -417,8 +417,7 @@ public sealed partial class UIReaderService : IDisposable
     /// SuppressFlyTextSpam).
     /// </summary>
     private bool IsSuppressedAddon(string name) =>
-        name == "ArmouryBoard" // ArmouryListService owns the unified item list.
-        || HudNoiseAddons.Contains(name)
+        HudNoiseAddons.Contains(name)
         || (_config.SuppressStatusBarSpam && StatusBarSpamAddons.Contains(name))
         || IsSuppressedCombatHud(name)
         || IsSuppressedCharaMakeCity(name)
@@ -3495,8 +3494,7 @@ public sealed partial class UIReaderService : IDisposable
         // moving focus onto a cast bar cannot reintroduce the announcements.
         // Do not use the whole HudNoiseAddons set: it also contains quest and
         // character windows whose deliberate keyboard focus is read here.
-        if (FindAddonNameForNode(node) == "ArmouryBoard"
-            || IsSuppressedCombatHud(FindAddonNameForNode(node))
+        if (IsSuppressedCombatHud(FindAddonNameForNode(node))
             || IsSuppressedCharaMakeCity(FindAddonNameForNode(node))
             || IsSuppressedCharaSelect(FindAddonNameForNode(node)))
         {
