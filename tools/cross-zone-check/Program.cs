@@ -42,7 +42,32 @@ Check(places.FindFirstHopToMap(68, out _) == null, "Same-map target created an u
 Check(places.FindFirstHopToMap(0, out _) == null, "Unknown map created a route.");
 Check(places.FindFirstHopToMap(uint.MaxValue, out _) == null, "Missing map created a route.");
 var checkedSources = 0;
-foreach (var group in entrances.GroupBy(e => e.SourceMapId))
+state.Map = 3; state.Territory = 133;
+var lotusGuard = entrances.Single(e => e.SourceMapId == 3 && e.TargetMapId == 69 && e.BaseId == 1000460);
+var lotus = places.FindFirstHopToMap(69, out var lotusHops);
+Check(lotus is { TypeLabel: "Entrance", IsZoneTransition: false } && lotus.Position == lotusGuard.Position && lotusHops == 1,
+    "Recorded Old Gridania -> Lotus guard route failed.");
+state.Map = 28; state.Territory = 179;
+var fromInn = places.FindFirstHopToMap(69, out var innHops);
+var innDoor = places.FindLocalEntranceOnRoute(69);
+Check(fromInn is { TypeLabel: "Entrance", TargetMapId: 2 } && innHops == 3,
+    "Recorded inn -> New Gridania -> Old Gridania -> Lotus route failed.");
+Check(innDoor is { BaseId: 2000087, LevelType: 45 } && fromInn?.Position == innDoor.Position,
+    "Inn route did not select the exact local exit door.");
+Check(places.GetHopDistances().GetValueOrDefault(69u) == innHops, "Inn route/ranking disagreement.");
+var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+var checkedMaps = 0;
+var service = new InteriorEntranceService(data, log);
+foreach (var map in data.GetExcelSheet<Map>())
+{
+    if (map.RowId == 0 || map.TerritoryType.RowId == 0) continue;
+    service.ForMap(map.RowId);
+    checkedMaps++;
+}
+var allEntrances = service.All.ToArray();
+stopwatch.Stop();
+Check(allEntrances.Any(e => e.SourceMapId == 28 && e.BaseId == 2000087), "Full layout scan lost the inn door.");
+foreach (var group in allEntrances.GroupBy(e => e.SourceMapId))
 {
     state.Map = group.Key;
     state.Territory = (ushort)places.GetTerritoryOfMap(group.Key);
@@ -52,13 +77,16 @@ foreach (var group in entrances.GroupBy(e => e.SourceMapId))
         Check(route != null && count == 1, $"Direct entrance missing: {group.Key} -> {entrance.TargetMapId}");
         if (route is { IsZoneTransition: false })
             Check(group.Any(e => e.TargetMapId == entrance.TargetMapId && e.Position == route.Position), "Entrance source mismatch.");
+        Check(places.GetHopDistances().GetValueOrDefault(entrance.TargetMapId) == count, "Full route/ranking disagreement.");
     }
     checkedSources++;
 }
 File.WriteAllText(args[1], JsonSerializer.Serialize(new { Passed = true, Checks = checks,
-    Entrances = entrances.Count, SourceMaps = checkedSources, RecordedQuest = 65983,
-    Guard = guard, NativeFfxivChecked = false }, new JsonSerializerOptions { WriteIndented = true, IncludeFields = true }));
-Console.WriteLine($"PASS: {checks} assertions, {entrances.Count} verified entrances in {checkedSources} maps; recorded quest and ordinary exit routes. Live game not tested.");
+    Entrances = allEntrances.Length, SourceMaps = checkedSources, MapsScanned = checkedMaps,
+    FullScanMs = stopwatch.ElapsedMilliseconds, RecordedQuests = new[] { 65983, 65985 },
+    Guard = guard, LotusGuard = lotusGuard, InnDoor = innDoor, AllEntrances = allEntrances,
+    NativeFfxivChecked = false }, new JsonSerializerOptions { WriteIndented = true, IncludeFields = true }));
+Console.WriteLine($"PASS: {checks} assertions, {allEntrances.Length} verified entrances in {checkedSources} source maps, {checkedMaps} maps scanned ({stopwatch.ElapsedMilliseconds} ms); both recorded quests and ordinary exits. Live game not tested.");
 
 public class QuietLog : DispatchProxy
 {

@@ -1841,7 +1841,7 @@ public sealed class NavigationService
                     CalculateDirection(player, hop.Position),
                     hops - 1);
                 text += AccessibilityStrings.NumpadWalksToTransition;
-                if (_places.FindLocalEntranceToMap(dest.MapId) != null)
+                if (_places.FindLocalEntranceOnRoute(dest.MapId) != null)
                     text += AccessibilityStrings.InteriorEntranceConfirmHint;
             }
             text += detail;
@@ -3147,7 +3147,7 @@ public sealed class NavigationService
                     ? DescribeGatheringPoint(candidate)
                     : _objectNames.Describe(candidate))
                 + (SelectedQuestDestination is { } away && away.TerritoryTypeId != _clientState.TerritoryType
-                    && _places.FindLocalEntranceToMap(away.MapId) != null
+                    && _places.FindLocalEntranceOnRoute(away.MapId) != null
                     ? AccessibilityStrings.InteriorEntranceConfirmHint : string.Empty));
     }
 
@@ -3201,7 +3201,7 @@ public sealed class NavigationService
         // local entrance. The destination's foreign coordinates are meaningless
         // here; retain the quest selection so a new press after entering uses it.
         if (SelectedQuestDestination is { } away && away.TerritoryTypeId != _clientState.TerritoryType
-            && _places.FindLocalEntranceToMap(away.MapId) is { } entrance)
+            && _places.FindLocalEntranceOnRoute(away.MapId) is { } entrance)
             return NearestObject(entrance.Position, MarkerObjectMatchRange,
                 obj => obj.BaseId == entrance.BaseId && obj.ObjectKind == ExpectedObjectKind(entrance.LevelType)
                     && obj.IsTargetable);

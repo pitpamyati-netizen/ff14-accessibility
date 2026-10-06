@@ -439,12 +439,14 @@ public sealed class PlacesService
     // Static transition graph (map id -> reachable map ids), built lazily
     // from the same MapMarker data. Sheet data never changes at runtime.
     private readonly Dictionary<uint, List<uint>> _transitionCache = [];
+    private readonly Dictionary<uint, HashSet<uint>> _markerTransitionTargets = [];
 
     private List<uint> GetTransitionTargets(uint mapId)
     {
         if (_transitionCache.TryGetValue(mapId, out var cached)) return cached;
 
         var targets = new List<uint>();
+        var markerTargets = new HashSet<uint>();
         var mapSheet = _data.GetExcelSheet<Map>();
         if (mapSheet.TryGetRow(mapId, out var map)
             && _data.GetSubrowExcelSheet<MapMarker>().TryGetRow(map.MapMarkerRange, out var markers))
@@ -453,11 +455,15 @@ public sealed class PlacesService
             {
                 if (m.DataType is not (1 or 2)) continue;
                 if (m.DataKey.TryGetValue<Map>(out var target) && target.RowId != 0)
+                {
                     targets.Add(target.RowId);
+                    markerTargets.Add(target.RowId);
+                }
             }
         }
         _transitionCache[mapId] = targets;
-        foreach (var entrance in _interiorEntrances.All)
+        _markerTransitionTargets[mapId] = markerTargets;
+        foreach (var entrance in _interiorEntrances.ForMap(mapId))
             if (entrance.SourceMapId == mapId && !targets.Contains(entrance.TargetMapId))
                 targets.Add(entrance.TargetMapId);
         return targets;
@@ -465,8 +471,19 @@ public sealed class PlacesService
 
     /// <summary>Only a verified interaction entrance on the current map.</summary>
     public InteriorEntrance? FindLocalEntranceToMap(uint targetMapId)
-        => _interiorEntrances.All.FirstOrDefault(e => e.SourceMapId == _clientState.MapId
-            && e.TargetMapId == targetMapId);
+        => _interiorEntrances.ForMap(_clientState.MapId).Where(e => e.SourceMapId == _clientState.MapId
+            && e.TargetMapId == targetMapId).OrderByDescending(e => e.LevelType == 45).FirstOrDefault();
+
+    /// <summary>The interaction object for the FIRST leg, even when the final
+    /// destination is several maps away (e.g. leave an inn before a city gate).</summary>
+    public InteriorEntrance? FindLocalEntranceOnRoute(uint targetMapId)
+    {
+        var hop = FindFirstHopMap(targetMapId, out _);
+        if (hop == 0) return null;
+        var entrance = FindLocalEntranceToMap(hop);
+        return entrance?.LevelType == 45 || !_markerTransitionTargets.GetValueOrDefault(_clientState.MapId, []).Contains(hop)
+            ? entrance : null;
+    }
 
     private PlaceDestination? EntranceDestination(uint targetMapId)
     {
@@ -518,9 +535,9 @@ public sealed class PlacesService
         distance[start] = 0;
         var queue = new Queue<uint>();
         queue.Enqueue(start);
-        // Dieselbe Schranke wie in FindFirstHopToMap: der Kartengraph ist klein,
-        // und eine Obergrenze haelt einen kaputten Sheet-Zyklus aus dem Frame.
-        while (queue.Count > 0 && distance.Count < 500)
+        // The visited dictionary terminates cycles; do not stop after 500 maps
+        // now that interaction travel can connect more of the world.
+        while (queue.Count > 0)
         {
             var current = queue.Dequeue();
             foreach (var next in GetTransitionTargets(current))
@@ -542,16 +559,31 @@ public sealed class PlacesService
     /// </summary>
     public PlaceDestination? FindFirstHopToMap(uint targetMapId, out int hops)
     {
+        var hop = FindFirstHopMap(targetMapId, out hops);
+        if (hop == 0) return null;
+        var entrance = FindLocalEntranceToMap(hop);
+        var marker = GetPlaces(includeFlag: false).FirstOrDefault(p => p.IsZoneTransition && p.TargetMapId == hop);
+        // Doors are exact interaction targets even when a decorative map glyph
+        // exists. Ordinary walking borders win over optional NPC transport.
+        var transition = entrance?.LevelType == 45 ? EntranceDestination(hop)
+            : marker ?? EntranceDestination(hop);
+        _log.Info($"[Orte] Route Map {_clientState.MapId} -> {targetMapId}: {hops} Übergänge, erster: " +
+                  (transition?.Name ?? $"KEIN Marker für Ziel-Map {hop} gefunden"));
+        return transition;
+    }
+
+    private uint FindFirstHopMap(uint targetMapId, out int hops)
+    {
         hops = 0;
         var start = _clientState.MapId;
-        if (start == 0 || targetMapId == 0 || start == targetMapId) return null;
+        if (start == 0 || targetMapId == 0 || start == targetMapId) return 0;
 
-        // BFS with parent tracking, depth-limited (map graph is small).
+        // BFS with parent tracking. Each checked map is visited at most once.
         var parent  = new Dictionary<uint, uint> { [start] = start };
         var queue   = new Queue<uint>();
         queue.Enqueue(start);
         var found = false;
-        while (queue.Count > 0 && parent.Count < 500)
+        while (queue.Count > 0)
         {
             var current = queue.Dequeue();
             if (current == targetMapId) { found = true; break; }
@@ -565,7 +597,7 @@ public sealed class PlacesService
         if (!found)
         {
             _log.Info($"[Orte] Keine Übergangs-Route von Map {start} nach Map {targetMapId}.");
-            return null;
+            return 0;
         }
 
         // Walk back from the target to the map whose parent is the start:
@@ -578,13 +610,7 @@ public sealed class PlacesService
             hops++;
         }
 
-        // A verified interaction object is more precise than a map glyph (the
-        // First Bow exit also has a DataType=2 marker, but no ExitRange).
-        var transition = EntranceDestination(hop)
-            ?? GetPlaces(includeFlag: false).FirstOrDefault(p => p.IsZoneTransition && p.TargetMapId == hop);
-        _log.Info($"[Orte] Route Map {start} -> {targetMapId}: {hops} Übergänge, erster: " +
-                  (transition?.Name ?? $"KEIN Marker für Ziel-Map {hop} gefunden"));
-        return transition;
+        return hop;
     }
 
     /// <summary>

@@ -64,6 +64,56 @@ public sealed class InteriorEntranceTests
     public void TeleportInvalidatesLocalEntranceBeforeConfirm()
         => Assert.Null(Resolve(Harness([Obj(1000423, ObjectKind.EventNpc, new(232, 2, 46))], map: 3)));
 
+    [Fact]
+    public void MultiHopQuestSelectsTheCurrentInnDoorInsteadOfTheFinalForeignNpc()
+    {
+        var door = Obj(2000087, ObjectKind.EventObj, new(0, 1.46f, 7.72f));
+        var foreignNpc = Obj(1000460, ObjectKind.EventNpc, door.Position);
+        var nav = Harness([foreignNpc, door], map: 28);
+        var places = (PlacesService)typeof(NavigationService).GetField("_places", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(nav)!;
+        var entrances = (InteriorEntranceService)typeof(PlacesService).GetField("_interiorEntrances", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(places)!;
+        ((List<InteriorEntrance>)typeof(InteriorEntranceService).GetField("_all", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(entrances)!).Add(new(28, 2, 2000087, 45, door.Position));
+        var graph = (Dictionary<uint, List<uint>>)typeof(PlacesService).GetField("_transitionCache", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(places)!;
+        graph[28] = [2]; graph[2] = [3]; graph[3] = [69];
+        typeof(NavigationService).GetProperty("SelectedQuestDestination")!.SetValue(nav,
+            new QuestDestination("Обновление завета", "", new(4.9f, -1.9f, -0.2f), 1, 205, 69, false, QuestKind.MainStory, 14));
+        Assert.Same(door, Resolve(nav));
+    }
+
+    [Fact]
+    public void OrdinaryWalkingBorderDoesNotSelectAnOptionalTransportNpc()
+    {
+        var nav = Harness([Obj(1000423, ObjectKind.EventNpc, new(232, 2, 46))]);
+        var places = (PlacesService)typeof(NavigationService).GetField("_places", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(nav)!;
+        ((Dictionary<uint, HashSet<uint>>)typeof(PlacesService).GetField("_markerTransitionTargets", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(places)!)[2] = [68];
+        Assert.Null(Resolve(nav));
+    }
+
+    [Fact]
+    public void LargeConnectedWorldIsNotCutOffAfterFiveHundredMapsAndCyclesTerminate()
+    {
+        var nav = Harness([]);
+        var places = (PlacesService)typeof(NavigationService).GetField("_places", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(nav)!;
+        var graph = (Dictionary<uint, List<uint>>)typeof(PlacesService).GetField("_transitionCache", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(places)!;
+        for (uint map = 2; map < 602; map++) graph[map] = [map + 1, 2];
+        graph[602] = [2];
+        var distances = places.GetHopDistances();
+        Assert.Equal(601, distances.Count);
+        Assert.Equal(600, distances[602]);
+        object[] args = [602u, 0];
+        Assert.Equal(3u, typeof(PlacesService).GetMethod("FindFirstHopMap", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(places, args));
+        Assert.Equal(600, args[1]);
+    }
+
     private static IGameObject? Resolve(NavigationService nav) => (IGameObject?)typeof(NavigationService)
         .GetMethod("ResolveSelectionObject", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(nav, null);
 
@@ -83,11 +133,16 @@ public sealed class InteriorEntranceTests
         });
         var table = ChatPlayerTests.Proxy.Of<IObjectTable>(m => m.Name == "GetEnumerator"
             ? ((IEnumerable<IGameObject>)objects).GetEnumerator() : throw new NotSupportedException(m.Name));
-        var places = new PlacesService(null!, client, null!);
+        var log = ChatPlayerTests.Proxy.Of<IPluginLog>(m => null);
+        var places = new PlacesService(null!, client, log);
         var entries = (InteriorEntranceService)typeof(PlacesService)
             .GetField("_interiorEntrances", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(places)!;
         typeof(InteriorEntranceService).GetField("_all", BindingFlags.Instance | BindingFlags.NonPublic)!
             .SetValue(entries, new List<InteriorEntrance> { new(2, 68, 1000423, 8, new(232, 2, 46)) });
+        ((HashSet<uint>)typeof(InteriorEntranceService).GetField("_layoutsRead", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(entries)!).Add(map);
+        ((Dictionary<uint, List<uint>>)typeof(PlacesService).GetField("_transitionCache", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(places)!)[map] = map == 2 ? [68] : [];
         var nav = (NavigationService)RuntimeHelpers.GetUninitializedObject(typeof(NavigationService));
         foreach (var pair in new Dictionary<string, object> { ["_places"] = places,
             ["_clientState"] = client, ["_objectTable"] = table })
