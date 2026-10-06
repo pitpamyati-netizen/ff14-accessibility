@@ -39,7 +39,24 @@
   FDB2F29650296D45C6E48CC0375239F8AFA63CC638DFBFECF9E2B464F8EC254E.
   ZIP SHA-256:
   0FD5F4D145BC59DDC2E40626FFEE141DB3AA7EEF99810D3585756770A9149F7B.
-  Публикация ещё не выполнена; подготовлен обновлённый пакет плагина.
+  Коммит 61c059c35ec027a6e7c186e796f02ba97bcc11c0 отправлен в
+  feature/russian-accessibility-recovery. Publish-Release -UpdateExisting
+  -CheckOnly прошёл до публикации; прежние файлы сохранены и сверены в
+  artifacts/publication/plugin-update-20261006-155636-353/before/.
+- Существующий выпуск ID404418766 обновлён с v6.08.107 до v6.08.108 в
+  15:57:02 по Томску, draft=false/prerelease=false; Latest подтверждён.
+  Новая метка и target_commitish соответствуют 61c059c. Прежняя метка
+  v6.08.107 сохранила c7e031eb201ea5c8726f8ee0a1670904eef5be56.
+  Ссылка: https://github.com/pitpamyati-netizen/ff14-accessibility/releases/tag/v6.08.108.
+- Все четыре файла скачаны обратно в тот же каталог публикации, after/.
+  Совпали размеры, digest GitHub, подготовленные SHA-256, все четыре строки
+  SHA256SUMS и каждая из 141 записей ZIP. Установщик 1.3.0 EXE и отдельный
+  архив его исходников совпали с прежними опубликованными файлами.
+  Отчёты: verification.json и zip-verification.json в каталоге публикации.
+- tools/installer-check --latest-only 6.08.108 вызвал настоящий
+  ReleaseClient.Latest: выбран 6.08.108 и ожидаемый архив
+  FF14Accessibility-6.08.108-RU-no-source.zip с адресом нового выпуска.
+  Это проверка выбора обновления; рабочая установка не менялась.
 - Рабочая установка не менялась. Новый маршрут, нативные подтверждения,
   доступность по прогрессу, плата за транспорт и речь NVDA/Tolk в FFXIV
   не проверены. Проверка таблиц не доказывает активность всех игровых слоёв.
