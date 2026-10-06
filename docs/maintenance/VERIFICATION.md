@@ -41,7 +41,25 @@
   ZIP SHA-256:
   43CA7C249EB9AC80B378C08EB2A55F1130DEF57C83D81CAE750E3C14E15E23AD.
   Установщик 1.3.0 собран из прежних исходников; его отдельный исходный архив
-  содержит 36 файлов. Публикация ещё выполняется.
+  содержит 36 файлов.
+- Коммит b646a8d24874886775ae1a203094406f528bb071 отправлен в
+  feature/russian-accessibility-recovery. Publish-Release -CheckOnly прошёл;
+  затем создан отдельный выпуск v6.08.109, ID404896543, в 22:43:52 (+07:00).
+  draft=false/prerelease=false, Latest подтверждён, метка и target_commitish
+  соответствуют функциональному коммиту b646a8d. Прежний v6.08.108 сохранён.
+  Ссылка: https://github.com/pitpamyati-netizen/ff14-accessibility/releases/tag/v6.08.109.
+- Файлы скачаны обратно в artifacts/publication/20261006-224331-438/round-trip/.
+  Совпали все четыре размера и digest GitHub, подготовленные SHA-256,
+  четыре строки SHA256SUMS и 141 запись ZIP; текст выпуска совпал с
+  docs/releases/6.08.109.md. Отчёты verification.json/published-release.json
+  сохранены в этом каталоге публикации. EXE установщика: 117 666 083 байта,
+  SHA-256 89CEF34F8CB3E23EDCBA202FCF4029CB6CC53495EFD13FC6D9BDF4CB1E8191A9.
+  Отдельный исходный архив: 105 831 байт,
+  SHA-256 1A4C663EF183BDC4BEA31259254C4FEF7E9ECEEEBB88C476414519961A3A995E.
+- tools/installer-check --latest-only 6.08.109 вызвал настоящий
+  ReleaseClient.Latest: выбраны 6.08.109 и архив
+  FF14Accessibility-6.08.109-RU-no-source.zip из опубликованного выпуска.
+  Это проверка выбора обновления; рабочая установка не менялась.
 - Живое движение, подтверждения, загрузка зоны, изменение этапа, доступность
   по сюжету, плата за транспорт и NVDA/Tolk не проверены. Рабочая установка
   не менялась. Охват и сценарии приёмки: docs/quest-navigation.md.
