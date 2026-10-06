@@ -910,6 +910,49 @@ public sealed class NavigationService
 
     /// <summary>The quest destination selected via the browser, or null.</summary>
     public QuestDestination? SelectedQuestDestination { get; private set; }
+    private bool _questObjectiveAvailable = true;
+    private QuestDestination? _lastQuestTravelSource;
+    private QuestDestination? _lastQuestTravelGoal;
+    private uint _lastQuestTravelMap;
+
+    public QuestDestination? GetSelectedQuestTravelGoal()
+    {
+        var quest = SelectedQuestDestination;
+        if (quest == null || _data == null) return quest;
+        if (_lastQuestTravelSource == quest && _lastQuestTravelMap == _clientState.MapId) return _lastQuestTravelGoal;
+        var duty = quest.TerritoryTypeId == _clientState.TerritoryType || _places.FindFirstHopToMap(quest.MapId, out _) != null
+            ? null : QuestTravelHints.FindDuty(_data, _dutyEntrances, _places, quest, _clientState.MapId);
+        _lastQuestTravelSource = quest; _lastQuestTravelMap = _clientState.MapId;
+        return _lastQuestTravelGoal = duty == null ? quest : QuestTravelHints.DutyGoal(quest, duty, _clientState.MapId);
+    }
+
+    // Refresh only real quest selections: FATEs, leves and other synthetic
+    // destinations share this property but have their own live providers.
+    public bool RefreshSelectedQuest()
+    {
+        var previous = SelectedQuestDestination;
+        if (previous == null || previous.QuestId == 0 && previous.NativeMarkerId == 0) return true;
+        var player = _objectTable.LocalPlayer;
+        if (player == null) { _questObjectiveAvailable = false; return false; }
+        var current = IsUnacceptedQuestCategory ? _questMarkers.GetUnacceptedDestinations(log: false) : _questMarkers.GetDestinations(log: false);
+        var next = QuestNavigationPlan.Refresh(previous, current, _clientState.TerritoryType,
+            _clientState.MapId, player.Position);
+        // Accepting the selected quest moves it from the nearby offer list to
+        // active objectives. Continue the same identity through that boundary.
+        if (next == null && IsUnacceptedQuestCategory && previous.QuestId != 0)
+            next = QuestNavigationPlan.Refresh(previous, _questMarkers.GetDestinations(log: false),
+                _clientState.TerritoryType, _clientState.MapId, player.Position);
+        _questObjectiveAvailable = next != null;
+        if (next == null) return false; // Loading/missing marker must not reuse old coordinates.
+        SelectedQuestDestination = next;
+        if (previous.ObjectiveLevelId != next.ObjectiveLevelId || previous.MapId != next.MapId
+            || previous.Position != next.Position)
+        {
+            _aimedAtId = 0;
+            _log.Info($"[QuestRoute] Current objective {next.QuestId}/{next.ObjectiveLevelId}, territory {next.TerritoryTypeId}, map {next.MapId}.");
+        }
+        return true;
+    }
 
     /// <summary>
     /// The map waypoint selected via the browser (Wegpunkte category), or
@@ -1787,6 +1830,8 @@ public sealed class NavigationService
         _cycleIndex = BrowserTargetSelection.NextIndex(_cycleIndex, direction, count);
         var dest = dests[_cycleIndex];
         SelectedQuestDestination = dest;
+        _questObjectiveAvailable = true;
+        dest = GetSelectedQuestTravelGoal() ?? dest;
 
         // Marker tooltip often carries the objective ("Mit X sprechen") -
         // append it when it adds information beyond the quest name.
@@ -1818,7 +1863,7 @@ public sealed class NavigationService
             : string.Empty;
 
         string text;
-        if (dest.InCurrentZone)
+        if (dest.TerritoryTypeId == _clientState.TerritoryType && (dest.MapId == 0 || _places.AreSameMap(dest.MapId, _clientState.MapId)))
         {
             text = $"{level}{story}{dest.QuestName}{unlock}{todo}, " +
                    $"{FormatDistance(Vector3.Distance(player.Position, dest.Position))}, " +
@@ -1842,7 +1887,7 @@ public sealed class NavigationService
                     hops - 1);
                 text += AccessibilityStrings.NumpadWalksToTransition;
                 if (_places.FindLocalEntranceOnRoute(dest.MapId) != null)
-                    text += AccessibilityStrings.InteriorEntranceConfirmHint;
+                    text += AccessibilityStrings.QuestTravelConfirm(_places.GetMapName(hop.TargetMapId));
             }
             text += detail;
         }
@@ -3146,9 +3191,9 @@ public sealed class NavigationService
                 candidate.ObjectKind == ObjectKind.GatheringPoint
                     ? DescribeGatheringPoint(candidate)
                     : _objectNames.Describe(candidate))
-                + (SelectedQuestDestination is { } away && away.TerritoryTypeId != _clientState.TerritoryType
+                + (GetSelectedQuestTravelGoal() is { } away && (away.TerritoryTypeId != _clientState.TerritoryType || away.MapId != _clientState.MapId)
                     && _places.FindLocalEntranceOnRoute(away.MapId) != null
-                    ? AccessibilityStrings.InteriorEntranceConfirmHint : string.Empty));
+                    ? AccessibilityStrings.QuestTravelConfirm(_places.GetMapName(_places.FindFirstHopToMap(away.MapId, out _)?.TargetMapId ?? 0)) : string.Empty));
     }
 
     /// <summary>
@@ -3159,6 +3204,9 @@ public sealed class NavigationService
     /// </summary>
     private IGameObject? ResolveSelectionObject()
     {
+        if (SelectedQuestDestination is { } questSelection && (questSelection.QuestId != 0 || questSelection.NativeMarkerId != 0)
+            && !_questObjectiveAvailable) return null;
+        var questTravelGoal = GetSelectedQuestTravelGoal();
         // Retain the exact live browser pick; do not substitute a nearby enemy
         // or another nest with the same name.
         if (SelectedObjectDestination is { } selected)
@@ -3200,20 +3248,22 @@ public sealed class NavigationService
         // A quest inside an interaction-only interior first targets its exact
         // local entrance. The destination's foreign coordinates are meaningless
         // here; retain the quest selection so a new press after entering uses it.
-        if (SelectedQuestDestination is { } away && away.TerritoryTypeId != _clientState.TerritoryType
+        if (questTravelGoal is { } away && (away.TerritoryTypeId != _clientState.TerritoryType || !_places.AreSameMap(away.MapId, _clientState.MapId))
             && _places.FindLocalEntranceOnRoute(away.MapId) is { } entrance)
             return NearestObject(entrance.Position, MarkerObjectMatchRange,
                 obj => obj.BaseId == entrance.BaseId && obj.ObjectKind == ExpectedObjectKind(entrance.LevelType)
-                    && obj.IsTargetable);
+                    && obj.IsTargetable && MathF.Abs(obj.Position.Y - entrance.Position.Y) < 5f);
 
         // Quest-Ziel: ueber den Spiel-Link Marker -> Level.Object (TargetBaseId),
         // eingegrenzt auf die Objektart, die Level.Type nennt.
-        if (SelectedQuestDestination is { InCurrentZone: true, TargetBaseId: > 0 } dest)
+        if (questTravelGoal is { TargetBaseId: > 0 } dest && dest.TerritoryTypeId == _clientState.TerritoryType
+            && (dest.MapId == 0 || _places.AreSameMap(dest.MapId, _clientState.MapId)))
         {
             var expected = ExpectedObjectKind(dest.TargetLevelType);
             return NearestObject(dest.Position, MarkerObjectMatchRange,
                 obj => obj.BaseId == dest.TargetBaseId
-                       && (expected == null || obj.ObjectKind == expected.Value),
+                       && (expected == null || obj.ObjectKind == expected.Value)
+                       && MathF.Abs(obj.Position.Y - dest.Position.Y) < 5f,
                 prefer: o => o.IsTargetable);
         }
 
@@ -3311,6 +3361,8 @@ public sealed class NavigationService
             or ObjectKind.GatheringPoint or ObjectKind.Aetheryte) return true;
         if (IsInCombat() && _targetManager.Target is { } combatTarget
             && !BrowserTargetSelection.IsWorldObject(combatTarget)) return false;
+        if (GetSelectedQuestTravelGoal() is { } quest && !IsInCombat()
+            && (quest.TargetLevelType is 8 or 45 || _places.FindLocalEntranceOnRoute(quest.MapId) != null)) return true;
         var candidate = ResolveSelectionObject() ?? _targetManager.Target ?? _targetManager.SoftTarget;
         return BrowserTargetSelection.IsWorldObject(candidate)
             || !IsInCombat() && (SelectedQuestDestination is { TargetLevelType: 45 }
@@ -3319,16 +3371,22 @@ public sealed class NavigationService
 
     public unsafe void ConfirmSelectedWorldObject()
     {
+        if (!RefreshSelectedQuest())
+        {
+            _tolk.SpeakInterrupt(AccessibilityStrings.QuestGoalUpdating);
+            return;
+        }
         var candidate = ResolveSelectionObject() ?? _targetManager.Target ?? _targetManager.SoftTarget;
         // Missing explicit selections cannot fall back to the game's target.
         if (SelectedObjectDestination is { } selected)
             candidate = BrowserTargetSelection.FindExact(_objectTable, selected.ObjectId);
-        else if (SelectedQuestDestination is { TargetLevelType: 45 } || _selectedGatherSpot != null)
+        else if (SelectedQuestDestination != null || _selectedGatherSpot != null)
             candidate = ResolveSelectionObject();
         var system = FFXIVClientStructs.FFXIV.Client.Game.Control.TargetSystem.Instance();
         var hardBefore = _targetManager.Target?.GameObjectId ?? 0;
         var request = system != null && candidate != null
-            ? BrowserTargetSelection.ConfirmWorldObject(_targetManager, candidate,
+            ? BrowserTargetSelection.ConfirmQuestOrWorldObject(_targetManager, candidate,
+                SelectedQuestDestination != null,
                 obj => system->InteractWithObject((CSGameObject*)obj.Address, checkLineOfSight: true))
             : default;
         var hardAfter = _targetManager.Target?.GameObjectId ?? 0;

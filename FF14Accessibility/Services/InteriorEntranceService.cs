@@ -23,61 +23,66 @@ internal sealed class InteriorEntranceService(IDataManager data, IPluginLog log)
     private readonly HashSet<uint> _layoutsRead = [];
     private readonly Dictionary<(byte Type, uint Id), List<Warp>> _objectWarps = [];
     private Dictionary<uint, uint>? _singleMaps;
+    private readonly TravelLayout _travelLayout = new(data, log);
+    private readonly TravelMapIdentity _mapIdentity = new(data);
+
+    internal bool HasWalkingBorder(uint sourceMap, uint targetMap)
+    {
+        var sourceTerritory = data.GetExcelSheet<Map>().GetRowOrDefault(sourceMap)?.TerritoryType.RowId ?? 0;
+        var targetTerritory = data.GetExcelSheet<Map>().GetRowOrDefault(targetMap)?.TerritoryType.RowId ?? 0;
+        if (sourceTerritory == 0 || targetTerritory == 0) return false;
+        var layout = _travelLayout.ForTerritory(sourceTerritory);
+        return layout.Exits.Any(e => e.Territory == targetTerritory
+            && (layout.MapAt(e.Position) is var mapped && mapped != 0 ? mapped : SingleMap(sourceTerritory)) == sourceMap);
+    }
 
     private uint SingleMap(uint territoryId)
     {
         if (_singleMaps == null)
         {
-            var maps = new Dictionary<uint, Dictionary<string, uint>>();
+            var maps = new Dictionary<uint, HashSet<uint>>();
             foreach (var map in data.GetExcelSheet<Map>())
             {
                 var territory = map.TerritoryType.RowId;
                 if (territory == 0 || map.RowId == 0) continue;
                 if (!maps.TryGetValue(territory, out var byId)) maps[territory] = byId = [];
-                byId.TryAdd(map.Id.ExtractText(), map.RowId);
+                byId.Add(_mapIdentity.Canonical(map.RowId));
             }
-            _singleMaps = maps.ToDictionary(p => p.Key, p => p.Value.Count == 1 ? p.Value.Values.First() : 0u);
+            _singleMaps = maps.ToDictionary(p => p.Key, p => p.Value.Count == 1 ? p.Value.First() : 0u);
         }
         return _singleMaps.GetValueOrDefault(territoryId);
     }
 
     internal IReadOnlyList<InteriorEntrance> ForMap(uint mapId)
     {
+        mapId = _mapIdentity.Canonical(mapId);
         _ = All;
         if (!_layoutsRead.Add(mapId) || !data.GetExcelSheet<Map>().TryGetRow(mapId, out var map))
             return All;
         var territory = map.TerritoryType.ValueNullable;
         if (territory == null) return All;
-        var bg = territory.Value.Bg.ExtractText();
-        var cut = bg.LastIndexOf("/level/", StringComparison.Ordinal);
-        if (cut < 0) return All;
-        foreach (var file in new[] { "planmap.lgb", "planevent.lgb", "planner.lgb" })
+        var layout = _travelLayout.ForTerritory(territory.Value.RowId);
+        foreach (var obj in layout.Objects)
         {
-            byte[]? bytes;
-            try { bytes = data.GetFile<Lumina.Data.FileResource>("bg/" + bg[..(cut + 7)] + file)?.Data; }
-            catch (Exception ex) { log.Warning($"[Orte] Entrance layout {file}, map {mapId}: {ex.Message}"); continue; }
-            if (bytes == null) continue;
-            foreach (var obj in EntranceLayoutReader.Read(bytes))
+            // A containing MapRange resolves floors. Without one, retain an
+            // exact Level map or an unambiguous single physical map.
+            var level = data.GetExcelSheet<Level>().GetRowOrDefault(obj.InstanceId);
+            var position = obj.Position;
+            if (level is { } source)
             {
-                // An exact Level map wins. Without it, only a single-map territory
-                // is unambiguous; multi-floor layouts must not invent map ownership.
-                var level = data.GetExcelSheet<Level>().GetRowOrDefault(obj.InstanceId);
-                var position = obj.Position;
-                if (level is { } source)
+                if (source.Type != obj.Type || source.Object.RowId != obj.BaseId
+                    || source.Territory.RowId != territory.Value.RowId) continue;
+                var sourceMap = _mapIdentity.Canonical(layout.ResolveMap(position, source.Map.RowId));
+                if (sourceMap != 0)
                 {
-                    if (source.Type != obj.Type || source.Object.RowId != obj.BaseId
-                        || source.Territory.RowId != territory.Value.RowId) continue;
-                    if (source.Map.RowId != 0)
-                    {
-                        if (source.Map.RowId != mapId) continue;
-                        position = new(source.X, source.Y, source.Z);
-                    }
-                    else if (SingleMap(territory.Value.RowId) == 0) continue;
+                    if (sourceMap != mapId) continue;
+                    position = new(source.X, source.Y, source.Z);
                 }
                 else if (SingleMap(territory.Value.RowId) == 0) continue;
-                if (!_objectWarps.TryGetValue((obj.Type, obj.BaseId), out var warps)) continue;
-                foreach (var warp in warps) Add(mapId, territory.Value.RowId, obj.Type, obj.BaseId, position, warp, _all!);
             }
+            else if (layout.ResolveMap(position, SingleMap(territory.Value.RowId)) != mapId) continue;
+            if (!_objectWarps.TryGetValue((obj.Type, obj.BaseId), out var warps)) continue;
+            foreach (var warp in warps) Add(mapId, territory.Value.RowId, obj.Type, obj.BaseId, position, warp, _all!);
         }
         return All;
     }
@@ -153,7 +158,8 @@ internal sealed class InteriorEntranceService(IDataManager data, IPluginLog log)
 
         void Add(Level level, Warp warp)
         {
-            this.Add(level.Map.RowId, level.Territory.RowId, level.Type, level.Object.RowId,
+            var actualMap = _travelLayout.ForTerritory(level.Territory.RowId).ResolveMap(new(level.X, level.Y, level.Z), level.Map.RowId);
+            this.Add(actualMap, level.Territory.RowId, level.Type, level.Object.RowId,
                 new(level.X, level.Y, level.Z), warp, result);
         }
     }
@@ -161,14 +167,24 @@ internal sealed class InteriorEntranceService(IDataManager data, IPluginLog log)
     private void Add(uint mapId, uint territory, byte type, uint baseId, Vector3 position,
         Warp warp, List<InteriorEntrance> result)
     {
+        mapId = _mapIdentity.Canonical(mapId);
         var arrival = warp.PopRange.ValueNullable;
-        if (arrival == null) return;
-        var targetMap = arrival.Value.Map.RowId;
+        var layout = _travelLayout.ForTerritory(warp.TerritoryType.RowId);
+        Vector3 arrivalPosition;
+        if (arrival is { } row)
+        {
+            if (row.Territory.RowId != warp.TerritoryType.RowId) return;
+            arrivalPosition = new(row.X, row.Y, row.Z);
+        }
+        else if (!layout.Arrivals.TryGetValue(warp.PopRange.RowId, out arrivalPosition)) return;
+        if (!TravelLayout.Finite(arrivalPosition)) return;
+        var targetMap = layout.ResolveMap(arrivalPosition, arrival?.Map.RowId ?? SingleMap(warp.TerritoryType.RowId));
         // Some Warp arrival rows omit Map. Only a single-map territory is
         // unambiguous: never guess a floor in a multi-map territory.
-        if (targetMap == 0) targetMap = SingleMap(warp.TerritoryType.RowId);
+        if (targetMap == 0) return;
+        targetMap = _mapIdentity.Canonical(targetMap);
         var entrance = Validate(mapId, territory, type, baseId, position, warp.TerritoryType.RowId,
-            targetMap, arrival.Value.Territory.RowId,
+            targetMap, warp.TerritoryType.RowId,
             data.GetExcelSheet<Map>().GetRowOrDefault(mapId)?.TerritoryType.RowId ?? 0,
             data.GetExcelSheet<Map>().GetRowOrDefault(targetMap)?.TerritoryType.RowId ?? 0);
         if (entrance != null && !result.Any(e => e.SourceMapId == entrance.SourceMapId
@@ -185,6 +201,16 @@ internal sealed class InteriorEntranceService(IDataManager data, IPluginLog log)
         else if (link.TryGetValue<PreHandler>(out var pre)) result.AddRange(ResolveWarps(pre.Target, visited, depth + 1));
         else if (link.TryGetValue<ArrayEventHandler>(out var array))
             foreach (var child in array.Data) result.AddRange(ResolveWarps(child, visited, depth + 1));
+        else if (link.TryGetValue<CustomTalk>(out var custom))
+        {
+            result.AddRange(ResolveWarps(custom.SpecialLinks, visited, depth + 1));
+            foreach (var parameter in custom.Script)
+                // Only an explicitly named Warp event, never a territory/quest
+                // constant or an arbitrary number in a script.
+                if (parameter.ScriptInstruction.ExtractText().StartsWith("WARP", StringComparison.Ordinal)
+                    && data.GetExcelSheet<Warp>().TryGetRow(parameter.ScriptArg, out var scriptWarp))
+                    result.Add(scriptWarp);
+        }
         return result;
     }
 
@@ -194,7 +220,7 @@ internal sealed class InteriorEntranceService(IDataManager data, IPluginLog log)
     {
         if (sourceMap == 0 || targetMap == 0 || sourceMap == targetMap || baseId == 0
             || type is not (8 or 45) || sourceTerritory == 0 || warpTerritory == 0
-            || sourceTerritory != sourceMapTerritory || sourceTerritory == warpTerritory
+            || sourceTerritory != sourceMapTerritory
             || arrivalTerritory != warpTerritory || targetMapTerritory != warpTerritory
             || !float.IsFinite(position.X) || !float.IsFinite(position.Y) || !float.IsFinite(position.Z))
             return null;

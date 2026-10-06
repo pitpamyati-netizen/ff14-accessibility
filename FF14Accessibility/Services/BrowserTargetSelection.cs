@@ -16,8 +16,13 @@ internal static class BrowserTargetSelection
 
     internal static InteractionRequest ConfirmWorldObject(ITargetManager targets, IGameObject obj,
         Func<IGameObject, ulong> nativeConfirm)
+        => ConfirmQuestOrWorldObject(targets, obj, false, nativeConfirm);
+
+    internal static InteractionRequest ConfirmQuestOrWorldObject(ITargetManager targets, IGameObject obj,
+        bool questSelected, Func<IGameObject, ulong> nativeConfirm)
     {
-        if (!IsWorldObject(obj) || !obj.IsTargetable || obj.Address == 0) return default;
+        if (!(IsWorldObject(obj) || questSelected && obj.ObjectKind == ObjectKind.EventNpc)
+            || !obj.IsTargetable || obj.Address == 0) return default;
         var targetAccepted = Select(targets, obj);
         // SetHardTarget applies targeting filters. Its refusal does not mean
         // this live, targetable prop cannot be interacted with. Let the native

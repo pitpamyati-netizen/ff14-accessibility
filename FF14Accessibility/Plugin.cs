@@ -217,7 +217,7 @@ public sealed partial class Plugin : IDalamudPlugin
     // 6.08.18 lokal: Chat-Absender Kontextmenü (Strg+Umschalt+BildAuf) + Numpad3-Ziel.
     // 6.08.19: Charakterauswahl — eine Ansage (Name, Job, Ort) statt Scan-Sturm.
     // 6.08.20: Mitstreiter-Taste (PR 27 Port) — Strg+Umschalt+C öffnet/vorliest.
-    private const string PluginVersion    = "6.08.108";
+    private const string PluginVersion    = "6.08.109";
     // Der Tag nennt, was diese Fassung MITBRINGT, nicht woher sie stammt: die
     // russische Schicht auf dem Stand des Autors 6.08.35 (Auftragstext im
     // Quest-Tracker des Autors, siehe package-Schritt).
@@ -1679,8 +1679,8 @@ public sealed partial class Plugin : IDalamudPlugin
             // A browser selection can be a map position, not a game target.
             // Reading it must not start a walk, retarget a monster or advance
             // the hunt search. Use the same selection order as Numpad3.
-            switch (TryResolveDestinationReadout(out var position, out var name, out _,
-                        out var heightIsGuess, out _))
+            switch (TryResolveSelectedDestination(out var position, out var name, out _,
+                        out var heightIsGuess, out _, readout: true))
             {
                 case MarkerResolve.Resolved:
                     _navigation.AnnounceDestinationDirection(name, position, heightIsGuess);
@@ -2487,6 +2487,7 @@ public sealed partial class Plugin : IDalamudPlugin
         // must keep receiving every frame, including while a menu owns keys.
         _autoWalk.Update();
         _transitions.Update();
+        PollSelectedQuest();
         FacingService.Tick(ObjectTable.LocalPlayer);
         _armouryTransfer.Update(GameWindowFocus.IsActive && !_uiReader.IsTableReading
             && !_uiReader.IsShopQuantityEditing && !_uiReader.IsSystemVolumeEditing
@@ -2610,7 +2611,7 @@ public sealed partial class Plugin : IDalamudPlugin
             }
             // No through-point here: the walk guide steers the PLAYER, who walks
             // through the line themselves once they are told they are there.
-            else switch (TryResolveMarkerDestination(out var pos, out var name, out var stop, out _, out _))
+            else switch (TryResolveSelectedDestination(out var pos, out var name, out var stop, out _, out _))
             {
                 // Marker destinations (quest objectives, map waypoints) work in
                 // the walk guide too since V4.63 - manual walking was
@@ -2630,7 +2631,7 @@ public sealed partial class Plugin : IDalamudPlugin
                 // the nearest live one, or tell the user where it lives.
                 TrackBestiaryMonster(bestiaryMonster);
             }
-            else switch (TryResolveMarkerDestination(out var pos, out var name, out var stop, out _, out var isTransition))
+            else switch (TryResolveSelectedDestination(out var pos, out var name, out var stop, out _, out var isTransition))
             {
                 case MarkerResolve.Resolved: _autoWalk.ToggleToPosition(pos, name, stop, isTransition); break;
                 case MarkerResolve.None:     _autoWalk.Toggle();                          break;
@@ -2649,7 +2650,7 @@ public sealed partial class Plugin : IDalamudPlugin
         {
             // Speak the route (compass segments) without walking - to the
             // selected marker destination, or to the current game target.
-            switch (TryResolveMarkerDestination(out var pos, out var name, out _, out _, out _))
+            switch (TryResolveSelectedDestination(out var pos, out var name, out _, out _, out _))
             {
                 case MarkerResolve.Resolved: _navigation.PreviewRoute(pos, name); break;
                 case MarkerResolve.None:     _navigation.PreviewRouteToTarget();  break;

@@ -12,6 +12,18 @@ namespace Regression.Tests;
 
 public sealed class WorldObjectConfirmTests
 {
+    [Fact]
+    public void QuestTransportNpcCanReceiveExactNativeInteractionDespiteOldEnemyTarget()
+    {
+        var npc = Object(1000106, ObjectKind.EventNpc);
+        var targets = DispatchProxy.Create<ITargetManager, NavigationInputTests.TargetProxy>();
+        var state = (NavigationInputTests.TargetProxy)targets;
+        state.Accepts = false; state.Hard = Object(123, ObjectKind.BattleNpc);
+        IGameObject? actual = null;
+        var request = BrowserTargetSelection.ConfirmQuestOrWorldObject(targets, npc, true, obj => { actual = obj; return 0; });
+        Assert.True(request.Requested); Assert.Same(npc, actual);
+        Assert.False(BrowserTargetSelection.ConfirmQuestOrWorldObject(targets, npc, false, _ => throw new Exception()).Requested);
+    }
     [Theory]
     [InlineData(ObjectKind.EventObj)]
     [InlineData(ObjectKind.Treasure)]

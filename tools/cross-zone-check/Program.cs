@@ -55,6 +55,30 @@ Check(fromInn is { TypeLabel: "Entrance", TargetMapId: 2 } && innHops == 3,
 Check(innDoor is { BaseId: 2000087, LevelType: 45 } && fromInn?.Position == innDoor.Position,
     "Inn route did not select the exact local exit door.");
 Check(places.GetHopDistances().GetValueOrDefault(69u) == innHops, "Inn route/ranking disagreement.");
+state.Map = 2; state.Territory = 132;
+var airship = places.FindFirstHopToMap(74, out var airshipHops);
+var airshipNpc = places.FindLocalEntranceOnRoute(74);
+Check(airship is { TypeLabel: "Entrance", TargetMapId: 74, IsZoneTransition: false }
+    && airshipNpc is { BaseId: 1000106 } && airshipHops == 1,
+    "Recorded Gridanian Envoy route must lead to Lionnellais for passage to Limsa's landing.");
+var rogueTrip = places.FindFirstHopToMap(548, out var rogueHops);
+Check(rogueTrip?.Position == airship?.Position && rogueHops > 1,
+    "Recorded Stabbers in Yer Fambles must start with the airship, not refuse another area.");
+state.Map = 74; state.Territory = 128;
+var lift = places.FindFirstHopToMap(548, out var liftHops);
+Check(lift != null && liftHops < rogueHops && places.FindLocalEntranceOnRoute(548) != null,
+    "Arrival must continue through the local lift towards the Rogues' Guild.");
+state.Map = 12; state.Territory = 129;
+var guild = places.FindLocalEntranceOnRoute(548);
+Check(guild is { BaseId: 1009944, TargetMapId: 548 }, "Same-territory guild route must select Lonwoerd.");
+state.Map = 548; state.Territory = 129;
+var guildExit = places.FindLocalEntranceOnRoute(2);
+Check(guildExit is { BaseId: 2004936, TargetMapId: 12 }, "Return travel must leave through the local guild door.");
+var landingRange = new TravelLayout(data, log).ForTerritory(128);
+Check(landingRange.MapAt(new(-12.6917f, 91.4999f, -7.60297f)) == 74,
+    "Airship PopRange's old map11 must be corrected by the actual landing range.");
+Check(landingRange.Arrivals.ContainsKey(4158063), "Lift arrival missing from Level must be obtained from layout.");
+Console.WriteLine($"Recorded travel: {airship?.Name} (NPC {airshipNpc?.BaseId}); {rogueHops} legs to guild; landing next: {lift?.Name}; guild NPC {guild?.BaseId}.");
 var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 var checkedMaps = 0;
 var service = new InteriorEntranceService(data, log);
@@ -62,6 +86,10 @@ foreach (var map in data.GetExcelSheet<Map>())
 {
     if (map.RowId == 0 || map.TerritoryType.RowId == 0) continue;
     service.ForMap(map.RowId);
+    var canonical = data.GetExcelSheet<Map>().GetRow(places.CanonicalMap(map.RowId));
+    Check(map.TerritoryType.RowId == canonical.TerritoryType.RowId && map.Id.ExtractText() == canonical.Id.ExtractText()
+        && map.SizeFactor == canonical.SizeFactor && map.OffsetX == canonical.OffsetX && map.OffsetY == canonical.OffsetY,
+        "Physical map aliases must never merge different zones or floors.");
     checkedMaps++;
 }
 var allEntrances = service.All.ToArray();
@@ -81,12 +109,55 @@ foreach (var group in allEntrances.GroupBy(e => e.SourceMapId))
     }
     checkedSources++;
 }
+// Audit every Quest actor/object constant with a typed, located Level row.
+// These include all phases; they are coverage evidence, not live quest runs.
+var questActors = data.GetExcelSheet<Quest>().SelectMany(q => q.QuestParams)
+    .Where(p => p.ScriptInstruction.ExtractText().StartsWith("ACTOR", StringComparison.Ordinal)
+        || p.ScriptInstruction.ExtractText().StartsWith("EOBJECT", StringComparison.Ordinal))
+    .Select(p => p.ScriptArg).Where(id => id != 0).ToHashSet();
+var targetLevels = data.GetExcelSheet<Level>().Where(l => l.Type is 8 or 45 && questActors.Contains(l.Object.RowId)
+    && l.Map.RowId != 0 && l.Territory.RowId != 0).ToArray();
+state.Map = 2; state.Territory = 132;
+var reachable = places.GetHopDistances();
+var targetMaps = targetLevels.Select(l => l.Map.RowId).Distinct().ToArray();
+var unreachable = targetMaps.Where(id => !reachable.ContainsKey(places.CanonicalMap(id))).ToArray();
+var teleportMaps = data.GetExcelSheet<Aetheryte>().Where(a => a.IsAetheryte && !a.Invisible).Select(a => places.CanonicalMap(a.Map.RowId)).ToHashSet();
+var withTeleport = unreachable.Where(id => places.GetHopDistancesTo(id).Keys.Any(teleportMaps.Contains)).ToArray();
+var duties = new DutyEntranceService(data, client, places, log);
+var withDuty = unreachable.Except(withTeleport).Where(id =>
+{
+    var target = targetLevels.First(l => l.Map.RowId == id);
+    var goal = new QuestDestination("audit", "", new(target.X, target.Y, target.Z), 1,
+        (ushort)target.Territory.RowId, id, false, QuestKind.Unknown, 0);
+    var duty = QuestTravelHints.FindDuty(data, duties, places, goal, state.Map);
+    if (duty == null) return false;
+    var travel = QuestTravelHints.DutyGoal(goal, duty, state.Map);
+    Check(travel.TargetBaseId != 0 && travel.TargetLevelType == 45
+        && data.GetExcelSheet<EObj>().TryGetRow(travel.TargetBaseId, out _), "Duty route lost exact external door.");
+    return reachable.ContainsKey(places.CanonicalMap(travel.MapId)) || places.GetHopDistancesTo(travel.MapId).Keys.Any(teleportMaps.Contains);
+}).ToArray();
+foreach(var id in targetMaps.Where(id => reachable.ContainsKey(places.CanonicalMap(id))))
+{
+    if (id == 2) continue;
+    var firstHop = places.FindFirstHopToMap(id, out var count);
+    Check(firstHop != null && count == reachable[places.CanonicalMap(id)], $"Quest actor map {id} route/ranking disagreement.");
+}
+var withDutyFinder = unreachable.Except(withTeleport).Except(withDuty).Where(id =>
+    data.GetExcelSheet<InstanceContent>().Count(i => i.ContentFinderCondition.ValueNullable?.TerritoryType.RowId == places.GetTerritoryOfMap(id)) == 1).ToArray();
+var stillUnmapped = unreachable.Except(withTeleport).Except(withDuty).Except(withDutyFinder).Select(id => new { Map = id,
+    Territory = places.GetTerritoryOfMap(id), Name = places.GetMapName(id) }).ToArray();
 File.WriteAllText(args[1], JsonSerializer.Serialize(new { Passed = true, Checks = checks,
     Entrances = allEntrances.Length, SourceMaps = checkedSources, MapsScanned = checkedMaps,
-    FullScanMs = stopwatch.ElapsedMilliseconds, RecordedQuests = new[] { 65983, 65985 },
+    FullScanMs = stopwatch.ElapsedMilliseconds, RecordedQuests = new[] { 65983, 65985, 66043, 65640 },
     Guard = guard, LotusGuard = lotusGuard, InnDoor = innDoor, AllEntrances = allEntrances,
+    QuestActorLevels = targetLevels.Length, QuestActorMaps = targetMaps.Length,
+    ReachableQuestActorMapsFromGridania = targetMaps.Length - unreachable.Length,
+    AdditionalMapsWithPossibleTeleport = withTeleport.Length,
+    AdditionalMapsViaVerifiedDutyEntrance = withDuty.Length,
+    AdditionalMapsWithUniqueDutyFinder = withDutyFinder.Length, DutyFinderActuallyUnlockedChecked = false,
+    UnmappedQuestActorMaps = stillUnmapped, TeleportsActuallyUnlockedChecked = false,
     NativeFfxivChecked = false }, new JsonSerializerOptions { WriteIndented = true, IncludeFields = true }));
-Console.WriteLine($"PASS: {checks} assertions, {allEntrances.Length} verified entrances in {checkedSources} source maps, {checkedMaps} maps scanned ({stopwatch.ElapsedMilliseconds} ms); both recorded quests and ordinary exits. Live game not tested.");
+Console.WriteLine($"PASS: {checks} assertions, {allEntrances.Length} verified entrances in {checkedSources} source maps, {checkedMaps} maps scanned ({stopwatch.ElapsedMilliseconds} ms); four recorded quests and ordinary exits. Live game not tested.");
 
 public class QuietLog : DispatchProxy
 {

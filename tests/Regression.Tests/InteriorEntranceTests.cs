@@ -32,7 +32,6 @@ public sealed class InteriorEntranceTests
     [InlineData(2, 132, 8, 1000423, 204, 68, 133, 132, 204)]
     [InlineData(2, 132, 8, 1000423, 204, 68, 204, 133, 204)]
     [InlineData(2, 132, 8, 1000423, 204, 68, 204, 132, 133)]
-    [InlineData(2, 132, 8, 1000423, 132, 68, 132, 132, 132)]
     public void InvalidOrConflictingLinksDoNotCreateRoutes(uint sourceMap, uint sourceTerritory,
         byte type, uint baseId, uint warpTerritory, uint targetMap, uint arrivalTerritory,
         uint sourceMapTerritory, uint targetMapTerritory)
@@ -45,6 +44,11 @@ public sealed class InteriorEntranceTests
             204, 68, 204, 132, 204));
 
     [Fact]
+    public void SameTerritoryDoorCanLeadToAnotherMapWithoutPretendingItIsWalking()
+        => Assert.NotNull(InteriorEntranceService.Validate(12, 129, 8, 1009944, new(-152, 2.8f, 243),
+            129, 548, 129, 129, 129));
+
+    [Fact]
     public void ForeignQuestTargetsExactGuardInsteadOfNearbyNpcEnemyOrUntargetableClone()
     {
         var guard = Obj(1000423, ObjectKind.EventNpc, new(232, 2, 46));
@@ -52,7 +56,8 @@ public sealed class InteriorEntranceTests
         var enemy = Obj(1000423, ObjectKind.BattleNpc, guard.Position);
         var clone = Obj(1000423, ObjectKind.EventNpc, guard.Position, false);
         var distantClone = Obj(1000423, ObjectKind.EventNpc, new(300, 2, 46));
-        var nav = Harness([wrongNpc, enemy, clone, distantClone, guard]);
+        var otherFloor = Obj(1000423, ObjectKind.EventNpc, new(232, 132, 46));
+        var nav = Harness([wrongNpc, enemy, clone, distantClone, otherFloor, guard]);
         Assert.Same(guard, Resolve(nav));
     }
 
@@ -137,6 +142,9 @@ public sealed class InteriorEntranceTests
         var places = new PlacesService(null!, client, log);
         var entries = (InteriorEntranceService)typeof(PlacesService)
             .GetField("_interiorEntrances", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(places)!;
+        var identity = typeof(InteriorEntranceService).GetField("_mapIdentity", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(entries)!;
+        typeof(TravelMapIdentity).GetField("_canonical", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(identity, new Dictionary<uint, uint>());
         typeof(InteriorEntranceService).GetField("_all", BindingFlags.Instance | BindingFlags.NonPublic)!
             .SetValue(entries, new List<InteriorEntrance> { new(2, 68, 1000423, 8, new(232, 2, 46)) });
         ((HashSet<uint>)typeof(InteriorEntranceService).GetField("_layoutsRead", BindingFlags.Instance | BindingFlags.NonPublic)!

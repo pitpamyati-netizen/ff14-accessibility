@@ -118,7 +118,10 @@ public sealed record QuestDestination(
     // mir etwas?" die eigentliche Frage, und die Markierung allein beantwortet
     // sie nicht (der Marker traegt Name, Ort und eine Id, aber keinen
     // Quest-Zeiger).
-    string Unlock = "");
+    string Unlock = "",
+    uint QuestId = 0,
+    uint ObjectiveLevelId = 0,
+    uint NativeMarkerId = 0);
 
 /// <summary>
 /// Reads the objective markers of ACCEPTED quests from the game's map
@@ -144,6 +147,7 @@ public sealed class QuestMarkerService
     private bool _questNameRussian;
     private Dalamud.Game.ClientLanguage _questNameLanguage;
     private int _questNameDisplay;
+    private readonly TravelMapIdentity _mapIdentity;
 
     public QuestMarkerService(IClientState clientState, IDataManager data, IPluginLog log, string? harmoniaPacks = null)
     {
@@ -151,6 +155,7 @@ public sealed class QuestMarkerService
         _data = data;
         _log = log;
         _harmoniaPacks = harmoniaPacks;
+        _mapIdentity = new(data);
     }
 
     private Dictionary<uint, List<EventRangeRow>>? _eventRangesByQuestId;
@@ -352,7 +357,7 @@ public sealed class QuestMarkerService
     /// Logs every marker as ground-truth probe for the two open runtime
     /// questions: zone field correctness and marker height vs. navmesh.
     /// </summary>
-    public unsafe List<QuestDestination> GetDestinations()
+    public unsafe List<QuestDestination> GetDestinations(bool log = true)
     {
         var result = new List<QuestDestination>();
         var map = Map.Instance();
@@ -365,7 +370,7 @@ public sealed class QuestMarkerService
         var currentTerritory = _clientState.TerritoryType;
         // QuestMarkers is a fixed 30-slot span; empty slots have a blank label.
         foreach (ref var marker in map->QuestMarkers)
-            AddMarkerDestinations(result, marker, currentTerritory, "Quest");
+            AddMarkerDestinations(result, marker, currentTerritory, "Quest", log: log);
 
         return result;
     }
@@ -376,7 +381,7 @@ public sealed class QuestMarkerService
     /// (StdList) - only real entries are present, no empty slots. Lets a blind
     /// player discover what quests can be picked up in the area.
     /// </summary>
-    public unsafe List<QuestDestination> GetUnacceptedDestinations()
+    public unsafe List<QuestDestination> GetUnacceptedDestinations(bool log = true)
     {
         var result = new List<QuestDestination>();
         var map = Map.Instance();
@@ -390,7 +395,7 @@ public sealed class QuestMarkerService
         // StdList yields each MarkerInfo by value (a read-only copy); its inner
         // pointers still reference live game memory, safe to read here.
         foreach (var marker in map->UnacceptedQuestMarkers)
-            AddMarkerDestinations(result, marker, currentTerritory, "OpenQuest");
+            AddMarkerDestinations(result, marker, currentTerritory, "OpenQuest", log: log);
 
         return result;
     }
@@ -822,7 +827,7 @@ public sealed class QuestMarkerService
 
     private unsafe void AddMarkerDestinations(
         List<QuestDestination> result, MarkerInfo marker, uint currentTerritory, string tag,
-        QuestMarkerRole role = QuestMarkerRole.Quest)
+        QuestMarkerRole role = QuestMarkerRole.Quest, bool log = true)
     {
         var questName = marker.Label.ToString();
         if (string.IsNullOrWhiteSpace(questName)) return; // empty slot
@@ -849,8 +854,9 @@ public sealed class QuestMarkerService
         {
             var data = marker.MarkerData[i];
             var tooltip = data.TooltipString != null ? data.TooltipString->ToString() : string.Empty;
-            var inZone = data.TerritoryTypeId == currentTerritory;
-            _log.Info($"[{tag}] Marker '{questName}' [{i + 1}/{locations}]: tt='{tooltip}' unlock='{unlock}' " +
+            var inZone = data.TerritoryTypeId == currentTerritory && (data.MapId == 0
+                || _mapIdentity.Canonical(data.MapId) == _mapIdentity.Canonical(_clientState.MapId));
+            if (log) _log.Info($"[{tag}] Marker '{questName}' [{i + 1}/{locations}]: tt='{tooltip}' unlock='{unlock}' " +
                       $"pos=({data.Position.X:F1}|{data.Position.Y:F1}|{data.Position.Z:F1}) " +
                       $"r={data.Radius:F1} terr={data.TerritoryTypeId} (aktuell={currentTerritory}) " +
                       $"map={data.MapId} icon={data.IconId} render={marker.ShouldRender} " +
@@ -860,8 +866,8 @@ public sealed class QuestMarkerService
 
             // The object behind THIS location, over the game's own link (the
             // same one GetQuestObjectIds uses): LevelId -> Level sheet row ->
-            // Level.Object, typed by Level.Type. Only rows of the current zone
-            // count, for the same reason as there. 0 means "pure position
+            // Level.Object, typed by Level.Type. Only rows of the marker's zone
+            // count; a foreign-zone identity is resolved only after arrival. 0 means "pure position
             // marker" - an area or a "go to X", where there is nothing to aim
             // at and the plugin must not guess one.
             var targetBaseId = 0u;
@@ -870,7 +876,7 @@ public sealed class QuestMarkerService
                 && _data.GetExcelSheet<LuminaLevel>().TryGetRow(data.LevelId, out var levelRow))
             {
                 var territory = levelRow.Territory.RowId;
-                if (levelRow.Object.RowId != 0 && (territory == 0 || territory == currentTerritory))
+                if (levelRow.Object.RowId != 0 && (territory == 0 || territory == data.TerritoryTypeId))
                 {
                     targetBaseId = levelRow.Object.RowId;
                     targetType   = levelRow.Type;
@@ -879,7 +885,9 @@ public sealed class QuestMarkerService
 
             result.Add(new QuestDestination(questName, tooltip, data.Position,
                 data.Radius, data.TerritoryTypeId, data.MapId, inZone, kind, level, role,
-                targetBaseId, targetType, unlock));
+                targetBaseId, targetType, unlock,
+                role == QuestMarkerRole.Quest && QuestRows(questName) is { Count: 1 } rows ? rows[0].RowId : 0, data.LevelId,
+                role == QuestMarkerRole.Quest ? marker.ObjectiveId : 0));
         }
     }
 }

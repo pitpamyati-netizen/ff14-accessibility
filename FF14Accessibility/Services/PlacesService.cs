@@ -44,6 +44,7 @@ public sealed class PlacesService
     private readonly IClientState _clientState;
     private readonly IPluginLog   _log;
     private readonly InteriorEntranceService _interiorEntrances;
+    private readonly TravelMapIdentity _mapIdentity;
 
     public PlacesService(IDataManager data, IClientState clientState, IPluginLog log)
     {
@@ -51,6 +52,7 @@ public sealed class PlacesService
         _clientState = clientState;
         _log         = log;
         _interiorEntrances = new(data, log);
+        _mapIdentity = new(data);
     }
 
     /// <summary>
@@ -440,9 +442,11 @@ public sealed class PlacesService
     // from the same MapMarker data. Sheet data never changes at runtime.
     private readonly Dictionary<uint, List<uint>> _transitionCache = [];
     private readonly Dictionary<uint, HashSet<uint>> _markerTransitionTargets = [];
+    private Dictionary<(uint Start, uint Target), (uint Hop, int Count)>? _firstHopCache;
 
     private List<uint> GetTransitionTargets(uint mapId)
     {
+        mapId = CanonicalMap(mapId);
         if (_transitionCache.TryGetValue(mapId, out var cached)) return cached;
 
         var targets = new List<uint>();
@@ -456,8 +460,9 @@ public sealed class PlacesService
                 if (m.DataType is not (1 or 2)) continue;
                 if (m.DataKey.TryGetValue<Map>(out var target) && target.RowId != 0)
                 {
-                    targets.Add(target.RowId);
-                    markerTargets.Add(target.RowId);
+                    var canonical = CanonicalMap(target.RowId);
+                    targets.Add(canonical);
+                    markerTargets.Add(canonical);
                 }
             }
         }
@@ -471,8 +476,8 @@ public sealed class PlacesService
 
     /// <summary>Only a verified interaction entrance on the current map.</summary>
     public InteriorEntrance? FindLocalEntranceToMap(uint targetMapId)
-        => _interiorEntrances.ForMap(_clientState.MapId).Where(e => e.SourceMapId == _clientState.MapId
-            && e.TargetMapId == targetMapId).OrderByDescending(e => e.LevelType == 45).FirstOrDefault();
+        => _interiorEntrances.ForMap(CanonicalMap(_clientState.MapId)).Where(e => e.SourceMapId == CanonicalMap(_clientState.MapId)
+            && e.TargetMapId == CanonicalMap(targetMapId)).OrderByDescending(e => e.LevelType == 45).FirstOrDefault();
 
     /// <summary>The interaction object for the FIRST leg, even when the final
     /// destination is several maps away (e.g. leave an inn before a city gate).</summary>
@@ -481,9 +486,22 @@ public sealed class PlacesService
         var hop = FindFirstHopMap(targetMapId, out _);
         if (hop == 0) return null;
         var entrance = FindLocalEntranceToMap(hop);
-        return entrance?.LevelType == 45 || !_markerTransitionTargets.GetValueOrDefault(_clientState.MapId, []).Contains(hop)
+        return PreferInteraction(entrance) || !_markerTransitionTargets.GetValueOrDefault(CanonicalMap(_clientState.MapId), []).Contains(hop)
             ? entrance : null;
     }
+
+    private bool PreferInteraction(InteriorEntrance? entrance)
+    {
+        if (entrance == null) return false;
+        if (entrance.LevelType == 45) return true;
+        if (_data == null) return false;
+        // A transport symbol is not a walking border. Only a real ExitRange
+        // on this source map can take priority over a verified NPC entrance.
+        return !_interiorEntrances.HasWalkingBorder(entrance.SourceMapId, entrance.TargetMapId);
+    }
+
+    public uint CanonicalMap(uint id) => _data == null ? id : _mapIdentity.Canonical(id);
+    public bool AreSameMap(uint first, uint second) => CanonicalMap(first) == CanonicalMap(second);
 
     private PlaceDestination? EntranceDestination(uint targetMapId)
     {
@@ -529,7 +547,7 @@ public sealed class PlacesService
     public Dictionary<uint, int> GetHopDistances()
     {
         var distance = new Dictionary<uint, int>();
-        var start = _clientState.MapId;
+        var start = CanonicalMap(_clientState.MapId);
         if (start == 0) return distance;
 
         distance[start] = 0;
@@ -550,6 +568,29 @@ public sealed class PlacesService
         return distance;
     }
 
+    private readonly Dictionary<uint, Dictionary<uint, int>> _distancesTo = [];
+    public IReadOnlyDictionary<uint, int> GetHopDistancesTo(uint target)
+    {
+        target = CanonicalMap(target);
+        if (target == 0 || !_data.GetExcelSheet<Map>().TryGetRow(target, out _)) return new Dictionary<uint, int>();
+        if (_distancesTo.TryGetValue(target, out var cached)) return cached;
+        var reverse = new Dictionary<uint, List<uint>>();
+        foreach (var map in _data.GetExcelSheet<Map>())
+            if (map.RowId != 0 && map.TerritoryType.RowId != 0)
+                foreach (var next in GetTransitionTargets(map.RowId))
+                {
+                    if (!reverse.TryGetValue(next, out var list)) reverse[next] = list = [];
+                    list.Add(CanonicalMap(map.RowId));
+                }
+        var distances = new Dictionary<uint, int> { [target] = 0 };
+        var queue = new Queue<uint>(); queue.Enqueue(target);
+        while (queue.TryDequeue(out var current))
+            foreach (var next in reverse.GetValueOrDefault(current, []))
+                if (distances.TryAdd(next, distances[current] + 1)) queue.Enqueue(next);
+        _distancesTo[target] = distances;
+        return distances;
+    }
+
     /// <summary>
     /// Finds the transition IN THE CURRENT MAP that is the first hop of the
     /// shortest transition route to the target map (BFS over the static
@@ -562,10 +603,10 @@ public sealed class PlacesService
         var hop = FindFirstHopMap(targetMapId, out hops);
         if (hop == 0) return null;
         var entrance = FindLocalEntranceToMap(hop);
-        var marker = GetPlaces(includeFlag: false).FirstOrDefault(p => p.IsZoneTransition && p.TargetMapId == hop);
+        var marker = GetPlaces(includeFlag: false).FirstOrDefault(p => p.IsZoneTransition && AreSameMap(p.TargetMapId, hop));
         // Doors are exact interaction targets even when a decorative map glyph
         // exists. Ordinary walking borders win over optional NPC transport.
-        var transition = entrance?.LevelType == 45 ? EntranceDestination(hop)
+        var transition = PreferInteraction(entrance) ? EntranceDestination(hop)
             : marker ?? EntranceDestination(hop);
         _log.Info($"[Orte] Route Map {_clientState.MapId} -> {targetMapId}: {hops} Übergänge, erster: " +
                   (transition?.Name ?? $"KEIN Marker für Ziel-Map {hop} gefunden"));
@@ -575,8 +616,12 @@ public sealed class PlacesService
     private uint FindFirstHopMap(uint targetMapId, out int hops)
     {
         hops = 0;
-        var start = _clientState.MapId;
+        var start = CanonicalMap(_clientState.MapId);
+        targetMapId = CanonicalMap(targetMapId);
         if (start == 0 || targetMapId == 0 || start == targetMapId) return 0;
+        _firstHopCache ??= [];
+        if (_firstHopCache.TryGetValue((start, targetMapId), out var cached))
+        { hops = cached.Count; return cached.Hop; }
 
         // BFS with parent tracking. Each checked map is visited at most once.
         var parent  = new Dictionary<uint, uint> { [start] = start };
@@ -597,6 +642,7 @@ public sealed class PlacesService
         if (!found)
         {
             _log.Info($"[Orte] Keine Übergangs-Route von Map {start} nach Map {targetMapId}.");
+            _firstHopCache[(start, targetMapId)] = (0, 0);
             return 0;
         }
 
@@ -610,6 +656,7 @@ public sealed class PlacesService
             hops++;
         }
 
+        _firstHopCache[(start, targetMapId)] = (hop, hops);
         return hop;
     }
 
