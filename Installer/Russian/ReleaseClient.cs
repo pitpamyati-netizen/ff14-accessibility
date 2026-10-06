@@ -19,7 +19,7 @@ public sealed class ReleaseClient : IDisposable
     {
         http = handler == null ? new HttpClient() : new HttpClient(handler);
         http.Timeout = TimeSpan.FromMinutes(10);
-        http.DefaultRequestHeaders.UserAgent.ParseAdd("FF14Accessibility-RU-Installer/1.1.1");
+        http.DefaultRequestHeaders.UserAgent.ParseAdd("FF14Accessibility-RU-Installer/1.3.0");
     }
 
     public async Task<PluginRelease> Latest(CancellationToken token)

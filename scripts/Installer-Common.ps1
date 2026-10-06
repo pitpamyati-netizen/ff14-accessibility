@@ -6,7 +6,7 @@ function Get-InstallerSourceFiles([string]$Root) {
             Get-ChildItem -LiteralPath (Join-Path $Root $relative) -Recurse -File |
                 Where-Object { $_.FullName -notmatch '[\\/](bin|obj)[\\/]' } | ForEach-Object { $_.FullName }
         }
-        foreach ($relative in @('scripts/Build-Installer.ps1', 'scripts/Installer-Common.ps1', 'LICENSE', 'THIRD-PARTY-NOTICES.md')) {
+        foreach ($relative in @('scripts/Build-Installer.ps1', 'scripts/Installer-Common.ps1', 'scripts/Update-ReleaseInstaller.ps1', 'scripts/Publish-Release.ps1', 'scripts/Local-Common.ps1', 'LICENSE', 'THIRD-PARTY-NOTICES.md')) {
             (Join-Path $Root $relative)
         }
     )

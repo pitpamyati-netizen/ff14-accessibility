@@ -1,8 +1,9 @@
 ﻿[CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)][string]$ArchivePath,
+    [string]$ArchivePath,
     [Parameter(Mandatory = $true)][string]$NotesFile,
     [string]$InstallerBuildRoot,
+    [switch]$InstallerOnly,
     [switch]$CheckOnly
 )
 
@@ -11,6 +12,14 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'Installer-Common.ps1')
 $root = Get-LocalRoot
 $repository = 'pitpamyati-netizen/ff14-accessibility'
+
+# Updating only the installer in the existing latest release is explicitly
+# separate from publishing a new game-plugin version or changing Git state.
+if ($InstallerOnly) {
+    & (Join-Path $PSScriptRoot 'Update-ReleaseInstaller.ps1') -NotesFile $NotesFile -CheckOnly:$CheckOnly
+    return
+}
+if ([string]::IsNullOrWhiteSpace($ArchivePath)) { throw 'ArchivePath is required for a new plugin release.' }
 
 function Invoke-ReleaseCommand([string]$Command, [string[]]$Arguments) {
     $output = & $Command @Arguments

@@ -31,7 +31,7 @@ public sealed class InstallerService : IDisposable
 
     public async Task Check(CancellationToken token)
     {
-        Log("Проверяю последний стабильный выпуск на вашей странице GitHub…");
+        Log("Проверяю последний стабильный выпуск на GitHub…");
         var release = await releases.Latest(token);
         Log("Последняя русская версия: " + release.DisplayVersion + ".");
         var (_, config) = ReadSettings();
@@ -44,14 +44,14 @@ public sealed class InstallerService : IDisposable
             Log(TranslationInstaller.WaitsForPlugins(config)
                 ? "Ожидание загрузки плагинов перед игрой включено."
                 : "Ожидание загрузки плагинов перед игрой выключено. Из-за этого часть интерфейса XIV Rus может остаться английской. " +
-                  "Для исправления нажмите «Русифицировать игру и мод», затем запустите игру заново.");
+                  "Для исправления нажмите «Установить русификацию игры», затем запустите игру заново.");
             try
             {
                 DalamudSettings.VerifyEnabled(root, "Penumbra", penumbra[0]);
                 Log("Penumbra: автозагрузка и профили включены. Фактическую загрузку проверяют после запуска игры.");
             }
             catch (Exception ex) when (ex is InvalidDataException or InvalidOperationException)
-            { Log("Penumbra требует исправления: " + ex.Message + " Нажмите «Русифицировать игру и мод»."); }
+            { Log("Penumbra требует исправления: " + ex.Message + " Нажмите «Установить русификацию игры»."); }
         }
         Log("Проверка завершена. Для установки или обновления нажмите «Установить / обновить мод».");
     }
@@ -170,6 +170,33 @@ public sealed class InstallerService : IDisposable
     }
 
     public void Dispose() => releases.Dispose();
+
+    public string Uninstall(bool mod, bool translation, CancellationToken token) =>
+        new UninstallService(root, ensureClosed, Log).Remove(mod, translation, token);
+
+    public string RemoveModTranslation(CancellationToken token) =>
+        new UninstallService(root, ensureClosed, Log).Remove(false, false, token, modTranslation: true);
+
+    public async Task<string> RussifyMod(CancellationToken token)
+    {
+        await Install(token, offerVnav: false);
+        token.ThrowIfCancellationRequested();
+        new TranslationInstaller(root, releases, ensureClosed, Log).SetRussianLanguage(token);
+        return "Русификация мода установлена. Русский язык сообщений и речи включён. Запустите игру заново через XIVLauncher.";
+    }
+
+    public async Task<string> RussifyGame(CancellationToken token, IEnumerable<string>? searchFolders = null)
+    {
+        ensureClosed();
+        ReadSettings();
+        var translation = new TranslationInstaller(root, releases, ensureClosed, Log);
+        await translation.EnsurePenumbra(token);
+        token.ThrowIfCancellationRequested();
+        var result = await translation.Install(token, searchFolders);
+        var (_, config) = ReadSettings();
+        DalamudSettings.VerifyEnabled(root, "Penumbra", DalamudSettings.Find(root, config, "Penumbra").Single());
+        return result;
+    }
 
     public async Task<string> Russify(CancellationToken token, IEnumerable<string>? searchFolders = null)
     {

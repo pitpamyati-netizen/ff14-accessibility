@@ -1,6 +1,15 @@
 using FF14AccessibilityInstaller.Russian;
 using Newtonsoft.Json.Linq;
 
+if (args.Length == 2 && args[0] == "--latest-only")
+{
+    using var releases = new ReleaseClient();
+    var release = await releases.Latest(default);
+    if (release.DisplayVersion != args[1]) throw new Exception("Unexpected latest version: " + release.DisplayVersion);
+    Console.WriteLine("PASS: real ReleaseClient.Latest selects " + release.DisplayVersion + " and " + release.Url);
+    return;
+}
+
 if (args.Length is < 1 or > 3) throw new ArgumentException("Specify a NEW isolated output directory, optionally --translation or an archive search folder, then an exported release metadata folder.");
 var root = Path.GetFullPath(args[0]);
 var live = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "XIVLauncher");
@@ -52,20 +61,25 @@ await service.Check(default);
 if (args.Length >= 2)
 {
     var folders = args[1] == "--translation" ? Array.Empty<string>() : new[] { Path.GetFullPath(args[1]) };
-    var first = await service.Russify(default, folders);
+    Console.WriteLine(await service.RussifyMod(default));
+    var languageBeforeGame = File.ReadAllBytes(Path.Combine(root, "pluginConfigs", "FF14Accessibility.json"));
+    var first = await service.RussifyGame(default, folders);
+    if (!File.ReadAllBytes(Path.Combine(root, "pluginConfigs", "FF14Accessibility.json")).SequenceEqual(languageBeforeGame))
+        throw new Exception("Game translation changed the mod language or settings.");
     Console.WriteLine(first);
     if (!first.Contains("Русификация завершена")) throw new Exception("Fresh installation did not complete.");
     // No invented first-game files: all of these must come from the installer itself.
     var pen = Path.Combine(root, "pluginConfigs", "Penumbra");
     ConsumerChecks.Verify(root, Path.Combine(live, "addon", "Hooks", "dev"));
     var complete = PackageFiles.Snapshot(root);
-    Console.WriteLine(await service.Russify(default, folders));
+    Console.WriteLine(await service.RussifyGame(default, folders));
+    Console.WriteLine(await service.RussifyMod(default));
     PackageFiles.VerifySnapshot(root, complete);
     // Reproduce Penumbra's real first-boot state: collections exist but MainConfig.Load
     // has never saved config/penumbra.json. Installation must recover on this invocation.
     File.Move(Path.Combine(pen, "config", "penumbra.json"), Path.Combine(root, "verified-main-config.json"));
     var activeBefore = File.ReadAllBytes(Path.Combine(pen, "active_collections.json"));
-    if (!(await service.Russify(default, folders)).Contains("Русификация завершена")) throw new Exception("Recovery failed.");
+    if (!(await service.RussifyGame(default, folders)).Contains("Русификация завершена")) throw new Exception("Recovery failed.");
     if (!File.ReadAllBytes(Path.Combine(pen, "active_collections.json")).SequenceEqual(activeBefore))
         throw new Exception("Recovery changed collection assignments.");
     ConsumerChecks.Verify(root, Path.Combine(live, "addon", "Hooks", "dev"));

@@ -88,12 +88,8 @@ public sealed class TranslationInstaller(string root, ReleaseClient releases, Ac
         log("Penumbra установлена; запись автозагрузки и включение в профилях Dalamud проверены.");
     }
 
-    public void SetRussianLanguage()
-    {
-        var change = new JsonChange(Path.Combine(root, "pluginConfigs", "FF14Accessibility.json"), new JObject { ["Version"] = 2 });
-        change.Value["Language"] = 3;
-        SettingsTransaction.Apply(Backups, [change], ensureClosed, log);
-    }
+    public void SetRussianLanguage(CancellationToken token = default) =>
+        new UninstallService(root, ensureClosed, log).SetModLanguage(3, token);
 
     public async Task<string> Install(CancellationToken token, IEnumerable<string>? searchFolders = null)
     {
@@ -237,7 +233,7 @@ public sealed class TranslationInstaller(string root, ReleaseClient releases, Ac
             finally { if (Directory.Exists(stage)) Directory.Delete(stage, true); }
         }
         log("Включено ожидание загрузки плагинов перед запуском игры. Это необходимо для перевода меню и настроек XIV Rus.");
-        return "Русификация завершена: русский язык мода доступности включён, XIV Rus включён в Penumbra, " +
+        return "Русификация завершена: перевод игры XIV Rus включён в Penumbra, " +
             "игра будет ждать загрузки перевода. Запустите игру заново через XIVLauncher с английским языком клиента " +
             "и проверьте очередь входа, настройки игры и речь.";
     }

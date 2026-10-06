@@ -208,6 +208,14 @@ install .NET themselves.
 
 ## Referenced at build time, not redistributed
 
+The separate Russian installer also ships **Microsoft.Data.Sqlite.Core 9.0.9**
+(MIT, <https://github.com/dotnet/efcore>), **SQLitePCLRaw 2.1.11**
+(Apache-2.0, <https://github.com/ericsink/SQLitePCL.raw>) and **LiteDB 5.0.21**
+(MIT, <https://github.com/litedb-org/LiteDB>) for selective removal of stored
+settings. SQLitePCLRaw uses Windows' system `winsqlite3.dll`; these libraries
+are not shipped in the game plugin. Their full licence texts are included in
+the installer source distribution under `Installer/Russian/licenses`.
+
 The plugin compiles against these assemblies but does **not** ship them. They
 come from the user's own XIVLauncher/Dalamud installation, which is installed
 separately.
