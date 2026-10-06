@@ -43,12 +43,14 @@ public sealed class PlacesService
     private readonly IDataManager _data;
     private readonly IClientState _clientState;
     private readonly IPluginLog   _log;
+    private readonly InteriorEntranceService _interiorEntrances;
 
     public PlacesService(IDataManager data, IClientState clientState, IPluginLog log)
     {
         _data        = data;
         _clientState = clientState;
         _log         = log;
+        _interiorEntrances = new(data, log);
     }
 
     /// <summary>
@@ -203,7 +205,10 @@ public sealed class PlacesService
     }
 
     /// <summary>All named waypoints of the current map. Read fresh per call.</summary>
-    public List<PlaceDestination> GetPlaces()
+    public List<PlaceDestination> GetPlaces() => GetPlaces(includeFlag: true);
+
+    // Routing needs only static entrances, never the native player flag.
+    private List<PlaceDestination> GetPlaces(bool includeFlag)
     {
         var result = new List<PlaceDestination>();
         var mapId = _clientState.MapId;
@@ -211,7 +216,7 @@ public sealed class PlacesService
 
         // The flag is a waypoint like any other, so it flows into the browser,
         // the walk guide and the auto-walk through the existing path.
-        var flag = GetFlagMarker();
+        var flag = includeFlag ? GetFlagMarker() : null;
         if (flag != null) result.Add(flag);
 
         var mapSheet = _data.GetExcelSheet<Map>();
@@ -452,14 +457,34 @@ public sealed class PlacesService
             }
         }
         _transitionCache[mapId] = targets;
+        foreach (var entrance in _interiorEntrances.All)
+            if (entrance.SourceMapId == mapId && !targets.Contains(entrance.TargetMapId))
+                targets.Add(entrance.TargetMapId);
         return targets;
+    }
+
+    /// <summary>Only a verified interaction entrance on the current map.</summary>
+    public InteriorEntrance? FindLocalEntranceToMap(uint targetMapId)
+        => _interiorEntrances.All.FirstOrDefault(e => e.SourceMapId == _clientState.MapId
+            && e.TargetMapId == targetMapId);
+
+    private PlaceDestination? EntranceDestination(uint targetMapId)
+    {
+        var entrance = FindLocalEntranceToMap(targetMapId);
+        if (entrance == null) return null;
+        var name = GetMapName(targetMapId);
+        if (string.IsNullOrWhiteSpace(name)) return null;
+        // IsZoneTransition=false: this requires interaction, never a movement
+        // push into a border. Quest routing already walks to the returned point.
+        return new(AccessibilityStrings.InteriorEntranceName(name), "Entrance", entrance.Position,
+            IsZoneTransition: false, TargetMapId: targetMapId);
     }
 
     /// <summary>Zone name for announcements ("im Gebiet X"), from the map's PlaceName.</summary>
     public string GetMapName(uint mapId)
     {
         return _data.GetExcelSheet<Map>().TryGetRow(mapId, out var map)
-            ? map.PlaceName.ValueNullable?.Name.ExtractText() ?? string.Empty
+            ? PlaceNameText(map.PlaceName.RowId, map.PlaceName.ValueNullable?.Name.ExtractText())
             : string.Empty;
     }
 
@@ -553,7 +578,10 @@ public sealed class PlacesService
             hops++;
         }
 
-        var transition = GetPlaces().FirstOrDefault(p => p.IsZoneTransition && p.TargetMapId == hop);
+        // A verified interaction object is more precise than a map glyph (the
+        // First Bow exit also has a DataType=2 marker, but no ExitRange).
+        var transition = EntranceDestination(hop)
+            ?? GetPlaces(includeFlag: false).FirstOrDefault(p => p.IsZoneTransition && p.TargetMapId == hop);
         _log.Info($"[Orte] Route Map {start} -> {targetMapId}: {hops} Übergänge, erster: " +
                   (transition?.Name ?? $"KEIN Marker für Ziel-Map {hop} gefunden"));
         return transition;

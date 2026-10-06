@@ -1841,6 +1841,8 @@ public sealed class NavigationService
                     CalculateDirection(player, hop.Position),
                     hops - 1);
                 text += AccessibilityStrings.NumpadWalksToTransition;
+                if (_places.FindLocalEntranceToMap(dest.MapId) != null)
+                    text += AccessibilityStrings.InteriorEntranceConfirmHint;
             }
             text += detail;
         }
@@ -3143,7 +3145,10 @@ public sealed class NavigationService
             _tolk.Speak(AccessibilityStrings.AimedAt(
                 candidate.ObjectKind == ObjectKind.GatheringPoint
                     ? DescribeGatheringPoint(candidate)
-                    : _objectNames.Describe(candidate)));
+                    : _objectNames.Describe(candidate))
+                + (SelectedQuestDestination is { } away && away.TerritoryTypeId != _clientState.TerritoryType
+                    && _places.FindLocalEntranceToMap(away.MapId) != null
+                    ? AccessibilityStrings.InteriorEntranceConfirmHint : string.Empty));
     }
 
     /// <summary>
@@ -3191,6 +3196,15 @@ public sealed class NavigationService
                 obj => obj.ObjectKind == kind.Value,
                 prefer: o => o.IsTargetable);
         }
+
+        // A quest inside an interaction-only interior first targets its exact
+        // local entrance. The destination's foreign coordinates are meaningless
+        // here; retain the quest selection so a new press after entering uses it.
+        if (SelectedQuestDestination is { } away && away.TerritoryTypeId != _clientState.TerritoryType
+            && _places.FindLocalEntranceToMap(away.MapId) is { } entrance)
+            return NearestObject(entrance.Position, MarkerObjectMatchRange,
+                obj => obj.BaseId == entrance.BaseId && obj.ObjectKind == ExpectedObjectKind(entrance.LevelType)
+                    && obj.IsTargetable);
 
         // Quest-Ziel: ueber den Spiel-Link Marker -> Level.Object (TargetBaseId),
         // eingegrenzt auf die Objektart, die Level.Type nennt.

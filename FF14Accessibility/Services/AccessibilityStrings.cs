@@ -1400,6 +1400,11 @@ public static partial class AccessibilityStrings
     public static string InArea(string zone)    => L($"im Gebiet {zone}.", $"in the area {zone}.", $"в зоне {zone}.");
     public static string InAnotherArea       => L("in einem anderen Gebiet.", "in another area.", "в другой зоне.");
     public static string NumpadWalksToTransition => L(" Nummernblock 3 läuft zum Übergang.", " Numpad 3 walks to the transition.", " Numpad 3 ведёт к переходу.");
+    public static string InteriorEntranceName(string name) => L($"Eingang nach {name}", $"Entrance to {name}", $"Вход в {name}");
+    public static string InteriorEntranceConfirmHint => L(
+        " Am Eingang Nummernblock 0 drücken und den Eintritt im Spiel bestätigen.",
+        " At the entrance press Numpad 0 and confirm entry in the game.",
+        " У входа нажмите Num0 и подтвердите вход в игре.");
 
     /// <summary>
     /// Whether the player stands inside the marker's goal circle. A sighted

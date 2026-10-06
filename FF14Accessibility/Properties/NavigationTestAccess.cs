@@ -6,3 +6,4 @@ using System.Runtime.CompilerServices;
 [assembly: InternalsVisibleTo("JobProcCheck")]
 [assembly: InternalsVisibleTo("HarmoniaQuestCheck")]
 [assembly: InternalsVisibleTo("HarmoniaTextCheck")]
+[assembly: InternalsVisibleTo("CrossZoneCheck")]

@@ -4,6 +4,7 @@ param(
     [Parameter(Mandatory = $true)][string]$NotesFile,
     [string]$InstallerBuildRoot,
     [switch]$InstallerOnly,
+    [switch]$UpdateExisting,
     [switch]$CheckOnly
 )
 
@@ -101,6 +102,10 @@ try {
     } finally { $zip.Dispose() }
 
     Write-Host "Verified $tag at $head; $($entries.Count) files; ZIP SHA256 $archiveHash"
+    if ($UpdateExisting) {
+        & (Join-Path $PSScriptRoot 'Update-ReleasePlugin.ps1') -ArchivePath $archive -NotesFile $notes -CheckOnly:$CheckOnly
+        return
+    }
     if ($CheckOnly) {
         Write-Host 'Check complete. No release or tag was created.'
         return
