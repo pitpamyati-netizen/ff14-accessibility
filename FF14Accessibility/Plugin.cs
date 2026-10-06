@@ -217,7 +217,7 @@ public sealed partial class Plugin : IDalamudPlugin
     // 6.08.18 lokal: Chat-Absender Kontextmenü (Strg+Umschalt+BildAuf) + Numpad3-Ziel.
     // 6.08.19: Charakterauswahl — eine Ansage (Name, Job, Ort) statt Scan-Sturm.
     // 6.08.20: Mitstreiter-Taste (PR 27 Port) — Strg+Umschalt+C öffnet/vorliest.
-    private const string PluginVersion    = "6.08.104";
+    private const string PluginVersion    = "6.08.105";
     // Der Tag nennt, was diese Fassung MITBRINGT, nicht woher sie stammt: die
     // russische Schicht auf dem Stand des Autors 6.08.35 (Auftragstext im
     // Quest-Tracker des Autors, siehe package-Schritt).
@@ -421,7 +421,8 @@ public sealed partial class Plugin : IDalamudPlugin
         _hotbar       = new HotbarService(DataManager, ClientState, Framework, _gearInfo, _keybinds, _inventoryReader, _tolk, Log, descriptions, SeStringEval);
         _lootRolls    = new LootRollService(DataManager, ClientState, GameGui, _config, _gearInfo, _tolk, Log);
         _equipment    = new EquipmentService(GameInventory, _inventoryReader, DataManager, _gearInfo, _tolk, Log);
-        _questMarkers = new QuestMarkerService(ClientState, DataManager, Log);
+        _questMarkers = new QuestMarkerService(ClientState, DataManager, Log,
+            Path.Combine(Path.GetDirectoryName(PluginInterface.GetPluginConfigDirectory())!, "HarmoniaEngine", "packs"));
         _questObjectives = new QuestObjectiveAnnouncer(AddonLifecycle, _questMarkers, _tolk, Log)
         {
             IsEnabled = () => _config.AnnounceQuestObjectiveChanges,
@@ -1549,6 +1550,26 @@ public sealed partial class Plugin : IDalamudPlugin
         return parsed;
     }
 
+    private readonly NativeButtonKeyOwnership _nativeButtonKeys = new();
+    private static readonly int[] NativeButtonConfirmVks = [0x60, 0x2D, 0x0D]; // Num0, Insert, Enter
+
+    private void SuppressOwnedNativeButtonHold()
+    {
+        foreach (var vk in NativeButtonConfirmVks)
+            if (_nativeButtonKeys.Suppress(vk, _keyWasDown[vk]))
+                KeyState[(Dalamud.Game.ClientState.Keys.VirtualKey)vk] = false;
+    }
+
+    private void ClaimNativeButtonConfirmKeys()
+    {
+        foreach (var vk in NativeButtonConfirmVks)
+            if (_keyWasDown[vk])
+            {
+                _nativeButtonKeys.Claim(vk);
+                KeyState[(Dalamud.Game.ClientState.Keys.VirtualKey)vk] = false;
+            }
+    }
+
     private bool IsJustPressed(string keySpec, bool allowTextInput = false, bool consume = false)
     {
         // While a game text field has focus (chat, search box, name entry, ...)
@@ -2391,6 +2412,7 @@ public sealed partial class Plugin : IDalamudPlugin
 
         UpdateKeyEdges();
         SuppressOwnedWorldConfirmHold();
+        SuppressOwnedNativeButtonHold();
         _shopQuantityInput.Poll();
         _systemVolumeInput.Poll();
         _tableInput.Poll();
@@ -2687,6 +2709,18 @@ public sealed partial class Plugin : IDalamudPlugin
         // offen laesst (Spielerhinweis 2026-09-12: "дак на инсерте же уже hq").
         // Die Filter haben seit 6.08.18 gar keine Taste mehr: ihr Zustand steht
         // am Ankreuzfeld und wird dort gesprochen.
+        // A focused native confirmation has priority over Insert/HQ and Num0
+        // world interaction. Consume exactly one press; unrelated menus keep
+        // their native confirmation path (notably JournalAccept/JournalResult).
+        if (_uiReader.CanConfirmYesNo && !_menu.IsOpen && !_hotbar.IsSkillMenuOpen
+            && (IsJustPressed("Numpad0", consume: true) || IsJustPressed("Insert", consume: true)))
+        {
+            ClaimNativeButtonConfirmKeys();
+            _uiReader.ConfirmYesNo();
+            // Key edges are a frame snapshot. Consumption alone would still
+            // let Insert/HQ or world interaction see this same press below.
+            return;
+        }
         if (IsJustPressed(_config.KeyTakeHqMaterials)) _uiReader.TakeHqMaterials();
         if (IsJustPressed(_config.KeyPluginsNext))   _dalamudPlugins.CycleNext();
         if (IsJustPressed(_config.KeyPluginsPrev))   _dalamudPlugins.CyclePrev();
@@ -2914,8 +2948,9 @@ public sealed partial class Plugin : IDalamudPlugin
         {
             var up    = IsJustPressed("Up");
             var down  = IsJustPressed("Down");
-            var left  = IsJustPressed("Left");
-            var right = IsJustPressed("Right");
+            var dialogOwnsHorizontal = _uiReader.CanConfirmYesNo;
+            var left  = IsJustPressed("Left", consume: dialogOwnsHorizontal);
+            var right = IsJustPressed("Right", consume: dialogOwnsHorizontal);
             // Probe: user pressed left/right in Ok/Cancel dialogs repeatedly
             // (their report 2026-07-11) and no Navigate line ever appeared -
             // this line settles whether IKeyState even SEES arrow keys while
@@ -2928,8 +2963,10 @@ public sealed partial class Plugin : IDalamudPlugin
             if (right) _uiReader.Navigate(+1, true);
         }
 
-        if (IsJustPressed("Return"))
+        var ownsEnterButton = _uiReader.OwnsEnterButton;
+        if (IsJustPressed("Return", consume: ownsEnterButton))
         {
+            if (ownsEnterButton) ClaimNativeButtonConfirmKeys();
             _uiReader.HandleConfirmKey();
             // [Chat-Puffer] HIER STAND ChatChannelService.TrySwitchToBrowsedChannel -
             // Enter stellte den SENDEKANAL auf den Puffer um, in dem der Spieler gerade

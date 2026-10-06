@@ -12,7 +12,9 @@ public sealed partial class UIReaderService
     private string _ynPressedQuestion = string.Empty;
     private bool _holdConfirmActive;
     private long _holdConfirmStart;
-    private string _holdConfirmLabel = string.Empty;
+    private nint _holdConfirmAddon;
+    private nint _holdConfirmNode;
+    private string _holdConfirmQuestion = string.Empty;
 
     public unsafe void YesNoPressTick()
     {
@@ -23,38 +25,30 @@ public sealed partial class UIReaderService
             _yesNoPress = YesNoPress.None;
             return;
         }
+        if ((nint)ptr != _ynPressedAddon) { _yesNoPress = YesNoPress.None; return; }
         if (_yesNoPressReported || Environment.TickCount64 - _yesNoPressAt < 2500) return;
         _yesNoPressReported = true;
         var text = ReadYesNoQuestion((AtkUnitBase*)(nint)ptr);
         if (text == _ynPressedQuestion)
+        {
             _tolk.SpeakInterrupt(AccessibilityStrings.YesNoStillOpen);
+            _log.Warning("[NativeButton] SelectYesno still open after a requested press; acceptance unconfirmed.");
+        }
         _yesNoPress = YesNoPress.None;
     }
 
-    private unsafe AtkResNode* FindVisibleHoldButton(AtkUnitBase* addon, string label)
+    private unsafe bool TryStartHeldConfirm(AtkUnitBase* addon, NativeDialogButtons.Choice choice)
     {
-        if (addon == null || string.IsNullOrWhiteSpace(label)) return null;
-        for (var i = 0; i < addon->UldManager.NodeListCount; i++)
-        {
-            var node = addon->UldManager.NodeList[i];
-            if (node == null || (int)node->Type < 1000 || !node->IsVisible()) continue;
-            var comp = ((AtkComponentNode*)node)->Component;
-            if (comp == null || !IsReadable(comp) || (int)comp->GetComponentType() != 24) continue;
-            if (string.Equals(ReadFirstTextInComponent(node).Trim(), label.Trim(), StringComparison.OrdinalIgnoreCase))
-                return node;
-        }
-        return null;
-    }
-
-    private unsafe bool TryStartHeldConfirm(AtkUnitBase* addon)
-    {
-        var node = FindVisibleHoldButton(addon, _ynConfirmLabel);
-        if (node == null) return false;
+        if (_holdConfirmActive) return true;
+        var node = (AtkResNode*)choice.Node;
+        if (!choice.Held || choice.Index != 0 || !NativeDialogButtons.Available(node)) return false;
+        _holdConfirmAddon = (nint)addon;
+        _holdConfirmNode = choice.Node;
+        _holdConfirmQuestion = ReadYesNoQuestion(addon);
         DispatchHoldEvent(node, (AtkEventType)6);
-        DispatchHoldEvent(node, (AtkEventType)3);
+        if (!DispatchHoldEvent(node, (AtkEventType)3)) return false;
         _holdConfirmActive = true;
         _holdConfirmStart = Environment.TickCount64;
-        _holdConfirmLabel = _ynConfirmLabel;
         return true;
     }
 
@@ -68,25 +62,39 @@ public sealed partial class UIReaderService
             return;
         }
         var addon = (AtkUnitBase*)(nint)ptr;
-        var node = FindVisibleHoldButton(addon, _holdConfirmLabel);
-        if (node == null) { _holdConfirmActive = false; return; }
+        if ((nint)addon != _holdConfirmAddon || ReadYesNoQuestion(addon) != _holdConfirmQuestion)
+        { _holdConfirmActive = false; return; }
+        var node = (AtkResNode*)_holdConfirmNode;
+        if (!NativeDialogButtons.Available(node)) { _holdConfirmActive = false; return; }
         var button = (AtkComponentHoldButton*)((AtkComponentNode*)node)->Component;
         var now = Environment.TickCount64;
-        if (!button->IsTargetReached && !button->IsEventFired && now - _holdConfirmStart < 2200) return;
-        DispatchHoldEvent(node, (AtkEventType)4);
+        if (!TrySelectYesNo(out var selectedAddon, out var selected) || selectedAddon != _holdConfirmAddon
+            || !selected.Held || selected.Node != _holdConfirmNode || now - _holdConfirmStart > 10000)
+        {
+            // Moving away cancels the gesture; never continue it on a new dialog.
+            DispatchHoldEvent(node, (AtkEventType)7);
+            DispatchHoldEvent(node, (AtkEventType)4);
+            _holdConfirmActive = false;
+            return;
+        }
+        // Let the game's own hold timer decide when its requirement is met.
+        if (!button->IsTargetReached && !button->IsEventFired) return;
+        RecordYesNoPress(addon, selected.Index);
         _holdConfirmActive = false;
-        _yesNoPress = YesNoPress.Confirm;
-        _yesNoPressAt = now;
-        _yesNoPressReported = false;
-        _ynPressedQuestion = ReadYesNoQuestion(addon);
+        if (!DispatchHoldEvent(node, (AtkEventType)4))
+        {
+            _yesNoPress = YesNoPress.None;
+            _tolk.SpeakInterrupt(AccessibilityStrings.ButtonNotResponding);
+        }
     }
 
-    private unsafe void DispatchHoldEvent(AtkResNode* node, AtkEventType type)
+    private unsafe bool DispatchHoldEvent(AtkResNode* node, AtkEventType type)
     {
-        if (node == null || !IsReadable(node)) return;
+        if (node == null || !IsReadable(node)) return false;
         var evt = FindEventOfType(node, type, new List<string>(), 2);
-        if (evt == null || evt->Listener == null || !IsReadable(evt->Listener)) return;
+        if (evt == null || evt->Listener == null || !IsReadable(evt->Listener)) return false;
         var data = default(AtkEventData);
         evt->Listener->ReceiveEvent(evt->State.EventType, (int)evt->Param, evt, &data);
+        return true;
     }
 }

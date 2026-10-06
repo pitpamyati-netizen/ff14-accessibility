@@ -4,3 +4,4 @@ using System.Runtime.CompilerServices;
 [assembly: InternalsVisibleTo("Regression.Tests")]
 [assembly: InternalsVisibleTo("MenuReadingCheck")]
 [assembly: InternalsVisibleTo("JobProcCheck")]
+[assembly: InternalsVisibleTo("HarmoniaQuestCheck")]

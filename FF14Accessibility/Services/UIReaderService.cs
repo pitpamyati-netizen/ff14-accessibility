@@ -645,7 +645,7 @@ public sealed partial class UIReaderService : IDisposable
 
         // -- SelectYesno ------------------------------------------
         _addonLifecycle.RegisterListener(AddonEvent.PostSetup,        "SelectYesno", OnYesNoOpen);
-        _addonLifecycle.RegisterListener(AddonEvent.PostReceiveEvent, "SelectYesno", OnYesNoReceive);
+        _addonLifecycle.RegisterListener(AddonEvent.PreReceiveEvent, "SelectYesno", OnYesNoReceive);
         _addonLifecycle.RegisterListener(AddonEvent.PostSetup, "SelectOk", OnSelectOkUpdate);
         _addonLifecycle.RegisterListener(AddonEvent.PostUpdate, "SelectOk", OnSelectOkUpdate);
 
@@ -3231,7 +3231,7 @@ public sealed partial class UIReaderService : IDisposable
         var addon = (AtkUnitBase*)(nint)args.Addon;
         if (addon == null) return;
         (_ynConfirmLabel, _ynCancelLabel) = ReadYesNoLabels(addon);
-        _lastYesNoText = _ynConfirmLabel;
+        _lastYesNoText = string.Empty;
         var question = ReadYesNoQuestion(addon);
         var buttons  = AccessibilityStrings.DialogButtons(_ynConfirmLabel, _ynCancelLabel);
         _log.Info($"[Accessibility] SelectYesno offen: Frage='{question}' Buttons=[{_ynConfirmLabel}|{_ynCancelLabel}]");
@@ -3268,8 +3268,18 @@ public sealed partial class UIReaderService : IDisposable
 
     private void OnYesNoReceive(AddonEvent type, AddonArgs args)
     {
-        if (args is AddonReceiveEventArgs recv)
-            _log.Info($"[Accessibility] SelectYesno Event: type={recv.AtkEventType} param={recv.EventParam}");
+        if (args is not AddonReceiveEventArgs recv) return;
+        _log.Info($"[Accessibility] SelectYesno Event: type={recv.AtkEventType} param={recv.EventParam}");
+        // Native Num0/controller/mouse presses need the same result check as Enter.
+        if ((int)recv.AtkEventType == (int)AtkEventType.ButtonClick && recv.EventParam is 0 or 1 or 2)
+        {
+            unsafe
+            {
+                var addon = (AtkUnitBase*)(nint)args.Addon;
+                if (addon == null || !addon->IsVisible) return;
+                RecordYesNoPress(addon, (int)recv.EventParam);
+            }
+        }
     }
 
     // -- Struktur-Probe für ein einzelnes Addon ------------------------
@@ -3838,6 +3848,8 @@ public sealed partial class UIReaderService : IDisposable
 
             if (string.IsNullOrEmpty(text) && TryReadIconRowPosition(node, out var iconRow))
                 text = iconRow;
+            if (string.IsNullOrEmpty(text))
+                text = ReadUnlabelledInspectSlot(node);
         }
 
         // [Tiefes Gewoelbe] Das Fenster "Charakterinfo": seine Gegenstands-, Magizit- und
@@ -3882,6 +3894,9 @@ public sealed partial class UIReaderService : IDisposable
         // The time itself is still SPOKEN - it is real information on a timed leve,
         // and it is in the line the first time the focus lands there. Only its
         // ticking no longer counts as a new item.
+        var focusedButton = FindFocusedButton();
+        if (focusedButton != null && text.Length > 0 && !NativeDialogButtons.Available(focusedButton))
+            text = AccessibilityStrings.DisabledButton(text);
         var stable = StripLiveClocks(text);
         if ((nint)node == _lastFocusedNodePtr && stable == _lastFocusedNodeStable) return;
         _lastFocusedNodePtr    = (nint)node;
@@ -10858,26 +10873,14 @@ public sealed partial class UIReaderService : IDisposable
             var ynPtr = _gameGui.GetAddonByName("SelectYesno");
             if (!ynPtr.IsNull && ((AtkUnitBase*)(nint)ynPtr)->IsVisible)
             {
-                var newText = delta < 0 ? _ynConfirmLabel : _ynCancelLabel;
-                // Log BEFORE the dedup: user reported left/right silence in
-                // V4.31 and this method logged nothing - undiagnosable.
-                _log.Info($"[Accessibility] Navigate SelectYesno: delta={delta} -> '{newText}' (zuletzt '{_lastYesNoText}')");
-                if (newText == _lastYesNoText) return;
-                _lastYesNoText = newText;
-                _tolk.SpeakInterrupt(newText);
+                MoveYesNoFocus(delta);
             }
         }
     }
 
     public unsafe void NavigateGamepad(int delta)
     {
-        var ynPtr = _gameGui.GetAddonByName("SelectYesno");
-        if (ynPtr.IsNull || !((AtkUnitBase*)(nint)ynPtr)->IsVisible) return;
-        var newText = delta < 0 ? _ynConfirmLabel : _ynCancelLabel;
-        if (newText == _lastYesNoText) return;
-        _lastYesNoText = newText;
-        _tolk.SpeakInterrupt(newText);
-        _log.Info($"[Accessibility] SelectYesno Gamepad -> {newText}");
+        // Native D-pad movement is announced by the actual focus reader.
     }
 
     /// <summary>
@@ -10959,51 +10962,12 @@ public sealed partial class UIReaderService : IDisposable
         return true;
     }
 
-    public unsafe void ConfirmYesNo()
-    {
-        var ynPtr = _gameGui.GetAddonByName("SelectYesno");
-        if (ynPtr.IsNull)
-        {
-            _log.Info("[Accessibility] ConfirmYesNo: SelectYesno nicht gefunden.");
-            return;
-        }
-        var addon = (AtkUnitBase*)(nint)ynPtr;
-        if (!addon->IsVisible)
-        {
-            _log.Info("[Accessibility] ConfirmYesNo: SelectYesno nicht sichtbar.");
-            return;
-        }
-        var isCancel    = _lastYesNoText == _ynCancelLabel;
-        if (!isCancel && TryStartHeldConfirm(addon)) return;
-        var idx         = isCancel ? 1 : 0;
-        var shouldClose = addon->ShouldFireCallbackAndHideOrClose;
-        _log.Info($"[Accessibility] ConfirmYesNo: '{_lastYesNoText}' idx={idx} ShouldFireCallbackAndHideOrClose={shouldClose}");
-
-        if (isCancel)
-        {
-            // WORKAROUND: FireCallback(1, {Int:1}) schlie�t SelectYesno nicht (Log 11:40:10 best�tigt).
-            // Nein hat keinen Callback � das Spiel schlie�t das Fenster direkt ohne Callback.
-            // Fix: Close(true) schlie�t das Fenster ohne den Ja-Callback auszul�sen.
-            _log.Info("[Accessibility] ConfirmYesNo: Nein ? Close(true)");
-            addon->Close(true);
-        }
-        else
-        {
-            // Ja: FireCallback mit idx=0 + ShouldFireCallbackAndHideOrClose=True (best�tigt funktionst�chtig).
-            if (!shouldClose)
-                addon->ShouldFireCallbackAndHideOrClose = true;
-            var v = stackalloc AtkValue[1]; v[0].SetInt(0);
-            addon->FireCallback(1, v);
-        }
-        _lastYesNoText = string.Empty;
-        _yesNoPress = isCancel ? YesNoPress.Cancel : YesNoPress.Confirm;
-        _yesNoPressAt = Environment.TickCount64;
-        _yesNoPressReported = false;
-        _ynPressedQuestion = ReadYesNoQuestion(addon);
-    }
+    public unsafe void ConfirmYesNo() => ConfirmFocusedYesNo();
 
     public void AnnounceContextHelp()
     {
+        if (IsAddonVisible("SelectYesno")) { _tolk.SpeakInterrupt(AccessibilityStrings.DialogHelp); return; }
+        if (IsAddonVisible("SystemMenu")) { _tolk.SpeakInterrupt(AccessibilityStrings.SystemMenuHelp); return; }
         if (IsSystemVolumeEditing)
         {
             _tolk.SpeakInterrupt(AccessibilityStrings.SystemVolumeEditInstructions);
@@ -11026,6 +10990,10 @@ public sealed partial class UIReaderService : IDisposable
             _tolk.SpeakInterrupt(AccessibilityStrings.ShopQuantityHint(AccessibilityStrings.SpokenKeyLabel(_config.KeyShopQuantity))
                 + " " + AccessibilityStrings.ShopQuantityInstructions);
             return;
+        }
+        unsafe
+        {
+            if (FindFocusedButton() != null) { _tolk.SpeakInterrupt(AccessibilityStrings.FocusedButtonHelp); return; }
         }
         _activeScreenContext = GetCurrentScreenContext();
         var text = _activeScreenContext switch
@@ -11054,6 +11022,15 @@ public sealed partial class UIReaderService : IDisposable
 
     public unsafe void HandleConfirmKey()
     {
+        if (IsChatInputActive()) return;
+        var yesNoPtr = _gameGui.GetAddonByName("SelectYesno");
+        if (!yesNoPtr.IsNull && ((AtkUnitBase*)(nint)yesNoPtr)->IsVisible)
+        {
+            ConfirmYesNo();
+            return;
+        }
+
+        if (TryPressFocusedButton()) return;
         var titleMenuPtr = _gameGui.GetAddonByName("_TitleMenu");
         if (!titleMenuPtr.IsNull && ((AtkUnitBase*)(nint)titleMenuPtr)->IsVisible)
         {
@@ -11062,15 +11039,10 @@ public sealed partial class UIReaderService : IDisposable
             {
                 _activeScreenContext = ScreenContext.TitleMenu;
                 RememberTitleMenuSelection(selection.Item, selection.Index);
-                _tolk.SpeakInterrupt(AccessibilityStrings.Confirmed(selection.Item));
+                // Native Enter handles this list. Hearing its name alone is not
+                // evidence that the game has accepted the selected action.
+                _tolk.SpeakInterrupt(selection.Item);
             }
-            return;
-        }
-
-        var yesNoPtr = _gameGui.GetAddonByName("SelectYesno");
-        if (!yesNoPtr.IsNull && ((AtkUnitBase*)(nint)yesNoPtr)->IsVisible)
-        {
-            ConfirmYesNo();
             return;
         }
 
@@ -11647,7 +11619,7 @@ public sealed partial class UIReaderService : IDisposable
     /// CharaMake*/TitleDCWorldMap so Enter keeps its game meaning elsewhere.
     /// </summary>
     // Confirm-button labels in priority order (German client).
-    private static readonly string[] ConfirmButtonLabels = ["Ok", "Bestätigen"];
+    private static readonly string[] ConfirmButtonLabels = ["Ok", "ОК", "Bestätigen", "Confirm", "Подтвердить", "Confirmer", "確認"];
 
     public unsafe void PressFocusedOk()
     {
@@ -11698,6 +11670,7 @@ public sealed partial class UIReaderService : IDisposable
 
             var text = CleanRaceName(ReadFirstTextInComponent(node));
             if (!string.Equals(text, label, StringComparison.OrdinalIgnoreCase)) continue;
+            if (!NativeDialogButtons.Available(node)) continue;
 
             // Click event registration usually sits on the collision child,
             // sometimes on the component node itself - search both.
@@ -11927,6 +11900,7 @@ public sealed partial class UIReaderService : IDisposable
 
     public unsafe void ReadCurrentFocus()
     {
+        if (TryReadYesNoDialog()) return;
         if (TryReadSelectOk()) return;
         if (_charaMake.TryReadClass()) return;
         if (TryReadSelectedActionDescription()) return;
@@ -12645,6 +12619,8 @@ public sealed partial class UIReaderService : IDisposable
 
     private unsafe string ReadYesNoQuestion(AtkUnitBase* addon)
     {
+        var prompt = AtkText.ReadClean(((AddonSelectYesno*)addon)->PromptText).Trim();
+        if (prompt.Length > 0) return prompt;
         for (uint id = 2; id <= 20; id++)
         {
             var node = addon->GetNodeById(id);
@@ -15665,7 +15641,7 @@ public sealed partial class UIReaderService : IDisposable
         _addonLifecycle.UnregisterListener(AddonEvent.PostUpdate, "TalkSubtitle", OnTalkUpdate);
         _addonLifecycle.UnregisterListener(AddonEvent.PostUpdate, "_BattleTalk",  OnTalkUpdate);
         _addonLifecycle.UnregisterListener(AddonEvent.PostSetup,        "SelectYesno", OnYesNoOpen);
-        _addonLifecycle.UnregisterListener(AddonEvent.PostReceiveEvent, "SelectYesno", OnYesNoReceive);
+        _addonLifecycle.UnregisterListener(AddonEvent.PreReceiveEvent, "SelectYesno", OnYesNoReceive);
         _addonLifecycle.UnregisterListener(AddonEvent.PostSetup, "SelectOk", OnSelectOkUpdate);
         _addonLifecycle.UnregisterListener(AddonEvent.PostUpdate, "SelectOk", OnSelectOkUpdate);
         _addonLifecycle.UnregisterListener(AddonEvent.PostUpdate, "SelectYesno",   OnDialogButtonProbe);

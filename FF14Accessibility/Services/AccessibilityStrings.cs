@@ -507,7 +507,7 @@ public static partial class AccessibilityStrings
     public static string YesWord => L("Ja", "Yes", "Да");
     public static string NoWord  => L("Nein", "No", "Нет");
     public static string DialogButtons(string confirm, string cancel) =>
-        L($"{confirm} oder {cancel}? Links und rechts wechseln, Enter wählt aus.", $"{confirm} or {cancel}? Left and right to switch, Enter to select.", $"{confirm} или {cancel}? Влево и вправо переключают, Enter выбирает.");
+        L($"{confirm} oder {cancel}? Num4/6 wechseln, Num0 oder Enter bestätigt, Escape bricht ab.", $"{confirm} or {cancel}? Num4/6 changes the selection, Num0 or Enter confirms, Escape cancels.", $"{confirm} или {cancel}? Num4 и Num6 выбирают кнопку, Num0 или Enter нажимает выбранную кнопку, Escape отменяет.");
 
     // ── Navigation: Himmelsrichtungen, relative Richtung, Distanz ─────
     // Sprachabhängige Kompass-Wörter (0 = Norden .. 7 = Nordwesten). Property,
