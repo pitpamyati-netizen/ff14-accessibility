@@ -653,6 +653,7 @@ public sealed class InventoryService
 
     private Dictionary<uint, (string Name, uint ItemId)>? _iconSheetCache;
     private bool _iconSheetRussian;
+    private int _iconDisplayRevision;
 
     /// <summary>
     /// Resolves an item icon id to a name for the focus auto-announce. Prefers
@@ -671,10 +672,12 @@ public sealed class InventoryService
         if (BuildOwnedIconMap().TryGetValue(iconId, out var owned))
             return (owned.ItemId == 0 ? owned.Name : ResolveItemLabel(owned.ItemId), owned.ItemId);
 
-        if (_iconSheetCache == null || _iconSheetRussian != Loc.IsRussianItemActionText)
+        if (_iconSheetCache == null || _iconSheetRussian != Loc.IsRussianItemActionText
+            || _iconDisplayRevision != GameDisplayText.Revision)
         {
             _iconSheetCache = BuildIconSheetCache();
             _iconSheetRussian = Loc.IsRussianItemActionText;
+            _iconDisplayRevision = GameDisplayText.Revision;
         }
         return _iconSheetCache.TryGetValue(iconId, out var sheet)
             ? (sheet.ItemId == 0 ? sheet.Name : ResolveItemLabel(sheet.ItemId), sheet.ItemId)
@@ -686,6 +689,7 @@ public sealed class InventoryService
     // hairstyle book resolves to nothing there - which is exactly why shop rows
     // for those stayed a bare name (log 2026-08-16 00:30).
     private Dictionary<string, uint>? _itemNames;
+    private (LanguageMode Mode, Dalamud.Game.ClientLanguage Language, int Display)? _itemNamesKey;
 
     /// <summary>The item row a display name belongs to, or 0. Names that occur on
     /// more than one row are dropped from the map: an ambiguous name must not
@@ -693,7 +697,12 @@ public sealed class InventoryService
     public uint ResolveItemIdByName(string name)
     {
         if (string.IsNullOrWhiteSpace(name)) return 0;
-        _itemNames ??= BuildItemNameCache();
+        var key = (Loc.Mode, _data.Language, GameDisplayText.Revision);
+        if (_itemNames == null || _itemNamesKey != key)
+        {
+            _itemNames = BuildItemNameCache();
+            _itemNamesKey = key;
+        }
         return _itemNames.TryGetValue(name.Trim().ToLowerInvariant(), out var id) ? id : 0;
     }
 
@@ -711,18 +720,9 @@ public sealed class InventoryService
 
     private Dictionary<string, uint> BuildItemNameCache()
     {
-        var map       = new Dictionary<string, uint>();
-        var duplicate = new HashSet<string>();
-        foreach (var row in _data.GetExcelSheet<LuminaItem>())
-        {
-            var name = row.Name.ExtractText();
-            if (string.IsNullOrWhiteSpace(name)) continue;
-            var key = name.Trim().ToLowerInvariant();
-            if (!map.TryAdd(key, row.RowId)) duplicate.Add(key);
-        }
-        foreach (var key in duplicate) map.Remove(key);
-
-        _log.Info($"[Item] Namens-Cache gebaut: {map.Count} Namen, {duplicate.Count} mehrdeutig verworfen.");
+        var map = GameNameIndex.Build(_data.GetExcelSheet<LuminaItem>().Select(row =>
+            (row.RowId, row.Name.ExtractText(), GameDisplayText.Find(_data, row, x => x.Name)?.ExtractText())));
+        _log.Info($"[Item] Namens-Cache gebaut: {map.Count} eindeutige Namen.");
         return map;
     }
 

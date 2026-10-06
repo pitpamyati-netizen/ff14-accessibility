@@ -51,6 +51,16 @@ public sealed class ObjectNameService
     // reason; the quest STATUS is never cached, only the binding, because the
     // player accepts and finishes quests while the game runs.
     private readonly Dictionary<uint, ObjectPurpose> _purposes = new();
+    private (LanguageMode Mode, int Display)? _textKey;
+
+    private void RefreshTextCaches()
+    {
+        var key = (Loc.Mode, GameDisplayText.Revision);
+        if (_textKey == key) return;
+        _textKey = key;
+        _cache.Clear();
+        _purposes.Clear();
+    }
 
     public ObjectNameService(IDataManager data) => _data = data;
 
@@ -182,6 +192,7 @@ public sealed class ObjectNameService
         // Only EventObj carry the EObj.Data link; asking for anything else would
         // hit unrelated rows that happen to share the id.
         if (kind != ObjectKind.EventObj || baseId == 0) return ObjectPurpose.None;
+        RefreshTextCaches();
         if (_purposes.TryGetValue(baseId, out var cached)) return cached;
 
         var purpose = ReadPurpose(baseId);
@@ -209,6 +220,7 @@ public sealed class ObjectNameService
             // (Meldung 2026-09-16: "Цель для To Catch a Poacher" statt
             // "Поймать браконьера").
             var name = StripDeclensionMarkers(
+                GameDisplayText.Name<Quest>(quest.RowId, x => x.Name) is { } displayed ? displayed :
                 Loc.IsRussian && RussianQuestNames.QuestName(quest.RowId) is { } russian
                     ? russian
                     : quest.Name.ExtractText());
@@ -259,15 +271,16 @@ public sealed class ObjectNameService
     private string FromSheet(uint baseId, ObjectKind kind)
     {
         if (baseId == 0) return string.Empty;
+        RefreshTextCaches();
         if (_cache.TryGetValue((baseId, kind), out var cached)) return cached;
 
         var name = kind switch
         {
             ObjectKind.EventNpc => _data.GetExcelSheet<ENpcResident>().TryGetRow(baseId, out var npc)
-                ? StripDeclensionMarkers(npc.Singular.ExtractText())
+                ? StripDeclensionMarkers(RussianGameText.Text(_data, npc, x => x.Singular, "Singular").ExtractText())
                 : string.Empty,
             ObjectKind.EventObj => _data.GetExcelSheet<EObjName>().TryGetRow(baseId, out var eobj)
-                ? StripDeclensionMarkers(eobj.Singular.ExtractText())
+                ? StripDeclensionMarkers(RussianGameText.Text(_data, eobj, x => x.Singular, "Singular").ExtractText())
                 : string.Empty,
             _ => string.Empty,
         };

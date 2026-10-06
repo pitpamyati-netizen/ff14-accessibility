@@ -222,7 +222,7 @@ public sealed class GearInfoService
     public string DescribeByName(string text)
     {
         if (string.IsNullOrWhiteSpace(text)) return string.Empty;
-        _gearNames ??= BuildGearNameCache();
+        RefreshGearNames();
         return _gearNames.TryGetValue(text.Trim().ToLowerInvariant(), out var id)
             ? DescribeGear(id)
             : string.Empty;
@@ -232,7 +232,7 @@ public sealed class GearInfoService
     public string ItemLabelByName(string text)
     {
         if (string.IsNullOrWhiteSpace(text)) return text;
-        _gearNames ??= BuildGearNameCache();
+        RefreshGearNames();
         return _gearNames.TryGetValue(text.Trim().ToLowerInvariant(), out var id)
                && _data.GetExcelSheet<LuminaItem>().TryGetRow(id, out var row)
             ? EquipmentSpeech.Name(_data, row) : text;
@@ -509,6 +509,16 @@ public sealed class GearInfoService
     // ── Name → Item (für Laden-Zeilen, die nur Name + Preis zeigen) ──
 
     private Dictionary<string, uint>? _gearNames;
+    private (LanguageMode Mode, ClientLanguage Language, int Display)? _gearNamesKey;
+
+    [System.Diagnostics.CodeAnalysis.MemberNotNull(nameof(_gearNames))]
+    private void RefreshGearNames()
+    {
+        var key = (Loc.Mode, _data.Language, GameDisplayText.Revision);
+        if (_gearNames != null && _gearNamesKey == key) return;
+        _gearNames = BuildGearNameCache();
+        _gearNamesKey = key;
+    }
 
     private Dictionary<string, string>? _classLabels;
     private ClientLanguage _classLabelLanguage;
@@ -542,16 +552,9 @@ public sealed class GearInfoService
     /// never be mis-matched, and the map stays small. Built once, lazily.</summary>
     private Dictionary<string, uint> BuildGearNameCache()
     {
-        var map = new Dictionary<string, uint>();
-        var ambiguous = new HashSet<string>();
-        foreach (var row in _data.GetExcelSheet<LuminaItem>())
-        {
-            if (row.EquipSlotCategory.RowId == 0) continue;
-            var name = row.Name.ExtractText();
-            if (!string.IsNullOrWhiteSpace(name) && !map.TryAdd(name.Trim().ToLowerInvariant(), row.RowId))
-                ambiguous.Add(name.Trim().ToLowerInvariant());
-        }
-        foreach (var name in ambiguous) map.Remove(name);
+        var map = GameNameIndex.Build(_data.GetExcelSheet<LuminaItem>()
+            .Where(row => row.EquipSlotCategory.RowId != 0).Select(row =>
+                (row.RowId, row.Name.ExtractText(), GameDisplayText.Find(_data, row, x => x.Name)?.ExtractText())));
         _log.Info($"[Gear] Namens-Cache gebaut: {map.Count} Ausrüstungs-Namen.");
         return map;
     }

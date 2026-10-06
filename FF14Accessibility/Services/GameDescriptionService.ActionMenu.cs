@@ -8,12 +8,13 @@ namespace FF14Accessibility.Services;
 
 public sealed partial class GameDescriptionService
 {
-    private readonly Dictionary<(string Name, int Level, LanguageMode Mode, bool Translate), (DetailKind Kind, uint Id)[]> _menuMatches = new();
+    private readonly Dictionary<(string Name, int Level, LanguageMode Mode, bool Translate, int Display), (DetailKind Kind, uint Id)[]> _menuMatches = new();
+    private readonly Dictionary<(Type Sheet, int Display), Dictionary<string, List<uint>>> _displayMenuNames = new();
 
     internal ActionMenuText.Entry FromActionMenuLabel(string label, string panelDescription = "", IReadOnlySet<uint>? menuTraitIds = null)
     {
         var (name, level) = ActionMenuText.ParseLabel(label);
-        var key = (name, level, Loc.Mode, Loc.TranslateItemsAndActions);
+        var key = (name, level, Loc.Mode, Loc.TranslateItemsAndActions, GameDisplayText.Revision);
         if (!_menuMatches.TryGetValue(key, out var matches))
         {
             var found = new List<(DetailKind, uint)>();
@@ -45,6 +46,27 @@ public sealed partial class GameDescriptionService
             var match = nameField(row).ExtractText().Trim().Equals(name, StringComparison.OrdinalIgnoreCase)
                 || (english.TryGetRow(row.RowId, out var en) && nameField(en).ExtractText().Trim().Equals(name, StringComparison.OrdinalIgnoreCase));
             if (match) found.Add((kind, row.RowId));
+        }
+        if (GameDisplayText.IsAvailable && _data.Language == ClientLanguage.English)
+        {
+            var displayKey = (typeof(T), GameDisplayText.Revision);
+            if (!_displayMenuNames.TryGetValue(displayKey, out var index))
+            {
+                index = new(StringComparer.OrdinalIgnoreCase);
+                foreach (var row in current)
+                    if (GameDisplayText.Find(_data, row, nameField) is { } display)
+                    {
+                        var label = display.ExtractText().Trim();
+                        if (!index.TryGetValue(label, out var ids)) index[label] = ids = [];
+                        ids.Add(row.RowId);
+                    }
+                if (_displayMenuNames.Count >= 12) _displayMenuNames.Clear();
+                _displayMenuNames[displayKey] = index;
+            }
+            if (index.TryGetValue(name, out var matches))
+                foreach (var id in matches)
+                    if (current.TryGetRow(id, out var row) && (level == 0 || levelField(row) == level))
+                        found.Add((kind, id));
         }
         if (GameTextTranslation.ShouldTranslate(typeof(T).Name) && _russianNames != null)
             foreach (var id in _russianNames.FindNameCandidates(typeof(T).Name + "Name", name))

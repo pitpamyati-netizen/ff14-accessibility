@@ -45,6 +45,9 @@ public static class MonsterNameText
     /// <param name="language">Client language - only German fills endings in.</param>
     public static string Resolve(BNpcName nameRow, Dalamud.Game.ClientLanguage language)
     {
+        if (language == Dalamud.Game.ClientLanguage.English
+            && GameDisplayText.Find("BNpcName", nameRow.RowId, nameRow.Singular.Data) is { } displayed)
+            return displayed.ExtractText().Trim();
         // Russian first: the game draws the translated name on the nameplate,
         // and FindNearestLive compares against exactly that name - so this is
         // also what makes a hunting target findable by name again. A row the

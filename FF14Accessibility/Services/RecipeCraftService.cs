@@ -136,7 +136,8 @@ public sealed class RecipeCraftService
                 // notebook can change while its recipe array is being rebuilt.
                 if (sheet.TryGetRow(entry.RecipeId, out var recipe)
                     && recipe.ItemResult.ValueNullable is { } result
-                    && string.Equals(result.Name.ExtractText().Trim(), name.Trim(), StringComparison.OrdinalIgnoreCase))
+                    && RecipeMaterialReader.MatchesSelection(name, result.Name.ExtractText(),
+                        RussianGameText.Name(_data, result, x => x.Name)))
                     name = RussianGameText.Name(_data, result, x => x.Name);
                 names.Add(AccessibilityStrings.RecipeBagEntry(name, IsFirstCraft(entry.RecipeId), hqOnly));
             }

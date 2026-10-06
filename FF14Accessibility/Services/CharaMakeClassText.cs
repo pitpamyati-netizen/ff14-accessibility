@@ -83,8 +83,10 @@ internal static class CharaMakeClassText
             && data.GetExcelSheet<Lobby>(ClientLanguage.English).TryGetRow(lobbyId, out var englishLobby)
             && HeadingMatches(englishJob.Name.ExtractText(), englishLobby.Text.ExtractText())
             && data.GetExcelSheet<Lobby>().TryGetRow(lobbyId, out var lobby))
-            description = AccessibilityStrings.CharaMakeClassDescription(id,
-                englishLobby.Unknown1.ExtractText().Trim(), lobby.Unknown1.ExtractText().Trim());
+            description = GameDisplayText.Find(data, lobby, x => x.Unknown1) is { } displayed
+                ? displayed.ExtractText().Trim()
+                : AccessibilityStrings.CharaMakeClassDescription(id,
+                    englishLobby.Unknown1.ExtractText().Trim(), lobby.Unknown1.ExtractText().Trim());
         return new Entry(id, name, description);
     }
 

@@ -70,9 +70,7 @@ public sealed class PlacesService
     /// Таналан" steht. Die Zeilen-Id kennt keine Sprache, der Name schon.
     /// Ohne Uebersetzung bleibt es beim Blattnamen, nie bei Schweigen.</summary>
     private static string PlaceNameText(uint rowId, string? sheetName)
-        => Loc.IsRussian && rowId != 0 && RussianPlaceNames.PlaceName(rowId) is { } russian
-            ? russian
-            : sheetName?.Trim() ?? string.Empty;
+        => RussianAuthorText.PlaceName(rowId, sheetName?.Trim() ?? string.Empty);
 
     /// <summary>Inverse of <see cref="PixelToWorld"/>: world coordinate back to
     /// map pixel (0..2048). Solving world = (pixel-1024)*100/scale - offset for

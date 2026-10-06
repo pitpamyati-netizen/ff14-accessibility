@@ -58,11 +58,11 @@ public sealed partial class GameDescriptionService
 
     public string BuddyActionNameFromPanel(string fallback)
     {
-        if (!Loc.IsRussianItemActionText) return fallback;
+        if (!Loc.IsRussianItemActionText && !GameDisplayText.IsAvailable) return fallback;
         string? translated = null;
         foreach (var row in _data.GetExcelSheet<BuddyAction>())
         {
-            if (!string.Equals(row.Name.ExtractText().Trim(), fallback.Trim(), StringComparison.OrdinalIgnoreCase))
+            if (!PanelNameMatches(row, x => x.Name, fallback))
                 continue;
             var name = BuddyActionName(row.RowId);
             if (string.IsNullOrWhiteSpace(name)) continue;
@@ -74,11 +74,11 @@ public sealed partial class GameDescriptionService
 
     public string TraitFromPanel(string name, int level, string fallback)
     {
-        if (!Loc.IsRussianItemActionText) return fallback;
+        if (!Loc.IsRussianItemActionText && !GameDisplayText.IsAvailable) return fallback;
         string? resolved = null;
         foreach (var row in _data.GetExcelSheet<Trait>())
         {
-            if (row.Level != level || !string.Equals(row.Name.ExtractText().Trim(), name.Trim(), StringComparison.OrdinalIgnoreCase))
+            if (row.Level != level || !PanelNameMatches(row, x => x.Name, name))
                 continue;
             var description = Trait(row.RowId);
             if (string.IsNullOrWhiteSpace(description)) continue;
@@ -92,11 +92,11 @@ public sealed partial class GameDescriptionService
 
     public string TraitNameFromPanel(string name, int level)
     {
-        if (!Loc.IsRussianItemActionText) return name;
+        if (!Loc.IsRussianItemActionText && !GameDisplayText.IsAvailable) return name;
         string? resolved = null;
         foreach (var row in _data.GetExcelSheet<Trait>())
         {
-            if (row.Level != level || !string.Equals(row.Name.ExtractText().Trim(), name.Trim(), StringComparison.OrdinalIgnoreCase))
+            if (row.Level != level || !PanelNameMatches(row, x => x.Name, name))
                 continue;
             var translated = TraitName(row.RowId);
             if (string.IsNullOrWhiteSpace(translated)) continue;
@@ -106,11 +106,23 @@ public sealed partial class GameDescriptionService
         return resolved ?? name;
     }
 
+    private bool PanelNameMatches<T>(T row, Func<T, ReadOnlySeString> field, string label)
+        where T : struct, IExcelRow<T>
+        => string.Equals(field(row).ExtractText().Trim(), label.Trim(), StringComparison.OrdinalIgnoreCase)
+            || string.Equals(GameDisplayText.Find(_data, row, field)?.ExtractText().Trim(), label.Trim(), StringComparison.OrdinalIgnoreCase);
+
     private string Read<T>(string table, uint id, Func<T, ReadOnlySeString> field, bool names = false)
         where T : struct, IExcelRow<T>
     {
         if (id == 0 || !_data.GetExcelSheet<T>().TryGetRow(id, out var row)) return string.Empty;
         var original = field(row);
+        if (GameDisplayText.Find(_data, row, field) is { } displayed)
+        {
+            // Preserve Prima's SeString and dynamic parameters; never apply
+            // the older catalog's terminology substitutions to its text.
+            try { return _evaluator.Evaluate(displayed).ExtractText(); }
+            catch (Exception ex) { ReportOnce(table, id, ex.Message); return displayed.ExtractText(); }
+        }
         var catalog = names ? _russianNames : _russian;
         if (GameTextTranslation.ShouldTranslate(typeof(T).Name) && catalog != null)
         {

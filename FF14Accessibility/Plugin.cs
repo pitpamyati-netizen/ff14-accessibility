@@ -217,7 +217,7 @@ public sealed partial class Plugin : IDalamudPlugin
     // 6.08.18 lokal: Chat-Absender Kontextmenü (Strg+Umschalt+BildAuf) + Numpad3-Ziel.
     // 6.08.19: Charakterauswahl — eine Ansage (Name, Job, Ort) statt Scan-Sturm.
     // 6.08.20: Mitstreiter-Taste (PR 27 Port) — Strg+Umschalt+C öffnet/vorliest.
-    private const string PluginVersion    = "6.08.105";
+    private const string PluginVersion    = "6.08.106";
     // Der Tag nennt, was diese Fassung MITBRINGT, nicht woher sie stammt: die
     // russische Schicht auf dem Stand des Autors 6.08.35 (Auftragstext im
     // Quest-Tracker des Autors, siehe package-Schritt).
@@ -390,6 +390,23 @@ public sealed partial class Plugin : IDalamudPlugin
         Loc.Mode = _config.Language;
         Loc.TranslateItemsAndActions = _config.TranslateItemsAndActions;
 
+        DateTime? displayFrame = null;
+        var harmoniaIsLoaded = false;
+        bool HarmoniaLoaded()
+        {
+            // A sheet-name index can visit thousands of rows in one frame.
+            // Enumerate the installed plugins only once during that frame.
+            var frame = Framework.LastUpdateUTC;
+            if (displayFrame != frame)
+            {
+                displayFrame = frame;
+                harmoniaIsLoaded = PluginInterface.InstalledPlugins.Any(p => p.InternalName == "HarmoniaEngine" && p.IsLoaded);
+            }
+            return harmoniaIsLoaded;
+        }
+        var displayText = new NativeGameDisplayText(DataManager, () => Framework.IsInFrameworkUpdateThread && HarmoniaLoaded(), Log);
+        GameDisplayText.Configure(DataManager, displayText.Read, HarmoniaLoaded);
+
         TolkNative.Initialize(PluginInterface.AssemblyLocation.DirectoryName!);
         // Das Dalamud-Log ist eine wachsende Datei (heute 4,7 MB im eigenen
         // Testlauf) und wird als Ringpuffer gehalten: die Zeile, die ein
@@ -421,8 +438,7 @@ public sealed partial class Plugin : IDalamudPlugin
         _hotbar       = new HotbarService(DataManager, ClientState, Framework, _gearInfo, _keybinds, _inventoryReader, _tolk, Log, descriptions, SeStringEval);
         _lootRolls    = new LootRollService(DataManager, ClientState, GameGui, _config, _gearInfo, _tolk, Log);
         _equipment    = new EquipmentService(GameInventory, _inventoryReader, DataManager, _gearInfo, _tolk, Log);
-        _questMarkers = new QuestMarkerService(ClientState, DataManager, Log,
-            Path.Combine(Path.GetDirectoryName(PluginInterface.GetPluginConfigDirectory())!, "HarmoniaEngine", "packs"));
+        _questMarkers = new QuestMarkerService(ClientState, DataManager, Log);
         _questObjectives = new QuestObjectiveAnnouncer(AddonLifecycle, _questMarkers, _tolk, Log)
         {
             IsEnabled = () => _config.AnnounceQuestObjectiveChanges,
@@ -4241,6 +4257,7 @@ public sealed partial class Plugin : IDalamudPlugin
 
     public void Dispose()
     {
+        GameDisplayText.Configure(null, null);
         _questObjectives.Dispose();
         Framework.Update -= OnFrameworkUpdate;
         ClientState.Login -= OnLogin;

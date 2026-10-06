@@ -92,6 +92,7 @@ public sealed unsafe class AozNotebookService
     private readonly GameDescriptionService _descriptions;
     private bool _cachedRussian;
     private bool _cachedTranslation;
+    private int _cachedDisplay;
 
     private Dictionary<uint, AozSpell>? _byActionId;
     private Dictionary<byte, AozSpell>? _byNumber;
@@ -436,9 +437,11 @@ public sealed unsafe class AozNotebookService
     /// </summary>
     private void BuildCache()
     {
-        if (_byActionId != null && _cachedRussian == Loc.IsRussian && _cachedTranslation == Loc.TranslateItemsAndActions) return;
+        if (_byActionId != null && _cachedRussian == Loc.IsRussian && _cachedTranslation == Loc.TranslateItemsAndActions
+            && _cachedDisplay == GameDisplayText.Revision) return;
         _cachedRussian = Loc.IsRussian;
         _cachedTranslation = Loc.TranslateItemsAndActions;
+        _cachedDisplay = GameDisplayText.Revision;
 
         var byAction = new Dictionary<uint, AozSpell>();
         var byNumber = new Dictionary<byte, AozSpell>();

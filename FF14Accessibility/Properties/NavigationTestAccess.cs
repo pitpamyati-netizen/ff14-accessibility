@@ -5,3 +5,4 @@ using System.Runtime.CompilerServices;
 [assembly: InternalsVisibleTo("MenuReadingCheck")]
 [assembly: InternalsVisibleTo("JobProcCheck")]
 [assembly: InternalsVisibleTo("HarmoniaQuestCheck")]
+[assembly: InternalsVisibleTo("HarmoniaTextCheck")]

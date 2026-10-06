@@ -143,6 +143,7 @@ public sealed class QuestMarkerService
     private readonly string? _harmoniaPacks;
     private bool _questNameRussian;
     private Dalamud.Game.ClientLanguage _questNameLanguage;
+    private int _questNameDisplay;
 
     public QuestMarkerService(IClientState clientState, IDataManager data, IPluginLog log, string? harmoniaPacks = null)
     {
@@ -677,9 +678,7 @@ public sealed class QuestMarkerService
         if (classJob != 0)
         {
             var name = _data.GetExcelSheet<LuminaClassJob>().TryGetRow(classJob, out var row)
-                ? Loc.IsRussian && RussianSheetTerms.ClassJob(row.RowId) is { } russianJob
-                    ? russianJob
-                    : row.Name.ExtractText()
+                ? RussianGameText.Name(_data, row, x => x.Name)
                 : string.Empty;
             return AccessibilityStrings.QuestUnlocksClassJob(name);
         }
@@ -696,9 +695,12 @@ public sealed class QuestMarkerService
     /// callers can refuse conflicting kinds, levels and unlock claims.</summary>
     private List<LuminaQuest> QuestRows(string label)
     {
-        if (_questsByName == null || _questNameRussian != Loc.IsRussian || _questNameLanguage != _data.Language)
+        if (_questsByName == null || _questNameRussian != Loc.IsRussian || _questNameLanguage != _data.Language
+            || _questNameDisplay != GameDisplayText.Revision)
         {
             var map = new Dictionary<string, List<LuminaQuest>>(System.StringComparer.OrdinalIgnoreCase);
+            var legacy = new Dictionary<string, List<LuminaQuest>>(System.StringComparer.OrdinalIgnoreCase);
+            var shownLabels = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             static void AddName(Dictionary<string, List<LuminaQuest>> map, string name, LuminaQuest quest)
             {
                 if (string.IsNullOrWhiteSpace(name)) return;
@@ -709,18 +711,28 @@ public sealed class QuestMarkerService
 
             foreach (var quest in _data.GetExcelSheet<LuminaQuest>())
             {
+                var displayed = GameDisplayText.Find(_data, quest, x => x.Name);
+                var shown = (displayed ?? quest.Name).ExtractText().Trim();
+                if (!string.IsNullOrEmpty(shown)) shownLabels.Add(shown);
                 if (quest.JournalGenre.RowId == 0) continue; // "Ungueltige Kategorie"
-                AddName(map, quest.Name.ExtractText(), quest);
+                AddName(map, shown, quest);
+                AddName(legacy, quest.Name.ExtractText(), quest);
                 if (Loc.IsRussian && RussianQuestNames.QuestName(quest.RowId) is { } russian)
-                    AddName(map, russian, quest);
+                    AddName(legacy, russian, quest);
             }
             if (Loc.IsRussian)
                 foreach (var entry in HarmoniaQuestNames.LoadInstalled(_harmoniaPacks, _data, _log))
                     if (_data.GetExcelSheet<LuminaQuest>().TryGetRow(entry.RowId, out var quest) && quest.JournalGenre.RowId != 0)
                         AddName(map, entry.Name, quest);
+            // A label currently shown by the game takes precedence over an
+            // older catalog alias belonging to a different quest. Keep every
+            // real duplicate, so conflicting current categories stay unknown.
+            foreach (var (name, rows) in legacy)
+                if (!map.ContainsKey(name) && !shownLabels.Contains(name)) map[name] = rows;
             _questsByName = map;
             _questNameRussian = Loc.IsRussian;
             _questNameLanguage = _data.Language;
+            _questNameDisplay = GameDisplayText.Revision;
             _log.Info($"[Quest] Quest-Zeilen nach Blatt- und russischen Namen: {map.Count}");
         }
 

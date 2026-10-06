@@ -1,5 +1,30 @@
 # Карта наших изменений
 
+## Текст игры перед собственными справочниками — 6.08.106
+
+GameDisplayText/NativeGameDisplayText читают текущую игровую ExcelRow через
+ExdModule/GetColumnString, только в потоке Framework и при загруженной
+HarmoniaEngine. Столбцы связываются с текущей RawRow по исходным байтам и
+точному ReadOnlyMemory; типы и смещения всех столбцов, язык и вариант таблицы
+сверяются. Указатели и значения перевода не кэшируются. Статус Harmonia
+проверяется один раз за кадр; Revision инвалидирует связанные текстовые кэши.
+
+RussianGameText, GameDescriptionService, RussianAuthorText, MonsterNameText,
+PlacesService, ObjectNameService, HuntingLogService, CharaMakeClassText и
+QuestMarkerService используют этот приоритет. GameNameIndex сохраняет
+оригинальные и отображаемые подписи с исключением конфликтующих номеров;
+InventoryService/GearInfoService и меню умений распознают Prima. RecipeCraft
+сверяет и исходное, и новое имя выбранного результата. Речь описаний проходит
+штатный evaluator, без RussianDescriptionTerms для строк русификатора.
+
+GameDisplayTextTests защищает выбор источника, отсутствие перевода, язык,
+выгрузку/перезагрузку, байты SeString, равные исходные поля, неоднозначные
+названия и структуру игровых таблиц. tools/harmonia-text-check проверяет
+обычные читатели на установленном пакете; HPK используется только как
+входные проверочные данные. Runtime-поиск заданий больше не загружает все
+пакеты из папки: он читает реальные имена игры. Старый HarmoniaQuestNames
+сохраняется для воспроизводимой отдельной проверки формата и прежнего инструмента.
+
 ## Кнопки и Harmonia / Prima — 6.08.105
 
 NativeDialogButtons связывает текущий узел фокуса с настоящими кнопками
