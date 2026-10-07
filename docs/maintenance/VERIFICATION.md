@@ -41,7 +41,23 @@
   ZIP SHA-256:
   9F41FE64BB32FE5EE621BB2FEB7625CF79D6DF59EB69C823026F99904A7A0BDD.
   Установщик 1.3.0 собран из прежних исходников; отдельный исходный архив
-  содержит 36 файлов. Публикация ещё не проверена.
+  содержит 36 файлов.
+- Коммит 0e70969af014febcaef6d177e094211e77bcdb20 отправлен в
+  feature/russian-accessibility-recovery. Publish-Release -CheckOnly прошёл;
+  затем создан отдельный выпуск v6.08.110, ID405522316.
+  draft=false/prerelease=false, Latest подтверждён; метка и target_commitish
+  соответствуют функциональному коммиту 0e70969. Предыдущие выпуски сохранены.
+  Ссылка: https://github.com/pitpamyati-netizen/ff14-accessibility/releases/tag/v6.08.110.
+- Все четыре файла скачаны обратно и проверены 7 октября в 15:05:47 (+07:00).
+  Совпали размеры, digest GitHub и SHA-256 с подготовленными файлами,
+  четыре строки SHA256SUMS, все 141 запись ZIP плагина и 36 записей ZIP
+  исходников установщика. Текст выпуска совпал с docs/releases/6.08.110.md.
+  EXE: 117 666 083 байта, версия 1.3.0.0, SHA-256:
+  DEF3328D9A11A23B8205F174BAA669B3B442B9923EABA4AA978929C7F9F67921.
+  Отчёты verification.json/published-release.json/latest-client.json:
+  artifacts/publication/20261007-150248-569/round-trip/.
+  Настоящий ReleaseClient.Latest из текущих исходников установщика выбрал
+  6.08.110, правильный ZIP и его SHA-256. InGameVerified=false.
 - Установка, конфигурация и игровые файлы не менялись. Движение Ctrl+Num3,
   автоматический Num3, загрузка Нижней Ла-Носкеи, обратный выход, отмена,
   первый переход маршрута задания и NVDA/Tolk требуют проверки в FFXIV.
