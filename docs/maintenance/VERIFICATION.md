@@ -38,8 +38,18 @@
   Состав и SHA-256 каждой записи сверены с текущими подготовленными файлами.
   ZIP SHA-256 F2FF1774E48454861B5DB8737C133AF1E0D26C5179A003EE9DC3AC0CCBC63910;
   DLL SHA-256 CCB59CE17D82F57CD1C5F3C728AFF963E5059CC4198616630B4CF58A2CB058F6.
-- Публикация пока не проверена. Установка не изменена;
-  новая версия в FFXIV/NVDA/Tolk не проверена.
+- Коммит 8bb6650857d69576470aa917fbccab8d331cabfe отправлен в
+  origin/feature/russian-accessibility-recovery. Publish-Release -CheckOnly
+  прошла, затем создан v6.08.112, ID405571693, Latest,
+  draft=false/prerelease=false. Текст, метка и назначение совпали.
+- Все четыре файла скачаны обратно: размеры, digest GitHub и SHA-256
+  совпали с подготовленными файлами, четыре строки SHA256SUMS сверены.
+  Все 141 запись игрового ZIP и 36 записей исходников установщика совпали
+  с текущими файлами проекта. EXE имеет версию 1.3.0.0. Настоящий
+  ReleaseClient.Latest выбрал 6.08.112 и правильный ZIP с его SHA-256.
+  Отчёт: artifacts/publication/20261007-160016-801/round-trip/verification.json.
+  ActualReleaseClientVerified=true, InGameVerified=false.
+- Установка не изменена; новая версия в FFXIV/NVDA/Tolk не проверена.
 
 ## Поисковые круги — 6.08.111, 7 октября 2026
 
