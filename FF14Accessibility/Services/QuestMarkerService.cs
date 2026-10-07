@@ -876,8 +876,10 @@ public sealed class QuestMarkerService
                 && _data.GetExcelSheet<LuminaLevel>().TryGetRow(data.LevelId, out var levelRow))
             {
                 var territory = levelRow.Territory.RowId;
-                if (levelRow.Object.RowId != 0 && (territory == 0 || territory == data.TerritoryTypeId))
+                if (territory == 0 || territory == data.TerritoryTypeId)
                 {
+                    // Position-only Type-51 circles have Object=0, but their
+                    // type still distinguishes an area from an exact actor.
                     targetBaseId = levelRow.Object.RowId;
                     targetType   = levelRow.Type;
                 }

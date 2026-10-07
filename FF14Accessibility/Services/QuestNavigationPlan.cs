@@ -10,7 +10,7 @@ internal sealed record QuestNavigationPlan(Vector3 Position, string Name, bool I
         Func<uint, uint, bool>? sameMap = null)
     {
         if (quest.TerritoryTypeId == territory && (quest.MapId == 0 || (sameMap?.Invoke(quest.MapId, map) ?? quest.MapId == map)))
-            return new(quest.Position, quest.QuestName, false, false, null, 0);
+            return new(quest.Position, quest.QuestName, false, QuestAreaPoint.IsSearchArea(quest), null, 0);
         var hop = findHop(quest.MapId);
         if (hop == null) return null;
         var entrance = findEntrance(quest.MapId);

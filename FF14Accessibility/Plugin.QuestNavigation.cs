@@ -10,6 +10,15 @@ public sealed partial class Plugin
     private MarkerResolve TryResolveSelectedDestination(out Vector3 position, out string name,
         out float stopRange, out bool heightIsGuess, out bool isZoneTransition, bool readout = false)
     {
+        if (!readout && (_navigation.SelectedQuestDestination != null
+            || _navigation.SelectedPlaceDestination is { IsZoneTransition: true })
+            && QuestMeshUnavailableMessage() is { } unavailable)
+        {
+            _tolk.SpeakInterrupt(unavailable);
+            position = default; name = string.Empty; stopRange = 0;
+            heightIsGuess = false; isZoneTransition = false;
+            return MarkerResolve.Failed;
+        }
         if (!readout && _navigation.SelectedQuestDestination == null
             && _navigation.SelectedPlaceDestination is { IsZoneTransition: true } place)
         {
@@ -28,7 +37,7 @@ public sealed partial class Plugin
             }
         }
         if (_navigation.SelectedQuestDestination is not { } selection
-            || selection.QuestId == 0 && selection.NativeMarkerId == 0)
+            || selection.QuestId == 0 && selection.NativeMarkerId == 0 && !QuestAreaPoint.IsSearchArea(selection))
             return readout
                 ? TryResolveDestinationReadout(out position, out name, out stopRange, out heightIsGuess, out isZoneTransition)
                 : TryResolveMarkerDestination(out position, out name, out stopRange, out heightIsGuess, out isZoneTransition);
@@ -60,7 +69,8 @@ public sealed partial class Plugin
             : quest.Role == QuestMarkerRole.QuestTrigger ? _config.AutoWalkPlaceStopRange
             : MathF.Max(_config.AutoWalkPlaceStopRange, MathF.Min(5f, quest.Radius));
         var point = plan.Position;
-        if (plan.HeightIsGuess) point = point with { Y = ObjectTable.LocalPlayer?.Position.Y ?? point.Y };
+        if (plan.HeightIsGuess && plan.NextMapId != 0)
+            point = point with { Y = ObjectTable.LocalPlayer?.Position.Y ?? point.Y };
         if (!readout)
         {
             if (plan.IsBorder)
@@ -78,15 +88,8 @@ public sealed partial class Plugin
                 }
                 isZoneTransition = false;
             }
-            var floor = _autoWalk.ResolveReachablePoint(point) ?? _autoWalk.ResolveFloorPoint(point);
+            var floor = ResolveQuestGroundPoint(quest, plan, point, ref stopRange);
             if (floor == null)
-            {
-                _tolk.SpeakInterrupt(AccessibilityStrings.NoWalkablePointAt(name));
-                return MarkerResolve.Failed;
-            }
-            // A known NPC or interior location must retain its floor. Do not
-            // accept a floor snap to an outside NPC 130 metres above the guild.
-            if (!plan.HeightIsGuess && MathF.Abs(floor.Value.Y - point.Y) > 5f)
             {
                 _tolk.SpeakInterrupt(AccessibilityStrings.NoWalkablePointAt(name));
                 return MarkerResolve.Failed;
@@ -95,6 +98,36 @@ public sealed partial class Plugin
         }
         position = point;
         return MarkerResolve.Resolved;
+    }
+
+    private string? QuestMeshUnavailableMessage()
+    {
+        var nav = _autoWalk.Navmesh;
+        if (nav.IsReady) return null;
+        var progress = nav.BuildProgress;
+        return nav.LastCallFailed ? AccessibilityStrings.AutoWalkUnavailable
+            : progress >= 0 ? AccessibilityStrings.MeshStillLoading(progress * 100)
+            : AccessibilityStrings.MeshNotReady;
+    }
+
+    private Vector3? ResolveQuestGroundPoint(QuestDestination quest, QuestNavigationPlan plan,
+        Vector3 point, ref float stopRange)
+    {
+        if (plan.NextMapId == 0 && QuestAreaPoint.IsSearchArea(quest))
+        {
+            stopRange = MathF.Min(stopRange, quest.Radius * 0.25f);
+            var area = QuestAreaPoint.Resolve(quest.Position, quest.Radius, stopRange,
+                _autoWalk.ProbeReachable, candidate => _places.MatchesKnownMap(candidate,
+                    quest.MapId != 0 ? quest.MapId : ClientState.MapId));
+            Log.Info($"[QuestRoute] Area quest={quest.QuestId}, level={quest.ObjectiveLevelId}, map={quest.MapId}, "
+                + $"centre={quest.Position}, radius={quest.Radius}, stop={stopRange}, floor={area?.ToString() ?? "unresolved"}");
+            return area;
+        }
+        var floor = _autoWalk.ResolveReachablePoint(point) ?? _autoWalk.ResolveFloorPoint(point);
+        // Exact actors and triggers retain their floor, even if a nearer
+        // polygon is on the ceiling or a different interior level.
+        return floor is { } found && TravelLayout.Finite(found)
+            && (plan.HeightIsGuess || MathF.Abs(found.Y - point.Y) <= 5f) ? floor : null;
     }
 
     private BorderResolution ResolveWalkingBorder(uint map, Vector3 fallback)

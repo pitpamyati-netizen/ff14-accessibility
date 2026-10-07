@@ -140,6 +140,48 @@ foreach (var border in travelLayouts.ForTerritory(territoryId).Borders)
     }
 }
 Console.WriteLine($"Border audit: {borderVolumes} box volumes ({tallBorders} tall); recorded goal {recordedBorder.Position}; shared movement resolver passed. Mesh simulation, no live movement.");
+// The reported Type-51 objective is a search circle whose marker height is
+// 15.6 metres below the mesh point. Unlike an actor, it has no exact floor.
+var areaLevel = data.GetExcelSheet<Level>().GetRow(5058426);
+Check(areaLevel.Type == 51 && areaLevel.Object.RowId == 0 && areaLevel.Territory.RowId == 135,
+    "Recorded Way of the Culinarian objective changed its marker identity.");
+var recordedArea = new QuestDestination("Дилемма изящного вкуса", "",
+    // Use the native MarkerData.Radius logged in FFXIV. Level.Radius=303
+    // is a different field and must not replace the visible 35-metre circle.
+    new(areaLevel.X, areaLevel.Y, areaLevel.Z), 35, 135, 16, true, QuestKind.Job, 5,
+    TargetLevelType: areaLevel.Type, QuestId: 65646, ObjectiveLevelId: areaLevel.RowId);
+Check(MathF.Abs(recordedArea.Position.X - 205.9f) < 0.1f && MathF.Abs(recordedArea.Position.Y - 32.5f) < 0.1f
+    && MathF.Abs(recordedArea.Position.Z - 40.7f) < 0.1f && areaLevel.Map.RowId == 16,
+    "Recorded search-circle position no longer matches the log.");
+var loggedAreaFloor = new Vector3(205.8f, 48.1f, 40.7f);
+state.Map = 16; state.Territory = 135;
+Set(plugin, "_places", places);
+typeof(Plugin).GetProperty("Log", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(plugin, log);
+Set(nav, "_nearestPointReachable", GateProxy.Of<ICallGateSubscriber<Vector3, float, float, Vector3?>>((_, _) => loggedAreaFloor));
+var areaPlan = QuestNavigationPlan.Resolve(recordedArea, 135, 16, _ => null, _ => null)!;
+Check(areaPlan.HeightIsGuess, "A search circle must not claim its height is an actor floor.");
+object?[] areaArguments = [recordedArea, areaPlan, areaPlan.Position, 5f];
+var sharedAreaFloor = typeof(Plugin).GetMethod("ResolveQuestGroundPoint", BindingFlags.Instance | BindingFlags.NonPublic)!
+    .Invoke(plugin, areaArguments);
+Check(sharedAreaFloor is Vector3 resolvedArea && resolvedArea == loggedAreaFloor,
+    "Shared quest resolver refused the logged search-circle ground.");
+Check(places.MatchesKnownMap(loggedAreaFloor, 16), "Logged area floor moved to a different physical map.");
+Check(!places.MatchesKnownMap(new(-12.6917f, 91.4999f, -7.60297f), 11),
+    "Landing floor must not be accepted as upper decks.");
+var areaRows = data.GetExcelSheet<Level>().Where(l => l.Type == 51 && l.Object.RowId == 0
+    && l.Territory.RowId != 0 && l.Map.RowId != 0 && TravelLayout.Finite(new(l.X, l.Y, l.Z))).ToArray();
+foreach (var row in areaRows)
+{
+    var centre = new Vector3(row.X, row.Y, row.Z);
+    Check(QuestAreaPoint.IsSearchArea(recordedArea with { Position = centre, ObjectiveLevelId = row.RowId }),
+        "Type-51 area lost its navigation classification.");
+    // Uniform simulated native radius at all real positions: live radii are
+    // unavailable in this offline sheet scan.
+    var projected = QuestAreaPoint.Resolve(centre, 35, 5, (p, _, _) => p with { Y = centre.Y + 15.6f }, _ => true);
+    Check(projected is { } pt && Vector2.Distance(new(centre.X, centre.Z), new(pt.X, pt.Z)) + 5 < 35,
+        "Generic search area did not keep its stop inside the circle.");
+}
+Console.WriteLine($"Search-circle audit: {areaRows.Length} Type-51 rows; logged objective65646 ground {sharedAreaFloor}. Mesh simulation, no live movement.");
 Console.WriteLine($"Recorded travel: {airship?.Name} (NPC {airshipNpc?.BaseId}); {rogueHops} legs to guild; landing next: {lift?.Name}; guild NPC {guild?.BaseId}.");
 var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 var checkedMaps = 0;
@@ -210,11 +252,13 @@ var stillUnmapped = unreachable.Except(withTeleport).Except(withDuty).Except(wit
     Territory = places.GetTerritoryOfMap(id), Name = places.GetMapName(id) }).ToArray();
 File.WriteAllText(args[1], JsonSerializer.Serialize(new { Passed = true, Checks = checks,
     Entrances = allEntrances.Length, SourceMaps = checkedSources, MapsScanned = checkedMaps,
-    FullScanMs = stopwatch.ElapsedMilliseconds, RecordedQuests = new[] { 65983, 65985, 66043, 65640 },
+    FullScanMs = stopwatch.ElapsedMilliseconds, RecordedQuests = new[] { 65983, 65985, 66043, 65640, 65646 },
     Guard = guard, LotusGuard = lotusGuard, InnDoor = innDoor, AllEntrances = allEntrances,
     BorderVolumes = borderVolumes, TallBorderVolumes = tallBorders,
     RecordedLaNosceaBorder = laNosceaBorder, RecordedLaNosceaDestination = recordedBorder.Position,
     LoggedMeshEdgeSimulated = true, SharedBorderResolverChecked = true,
+    SearchCircleLevelRows = areaRows.Length, SearchCircleAuditRadiusSimulated = 35, RecordedSearchCircle = recordedArea,
+    RecordedSearchCircleFloor = sharedAreaFloor, SharedAreaResolverChecked = true, LoggedAreaMeshSimulated = true,
     QuestActorLevels = targetLevels.Length, QuestActorMaps = targetMaps.Length,
     ReachableQuestActorMapsFromGridania = targetMaps.Length - unreachable.Length,
     AdditionalMapsWithPossibleTeleport = withTeleport.Length,
@@ -222,7 +266,7 @@ File.WriteAllText(args[1], JsonSerializer.Serialize(new { Passed = true, Checks 
     AdditionalMapsWithUniqueDutyFinder = withDutyFinder.Length, DutyFinderActuallyUnlockedChecked = false,
     UnmappedQuestActorMaps = stillUnmapped, TeleportsActuallyUnlockedChecked = false,
     NativeFfxivChecked = false }, new JsonSerializerOptions { WriteIndented = true, IncludeFields = true }));
-Console.WriteLine($"PASS: {checks} assertions, {allEntrances.Length} verified entrances in {checkedSources} source maps, {checkedMaps} maps scanned ({stopwatch.ElapsedMilliseconds} ms); four recorded quests and ordinary exits. Live game not tested.");
+Console.WriteLine($"PASS: {checks} assertions, {allEntrances.Length} verified entrances in {checkedSources} source maps, {checkedMaps} maps scanned ({stopwatch.ElapsedMilliseconds} ms); five recorded quests and ordinary exits. Live game not tested.");
 
 public class QuietLog : DispatchProxy
 {

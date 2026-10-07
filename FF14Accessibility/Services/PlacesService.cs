@@ -45,6 +45,7 @@ public sealed class PlacesService
     private readonly IPluginLog   _log;
     private readonly InteriorEntranceService _interiorEntrances;
     private readonly TravelMapIdentity _mapIdentity;
+    private readonly TravelLayout _travelLayout;
 
     public PlacesService(IDataManager data, IClientState clientState, IPluginLog log)
     {
@@ -53,6 +54,7 @@ public sealed class PlacesService
         _log         = log;
         _interiorEntrances = new(data, log);
         _mapIdentity = new(data);
+        _travelLayout = new(data, log);
     }
 
     /// <summary>
@@ -502,6 +504,12 @@ public sealed class PlacesService
 
     public uint CanonicalMap(uint id) => _data == null ? id : _mapIdentity.Canonical(id);
     public bool AreSameMap(uint first, uint second) => CanonicalMap(first) == CanonicalMap(second);
+
+    // Reject a confirmed different floor or ambiguous overlapping map ranges.
+    // If the layout supplies no containing range, retain the marker's map.
+    internal bool MatchesKnownMap(Vector3 point, uint map)
+        => _data == null || AreSameMap(_travelLayout.ForTerritory(GetTerritoryOfMap(map))
+            .ResolveMap(point, CanonicalMap(map)), map);
 
     private PlaceDestination? EntranceDestination(uint targetMapId)
     {
