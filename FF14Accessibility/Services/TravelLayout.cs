@@ -52,6 +52,46 @@ internal sealed class TravelLayout(IDataManager data, IPluginLog log)
 {
     private readonly Dictionary<uint, TravelLayoutData> _territories = [];
     private readonly TravelMapIdentity _mapIdentity = new(data);
+    private Dictionary<uint, uint>? _singleMaps;
+
+    internal uint SingleMap(uint territory)
+    {
+        _singleMaps ??= data.GetExcelSheet<Map>().Where(m => m.RowId != 0 && m.TerritoryType.RowId != 0)
+            .GroupBy(m => m.TerritoryType.RowId).ToDictionary(g => g.Key, g =>
+            {
+                var maps = g.Select(m => _mapIdentity.Canonical(m.RowId)).Distinct().ToArray();
+                return maps.Length == 1 ? maps[0] : 0u;
+            });
+        return _singleMaps.GetValueOrDefault(territory);
+    }
+
+    internal uint ArrivalMap(uint territory, uint instance)
+    {
+        var layout = ForTerritory(territory);
+        var row = data.GetExcelSheet<Level>().GetRowOrDefault(instance);
+        if (row is { } foreign && foreign.Territory.RowId != territory) return 0;
+        if (row is { } level && level.Territory.RowId == territory)
+            return _mapIdentity.Canonical(layout.ResolveMap(new(level.X, level.Y, level.Z), level.Map.RowId));
+        return layout.Arrivals.TryGetValue(instance, out var point)
+            ? _mapIdentity.Canonical(layout.ResolveMap(point, SingleMap(territory))) : SingleMap(territory);
+    }
+
+    internal IReadOnlyList<(uint TargetMap, TravelBorder Border)> WalkingBorders(uint sourceMap)
+    {
+        sourceMap = _mapIdentity.Canonical(sourceMap);
+        var territory = data.GetExcelSheet<Map>().GetRowOrDefault(sourceMap)?.TerritoryType.RowId ?? 0;
+        var layout = ForTerritory(territory);
+        var result = new List<(uint, TravelBorder)>();
+        foreach (var border in layout.Borders)
+        {
+            var source = data.GetExcelSheet<Level>().GetRowOrDefault(border.InstanceId);
+            var fallback = source is { } level && level.Territory.RowId == territory ? level.Map.RowId : SingleMap(territory);
+            if (_mapIdentity.Canonical(layout.ResolveMap(border.Centre, fallback)) != sourceMap) continue;
+            var target = ArrivalMap(border.Destination, border.ArrivalId);
+            if (target != 0 && target != sourceMap) result.Add((target, border));
+        }
+        return result;
+    }
 
     internal TravelLayoutData ForTerritory(uint id)
     {
@@ -121,7 +161,7 @@ internal sealed class TravelLayout(IDataManager data, IPluginLog log)
                             if (I(obj + 48) == 1 && target != 0 && Finite(rot) && Finite(scale)
                                 && MathF.Abs(rot.X) < 0.0001f && MathF.Abs(rot.Z) < 0.0001f
                                 && scale.X > 0 && scale.Y > 0 && scale.Z > 0)
-                                result.Borders.Add(new(pos, scale, rot.Y, target));
+                                result.Borders.Add(new(pos, scale, rot.Y, target, U(obj + 72), U(obj + 4)));
                         }
                     }
                     else if (type == 43)

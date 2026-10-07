@@ -457,6 +457,7 @@ public sealed class PlacesService
 
         var targets = new List<uint>();
         var markerTargets = new HashSet<uint>();
+        var borders = _travelLayout.WalkingBorders(mapId);
         var mapSheet = _data.GetExcelSheet<Map>();
         if (mapSheet.TryGetRow(mapId, out var map)
             && _data.GetSubrowExcelSheet<MapMarker>().TryGetRow(map.MapMarkerRange, out var markers))
@@ -467,6 +468,11 @@ public sealed class PlacesService
                 if (m.DataKey.TryGetValue<Map>(out var target) && target.RowId != 0)
                 {
                     var canonical = CanonicalMap(target.RowId);
+                    // A glyph may name the upper floor while the actual exit
+                    // arrives downstairs. That glyph cannot authorize walking
+                    // to the upper floor; keep the exact lift/NPC edge instead.
+                    if (borders.Any(b => GetTerritoryOfMap(b.TargetMap) == target.TerritoryType.RowId)
+                        && !borders.Any(b => b.TargetMap == canonical)) continue;
                     targets.Add(canonical);
                     markerTargets.Add(canonical);
                 }
@@ -474,6 +480,8 @@ public sealed class PlacesService
         }
         _transitionCache[mapId] = targets;
         _markerTransitionTargets[mapId] = markerTargets;
+        foreach (var border in borders)
+            if (!targets.Contains(border.TargetMap)) targets.Add(border.TargetMap);
         foreach (var entrance in _interiorEntrances.ForMap(mapId))
             if (entrance.SourceMapId == mapId && !targets.Contains(entrance.TargetMapId))
                 targets.Add(entrance.TargetMapId);
@@ -508,6 +516,9 @@ public sealed class PlacesService
 
     public uint CanonicalMap(uint id) => _data == null ? id : _mapIdentity.Canonical(id);
     public bool AreSameMap(uint first, uint second) => CanonicalMap(first) == CanonicalMap(second);
+
+    internal IReadOnlyList<LocalTransfer> LocalTransfers()
+        => _interiorEntrances.LocalTransfers(_clientState.MapId);
 
     // Reject a confirmed different floor or ambiguous overlapping map ranges.
     // If the layout supplies no containing range, retain the marker's map.
@@ -616,6 +627,9 @@ public sealed class PlacesService
         if (hop == 0) return null;
         var entrance = FindLocalEntranceToMap(hop);
         var marker = GetPlaces(includeFlag: false).FirstOrDefault(p => p.IsZoneTransition && AreSameMap(p.TargetMapId, hop));
+        var border = _data == null ? default : _travelLayout.WalkingBorders(CanonicalMap(_clientState.MapId)).FirstOrDefault(b => b.TargetMap == hop);
+        if (border.Border != null && marker == null)
+            marker = new(AccessibilityStrings.TransitionToName(GetMapName(hop)), "Übergang", border.Border.Centre, true, hop);
         // Doors are exact interaction targets even when a decorative map glyph
         // exists. Ordinary walking borders win over optional NPC transport.
         var transition = PreferInteraction(entrance) ? EntranceDestination(hop)

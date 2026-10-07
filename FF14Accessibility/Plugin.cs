@@ -217,7 +217,7 @@ public sealed partial class Plugin : IDalamudPlugin
     // 6.08.18 lokal: Chat-Absender Kontextmenü (Strg+Umschalt+BildAuf) + Numpad3-Ziel.
     // 6.08.19: Charakterauswahl — eine Ansage (Name, Job, Ort) statt Scan-Sturm.
     // 6.08.20: Mitstreiter-Taste (PR 27 Port) — Strg+Umschalt+C öffnet/vorliest.
-    private const string PluginVersion    = "6.08.113";
+    private const string PluginVersion    = "6.08.114";
     // Der Tag nennt, was diese Fassung MITBRINGT, nicht woher sie stammt: die
     // russische Schicht auf dem Stand des Autors 6.08.35 (Auftragstext im
     // Quest-Tracker des Autors, siehe package-Schritt).
@@ -2485,10 +2485,12 @@ public sealed partial class Plugin : IDalamudPlugin
         // A modal table or quantity editor can return from this frame below.
         // Native movement still runs then, so supervision and the stop guard
         // must keep receiving every frame, including while a menu owns keys.
+        PollLocalTransferArrival();
         _autoWalk.Update();
         _transitions.Update();
         PollSelectedQuest();
         PollWalkingObject();
+        PollNavigationCheck();
         FacingService.Tick(ObjectTable.LocalPlayer);
         _armouryTransfer.Update(GameWindowFocus.IsActive && !_uiReader.IsTableReading
             && !_uiReader.IsShopQuantityEditing && !_uiReader.IsSystemVolumeEditing
@@ -2606,7 +2608,8 @@ public sealed partial class Plugin : IDalamudPlugin
             // time. (Only the walk guide sounds the beacon; the others are silent.)
             _autoWalk.StopQuiet();
             _autoWalk.StopFollowQuiet();
-            if (_navigation.IsWalkGuideActive)
+            if (CancelNavigationCheck()) { _tolk.SpeakInterrupt(AccessibilityStrings.AutoWalkStopped); }
+            else if (_navigation.IsWalkGuideActive)
             {
                 _navigation.ToggleWalkGuide(); // second press: off
             }
@@ -2626,7 +2629,8 @@ public sealed partial class Plugin : IDalamudPlugin
         {
             _navigation.StopWalkGuideQuiet();
             var bestiaryMonster = _uiReader.SelectedBestiaryMonster;
-            if (_autoWalk.IsActive)
+            if (CancelNavigationCheck()) { _tolk.SpeakInterrupt(AccessibilityStrings.AutoWalkStopped); }
+            else if (_autoWalk.IsActive)
             {
                 _autoWalk.Toggle();
                 _walkingObject = null;
@@ -4265,6 +4269,7 @@ public sealed partial class Plugin : IDalamudPlugin
 
     public void Dispose()
     {
+        CancelNavigationCheck();
         GameDisplayText.Configure(null, null);
         _questObjectives.Dispose();
         Framework.Update -= OnFrameworkUpdate;

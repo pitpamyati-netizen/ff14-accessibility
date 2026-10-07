@@ -14,13 +14,19 @@ internal static class QuestAreaPoint
 
     internal static Vector3? Resolve(Vector3 centre, float radius, float stopRange,
         Func<Vector3, float, float, Vector3?> reachable, Func<Vector3, bool> matchesMap)
+        => ReachablePoints(centre, radius, stopRange, reachable, matchesMap)
+            .Select(p => (Vector3?)p).FirstOrDefault();
+
+    internal static IEnumerable<Vector3> ReachablePoints(Vector3 centre, float radius, float stopRange,
+        Func<Vector3, float, float, Vector3?> reachable, Func<Vector3, bool> matchesMap)
     {
         if (!TravelLayout.Finite(centre) || !float.IsFinite(radius) || radius <= 0
-            || !float.IsFinite(stopRange) || stopRange < 0) return null;
+            || !float.IsFinite(stopRange) || stopRange < 0) yield break;
         // The movement service may stop short: leave enough room to finish
         // inside the circle, even when only its outer ground is on the mesh.
         var usable = radius - stopRange - MathF.Min(0.5f, radius * 0.1f);
-        if (usable <= 0) return null;
+        if (usable <= 0) yield break;
+        var accepted = new List<Vector3>();
         var xz = MathF.Min(6f, usable);
         foreach (var probe in Candidates(centre, usable))
         {
@@ -34,10 +40,11 @@ internal static class QuestAreaPoint
                     || MathF.Abs(point.X - probe.X) > xz || MathF.Abs(point.Z - probe.Z) > xz
                     || Vector2.Distance(new(centre.X, centre.Z), new(point.X, point.Z)) > usable
                     || !matchesMap(point)) continue;
-                return point;
+                if (accepted.Any(p => Vector3.Distance(p, point) < 0.5f)) continue;
+                accepted.Add(point);
+                yield return point;
             }
         }
-        return null; // Never authorize a raw centre or an unfiltered floor.
     }
 
     private static IEnumerable<Vector3> Candidates(Vector3 centre, float radius)

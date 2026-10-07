@@ -4,7 +4,8 @@ using Lumina.Excel.Sheets;
 
 namespace FF14Accessibility.Services;
 
-internal sealed record TravelBorder(Vector3 Centre, Vector3 HalfExtent, float Yaw, uint Destination)
+internal sealed record TravelBorder(Vector3 Centre, Vector3 HalfExtent, float Yaw, uint Destination,
+    uint ArrivalId = 0, uint InstanceId = 0)
 {
     internal Vector3 Local(Vector3 world)
         => Vector3.Transform(world - Centre, Matrix4x4.CreateRotationY(-Yaw));
@@ -53,14 +54,42 @@ public sealed class ZoneBorderService
     {
         if (destinationMapId == 0 || !_data.GetExcelSheet<Map>().TryGetRow(destinationMapId, out var map))
             return new(false, null);
-        var layout = _layout.ForTerritory(_clientState.TerritoryType);
         var identity = new TravelMapIdentity(_data);
         var currentMap = identity.Canonical(_clientState.MapId);
-        var borders = layout.Borders.Where(b => b.Destination == map.TerritoryType.RowId
-            && identity.Canonical(layout.ResolveMap(b.Centre, currentMap)) == currentMap).ToArray();
+        var borders = _layout.WalkingBorders(currentMap).Where(b => b.TargetMap == identity.Canonical(destinationMapId))
+            .Select(b => b.Border).ToArray();
         var result = Resolve(borders, from, reachable, disconnectedFloor, hasMeasuredCrossing);
         _log.Info($"[Border] map={destinationMapId}, volumes={borders.Length}, from={from}, " +
             $"target={(result.Position is { } point ? point.ToString() : "unresolved")}");
+        return result;
+    }
+
+    internal IReadOnlyList<Vector3> Targets(uint destinationMap, Vector3 from,
+        Func<Vector3, float, float, Vector3?> probe)
+    {
+        var result = new List<Vector3>();
+        var identity = new TravelMapIdentity(_data);
+        foreach (var connection in _layout.WalkingBorders(_clientState.MapId)
+            .Where(b => b.TargetMap == identity.Canonical(destinationMap))
+            .OrderBy(b => HorizontalDistance(b.Border.Centre, from)))
+        foreach (var target in Targets(connection.Border, from, probe))
+            if (!result.Any(p => Vector3.Distance(p, target) < 0.5f)) result.Add(target);
+        return result.Take(48).ToArray();
+    }
+
+    internal static IReadOnlyList<Vector3> Targets(TravelBorder border, Vector3 from,
+        Func<Vector3, float, float, Vector3?> probe)
+    {
+        var result = new List<Vector3>();
+        foreach (var tall in new[] { false, true })
+        foreach (var radius in new[] { 2f, 6f })
+        foreach (var candidate in Candidates(border, from))
+        {
+            var origin = tall ? candidate with { Y = border.Centre.Y } : candidate;
+            var height = tall ? border.HalfExtent.Y : MathF.Min(5f, border.HalfExtent.Y);
+            var target = ValidateMesh(border, origin, probe(origin, radius, height), radius, height);
+            if (target is { } point && !result.Any(p => Vector3.Distance(p, point) < 0.5f)) result.Add(point);
+        }
         return result;
     }
 

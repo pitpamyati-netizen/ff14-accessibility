@@ -38,6 +38,12 @@ public sealed partial class Plugin
 
     private void StartResolvedWalk(Vector3 position, string name, float stop, bool transition)
     {
+        if (!_autoWalk.IsActive && QueueNavigationCheck(position, name, stop, transition, guide: false)) return;
+        ApplyResolvedWalk(position, name, stop, transition);
+    }
+
+    private void ApplyResolvedWalk(Vector3 position, string name, float stop, bool transition)
+    {
         var stopping = _autoWalk.IsActive;
         _autoWalk.ToggleToPosition(position, name, stop, transition);
         if (!stopping && _autoWalk.IsActive) RememberWalkingPoint(position, name, stop, transition);
@@ -51,6 +57,12 @@ public sealed partial class Plugin
     }
 
     private void StartResolvedGuide(Vector3 position, string name, float stop)
+    {
+        if (QueueNavigationCheck(position, name, stop, _resolvedWalkingMap != 0, guide: true)) return;
+        ApplyResolvedGuide(position, name, stop);
+    }
+
+    private void ApplyResolvedGuide(Vector3 position, string name, float stop)
     {
         RememberWalkingPoint(position, name, stop, false);
         if (_resolvedNavigationObject is { } live)

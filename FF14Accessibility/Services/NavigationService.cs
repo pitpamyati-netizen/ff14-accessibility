@@ -3208,6 +3208,18 @@ public sealed class NavigationService
 
     private (uint Map, uint Objective, uint Base, byte Type, Vector3 Position)? _linkedObjectKey;
     private ulong _linkedObjectId;
+    private LocalTransfer? _localTransfer;
+    private QuestDestination? _transferQuest;
+    private ObjectDestination? _transferObject;
+    private PlaceDestination? _transferPlace;
+
+    internal void SetLocalTransfer(LocalTransfer? transfer)
+    {
+        _localTransfer = transfer;
+        _transferQuest = SelectedQuestDestination;
+        _transferObject = SelectedObjectDestination;
+        _transferPlace = SelectedPlaceDestination;
+    }
 
     private IGameObject? ResolveLinkedSelection(uint objective, uint baseId, byte type, Vector3 position)
     {
@@ -3220,13 +3232,26 @@ public sealed class NavigationService
 
     private IGameObject? ResolveSelectionObject()
     {
-        if (SelectedQuestDestination is { } questSelection && (questSelection.QuestId != 0 || questSelection.NativeMarkerId != 0)
+        if (SelectedQuestDestination is { } pendingQuest && (pendingQuest.QuestId != 0 || pendingQuest.NativeMarkerId != 0)
             && !_questObjectiveAvailable) return null;
+        if (_localTransfer is { } transfer)
+        {
+            var arrived = _objectTable.LocalPlayer is { } player
+                && transfer.HasArrived(player.Position);
+            if (_transferQuest != SelectedQuestDestination || _transferObject != SelectedObjectDestination
+                || _transferPlace != SelectedPlaceDestination || !_places.AreSameMap(transfer.MapId, _clientState.MapId) || arrived)
+                _localTransfer = null;
+            else return ResolveLinkedSelection(transfer.WarpId, transfer.BaseId, transfer.LevelType, transfer.Position);
+        }
         var questTravelGoal = GetSelectedQuestTravelGoal();
         // Retain the exact live browser pick; do not substitute a nearby enemy
         // or another nest with the same name.
         if (SelectedObjectDestination is { } selected)
             return SelectionObjectResolver.Exact(_objectTable, selected);
+
+        if (SelectedPlaceDestination is { IsZoneTransition: true } place
+            && _places.FindLocalEntranceOnRoute(place.TargetMapId) is { } placeEntrance)
+            return ResolveLinkedSelection(0, placeEntrance.BaseId, placeEntrance.LevelType, placeEntrance.Position);
 
         // Sammelstelle: exakt ueber die Basis-Id des Knotens plus Naehe - eine
         // Basis-Id deckt einen kleinen Schwarm einzelner Knoten ab.
@@ -3399,9 +3424,10 @@ public sealed class NavigationService
         }
         var candidate = ResolveSelectionObject() ?? _targetManager.Target ?? _targetManager.SoftTarget;
         // Missing explicit selections cannot fall back to the game's target.
-        if (SelectedObjectDestination is { } selected)
+        if (SelectedObjectDestination is { } selected && _localTransfer == null)
             candidate = SelectionObjectResolver.Exact(_objectTable, selected);
-        else if (SelectedQuestDestination != null || _selectedGatherSpot != null)
+        else if (SelectedQuestDestination != null || _selectedGatherSpot != null
+            || SelectedPlaceDestination is { IsZoneTransition: true } || _localTransfer != null)
             candidate = ResolveSelectionObject();
         var system = FFXIVClientStructs.FFXIV.Client.Game.Control.TargetSystem.Instance();
         var hardBefore = _targetManager.Target?.GameObjectId ?? 0;

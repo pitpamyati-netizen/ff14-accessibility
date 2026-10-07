@@ -8,6 +8,14 @@ namespace FF14Accessibility.Services;
 public sealed record InteriorEntrance(uint SourceMapId, uint TargetMapId, uint BaseId,
     byte LevelType, Vector3 Position);
 
+internal sealed record LocalTransfer(uint MapId, uint BaseId, byte LevelType,
+    Vector3 Position, Vector3 Arrival, uint WarpId)
+{
+    internal bool HasArrived(Vector3 player) => TravelLayout.Finite(player)
+        && Vector3.Distance(player, Arrival) <= 2f
+        && Vector3.Distance(player, Position) > AutoWalkService.StopRange + 0.3f;
+}
+
 /// <summary>
 /// Adds entrances absent from MapMarker. EObj -> Warp -> PopRange is an explicit
 /// game link; PopRange is the ARRIVAL and must never be used as the entrance.
@@ -19,6 +27,12 @@ public sealed record InteriorEntrance(uint SourceMapId, uint TargetMapId, uint B
 internal sealed class InteriorEntranceService(IDataManager data, IPluginLog log)
 {
     private List<InteriorEntrance>? _all;
+    private readonly List<LocalTransfer> _localTransfers = [];
+    internal IReadOnlyList<LocalTransfer> LocalTransfers(uint mapId)
+    {
+        ForMap(mapId);
+        return _localTransfers.Where(t => t.MapId == _mapIdentity.Canonical(mapId)).ToArray();
+    }
     public IReadOnlyList<InteriorEntrance> All => _all ??= Build();
     private readonly HashSet<uint> _layoutsRead = [];
     private readonly Dictionary<(byte Type, uint Id), List<Warp>> _objectWarps = [];
@@ -28,12 +42,7 @@ internal sealed class InteriorEntranceService(IDataManager data, IPluginLog log)
 
     internal bool HasWalkingBorder(uint sourceMap, uint targetMap)
     {
-        var sourceTerritory = data.GetExcelSheet<Map>().GetRowOrDefault(sourceMap)?.TerritoryType.RowId ?? 0;
-        var targetTerritory = data.GetExcelSheet<Map>().GetRowOrDefault(targetMap)?.TerritoryType.RowId ?? 0;
-        if (sourceTerritory == 0 || targetTerritory == 0) return false;
-        var layout = _travelLayout.ForTerritory(sourceTerritory);
-        return layout.Exits.Any(e => e.Territory == targetTerritory
-            && (layout.MapAt(e.Position) is var mapped && mapped != 0 ? mapped : SingleMap(sourceTerritory)) == sourceMap);
+        return _travelLayout.WalkingBorders(sourceMap).Any(b => b.TargetMap == _mapIdentity.Canonical(targetMap));
     }
 
     private uint SingleMap(uint territoryId)
@@ -183,6 +192,15 @@ internal sealed class InteriorEntranceService(IDataManager data, IPluginLog log)
         // unambiguous: never guess a floor in a multi-map territory.
         if (targetMap == 0) return;
         targetMap = _mapIdentity.Canonical(targetMap);
+        // A gate can move the player to the other side of a wall on the SAME
+        // map. It is an interaction step, not a graph loop or a walking bridge.
+        if (mapId == targetMap && type is 8 or 45 && baseId != 0
+            && TravelLayout.Finite(position) && Vector3.Distance(position, arrivalPosition) > 3f)
+        {
+            var transfer = new LocalTransfer(mapId, baseId, type, position, arrivalPosition, warp.RowId);
+            if (!_localTransfers.Contains(transfer)) _localTransfers.Add(transfer);
+            return;
+        }
         var entrance = Validate(mapId, territory, type, baseId, position, warp.TerritoryType.RowId,
             targetMap, warp.TerritoryType.RowId,
             data.GetExcelSheet<Map>().GetRowOrDefault(mapId)?.TerritoryType.RowId ?? 0,

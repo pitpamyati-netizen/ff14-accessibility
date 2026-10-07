@@ -14,6 +14,36 @@ namespace Regression.Tests;
 
 public sealed class SelectionObjectResolverTests
 {
+    [Fact]
+    public void IntermediateTransferSelectsItsExactActorAndExpiresWhenTheSelectionChanges()
+    {
+        var actor = Object(11, new(10, 40, 20));
+        var (plugin, navigation) = PluginWithObjects([actor, Object(12, new(30, 40, 20))]);
+        var selected = new ObjectDestination(12, "goal", new(30, 40, 20), ObjectKind.EventNpc, 100);
+        typeof(NavigationService).GetProperty("SelectedObjectDestination")!.SetValue(navigation, selected);
+        Field(navigation, "_places", RuntimeHelpers.GetUninitializedObject(typeof(PlacesService)));
+        Field(navigation, "_objectTable", typeof(Plugin).GetProperty("ObjectTable", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(plugin)!);
+        Field(navigation, "_clientState", QuestAreaPointTests.Proxy.Of<IClientState>((m, _) => m.Name switch
+        { "get_MapId" => 11u, "get_TerritoryType" => 128u, _ => throw new NotSupportedException(m.Name) }));
+        navigation.SetLocalTransfer(new(11, 100, 8, actor.Position, new(40, 40, 20), 131128));
+        Assert.Same(actor, navigation.GetSelectedNavigationObject());
+        typeof(NavigationService).GetProperty("SelectedObjectDestination")!.SetValue(navigation, null);
+        Assert.Null(navigation.GetSelectedNavigationObject());
+    }
+
+    [Fact]
+    public void MissingIntermediateTransferActorDoesNotFallBackToTheFinalObject()
+    {
+        var (plugin, navigation) = PluginWithObjects([Object(12, new(30, 40, 20))]);
+        var selected = new ObjectDestination(12, "goal", new(30, 40, 20), ObjectKind.EventNpc, 100);
+        typeof(NavigationService).GetProperty("SelectedObjectDestination")!.SetValue(navigation, selected);
+        Field(navigation, "_places", RuntimeHelpers.GetUninitializedObject(typeof(PlacesService)));
+        Field(navigation, "_objectTable", typeof(Plugin).GetProperty("ObjectTable", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(plugin)!);
+        Field(navigation, "_clientState", QuestAreaPointTests.Proxy.Of<IClientState>((m, _) => m.Name switch
+        { "get_MapId" => 11u, _ => throw new NotSupportedException(m.Name) }));
+        navigation.SetLocalTransfer(new(11, 100, 8, new(10, 40, 20), new(40, 40, 20), 131128));
+        Assert.Null(navigation.GetSelectedNavigationObject());
+    }
     [Theory]
     [InlineData(1, 2)]
     [InlineData(-1, 0)]
@@ -169,6 +199,26 @@ public sealed class SelectionObjectResolverTests
         // Any actual retarget would call unset movement dependencies and fail.
         typeof(Plugin).GetMethod("PollWalkingObject", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(plugin, null);
         Assert.True((bool)typeof(Plugin).GetField("_needsObjectTracking", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(plugin)!);
+    }
+
+    [Fact]
+    public void ObjectReadoutDuringLocalTransferUsesItsAttendantRatherThanTheFinalNpc()
+    {
+        var attendant = Object(22, new(10, 40, 20));
+        var (plugin, nav) = PluginWithObjects([Object(11, new(30, 40, 20)), attendant]);
+        var goal = new ObjectDestination(11, "Final NPC", new(30, 40, 20), ObjectKind.EventNpc, 100);
+        typeof(NavigationService).GetProperty("SelectedObjectDestination")!.SetValue(nav, goal);
+        Field(plugin, "_walkingBrowserSelection", goal);
+        Field(plugin, "_walkingObjectMap", 11u); Field(plugin, "_walkingObjectTerritory", 128u);
+        Field(plugin, "_walkingPoint", (new Vector3(10, 40, 20), "Attendant", 2.5f, false));
+        Field(plugin, "_walkingTransfer", new LocalTransfer(11, 100, 8, new(10, 40, 20), new(20, 40, 20), 131128));
+        Field(plugin, "_walkingObject", new ObjectDestination(22, "Attendant", new(10, 40, 20), ObjectKind.EventNpc, 100));
+        var client = QuestAreaPointTests.Proxy.Of<IClientState>((m, _) => m.Name switch
+        { "get_MapId" => 11u, "get_TerritoryType" => 128u, _ => throw new NotSupportedException(m.Name) });
+        typeof(Plugin).GetProperty("ClientState", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(plugin, client);
+        object?[] args = [Vector3.Zero, "", 0f, false, false, true];
+        typeof(Plugin).GetMethod("TryResolveSelectedDestination", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(plugin, args);
+        Assert.Equal(attendant.Position, (Vector3)args[0]!); Assert.Equal("Attendant", args[1]);
     }
 
     internal static (Plugin Plugin, NavigationService Navigation) PluginWithObjects(IGameObject[] objects)

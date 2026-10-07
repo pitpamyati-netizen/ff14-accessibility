@@ -10,9 +10,13 @@ public sealed class TravelLayoutTests
     public void ExitRangeKeepsItsEntireVolumeAndDestination()
     {
         var bytes = ExitLayout();
+        Write(bytes, 64, 500);
+        Write(bytes, 132, 4164414);
         var parsed = TravelLayout.Read(bytes);
         var border = Assert.Single(parsed.Borders);
         Assert.Equal(135u, border.Destination);
+        Assert.Equal(500u, border.InstanceId);
+        Assert.Equal(4164414u, border.ArrivalId);
         Assert.Equal(new Vector3(218.7f, 99.8f, 285.5f), border.Centre);
         Assert.Equal(new Vector3(8.3f, 35.7f, 9f), border.HalfExtent);
         Assert.True(border.Contains(new(211, 71.75f, 278)));

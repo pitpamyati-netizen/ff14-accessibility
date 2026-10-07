@@ -11,7 +11,7 @@ using FF14Accessibility.Services;
 using Lumina;
 using Lumina.Excel.Sheets;
 
-if (args.Length != 2) throw new ArgumentException("CrossZoneCheck <game/sqpack> <report.json>");
+if (args.Length is < 2 or > 3) throw new ArgumentException("CrossZoneCheck <game/sqpack> <report.json> [coverage.md]");
 using var game = new GameData(args[0]);
 var data = new GameDataReader(game);
 var log = DispatchProxy.Create<IPluginLog, QuietLog>();
@@ -125,6 +125,7 @@ var player = GateProxy.Of<IPlayerCharacter>((m, _) => m.Name == "get_Position" ?
 typeof(Plugin).GetProperty("ObjectTable", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(plugin,
     GateProxy.Of<IObjectTable>((m, _) => m.Name == "get_LocalPlayer" ? player : throw new NotSupportedException(m.Name)));
 Set(plugin, "_navigation", navigation); Set(plugin, "_autoWalk", walk);
+Set(plugin, "_places", places);
 Set(plugin, "_zoneBorders", new ZoneBorderService(data, client, log));
 Set(plugin, "_config", new Configuration());
 var resolve = typeof(Plugin).GetMethod("TryResolveSelectedDestination", BindingFlags.Instance | BindingFlags.NonPublic)!;
@@ -214,6 +215,18 @@ foreach (var map in data.GetExcelSheet<Map>())
     checkedMaps++;
 }
 var allEntrances = service.All.ToArray();
+var allTransfers = data.GetExcelSheet<Map>().Where(m => m.RowId != 0 && m.TerritoryType.RowId != 0)
+    .SelectMany(m => service.LocalTransfers(m.RowId)).Distinct().ToArray();
+var airportGate = allTransfers.Single(t => t.MapId == 70 && t.BaseId == 1004434 && t.WarpId == 131128);
+Check(airportGate.Position != airportGate.Arrival, "Airport gate lost its separate arrival side.");
+state.Map = 13; state.Territory = 130;
+var uldahUpper = places.FindFirstHopToMap(73, out var upperHops);
+Check(uldahUpper is { IsZoneTransition: false, TargetMapId: 73 }
+    && places.FindLocalEntranceOnRoute(73) is { BaseId: 1001834 },
+    "Ul'dah upper floor must use the exact lift, not a border arriving on map14.");
+Check(travelLayouts.WalkingBorders(13).Any(b => b.TargetMap == 14)
+    && !travelLayouts.WalkingBorders(13).Any(b => b.TargetMap == 73)
+    && travelLayouts.WalkingBorders(70).Count == 0, "Walking exit arrival/source floor mismatch.");
 stopwatch.Stop();
 Check(allEntrances.Any(e => e.SourceMapId == 28 && e.BaseId == 2000087), "Full layout scan lost the inn door.");
 foreach (var group in allEntrances.GroupBy(e => e.SourceMapId))
@@ -267,6 +280,42 @@ var withDutyFinder = unreachable.Except(withTeleport).Except(withDuty).Where(id 
     data.GetExcelSheet<InstanceContent>().Count(i => i.ContentFinderCondition.ValueNullable?.TerritoryType.RowId == places.GetTerritoryOfMap(id)) == 1).ToArray();
 var stillUnmapped = unreachable.Except(withTeleport).Except(withDuty).Except(withDutyFinder).Select(id => new { Map = id,
     Territory = places.GetTerritoryOfMap(id), Name = places.GetMapName(id) }).ToArray();
+// Preserve every unresolved destination with its actual client-side evidence.
+// Warp arrivals are known values, but are not an invented source actor/link.
+var unresolvedEvidence = stillUnmapped.Select(m =>
+{
+    var canonical = places.CanonicalMap(m.Map);
+    var arrivals = data.GetExcelSheet<Warp>().Where(w => w.TerritoryType.RowId == m.Territory
+        && travelLayouts.ArrivalMap(m.Territory, w.PopRange.RowId) == canonical)
+        .Select(w => new { Warp = w.RowId, PopRange = w.PopRange.RowId }).ToArray();
+    var incoming = allEntrances.Where(e => e.TargetMapId == canonical).ToArray();
+    var instances = data.GetExcelSheet<InstanceContent>()
+        .Where(i => i.ContentFinderCondition.ValueNullable?.TerritoryType.RowId == m.Territory)
+        .Select(i => i.RowId).ToArray();
+    var physical = targetLevels.Where(l => l.Map.RowId == m.Map)
+        .Select(l => places.CanonicalMap(travelLayouts.ForTerritory(m.Territory)
+            .ResolveMap(new(l.X, l.Y, l.Z), l.Map.RowId))).Distinct().Order().ToArray();
+    var reason = m.Territory == 1 ? "Обзорная карта; не физическое место входа"
+        : incoming.Length > 0 ? "Есть вход внутри отдельной цепочки; внешняя связь не подтверждена"
+        : instances.Length > 1 ? "Несколько записей испытания; текущая доступная запись не установлена"
+        : arrivals.Length > 0 ? "Прибытие известно; исходный NPC/объект или сценарная связь не подтверждены"
+        : "Клиентская связь входа Warp отсутствует; нужен действующий сценарий игры";
+    return new { m.Map, CanonicalMap = canonical, m.Territory, m.Name, PhysicalMaps = physical,
+        Arrivals = arrivals, IncomingEntrances = incoming, InstanceContents = instances, Reason = reason };
+}).ToArray();
+var coverageDoc = new System.Text.StringBuilder("# Неподтверждённые входы навигации\n\n"
+    + "Таблица воспроизводится `tools/cross-zone-check` из установленных игровых таблиц и файлов зон. "
+    + "Номера Warp/PopRange ниже являются точными значениями прибытия. Они не доказывают исходный вход, "
+    + "доступность транспорта, текущий этап задания или работающий путь. Повторные строки одной карты сохранены для сверки; "
+    + "это не число сломанных квестов. Плагин не угадывает недостающие связи.\n\n"
+    + "В версии 6.08.114 дополнительно восстановлены 82 перемещения NPC/объектами внутри одной физической карты "
+    + "и точные исходные/конечные этажи 125 пеших объёмов. Следующие строки ещё требуют живых сведений.\n\n"
+    + "| Карта (физическая) | Территория | Название | Warp → PopRange | Что ещё неизвестно |\n"
+    + "| --- | --- | --- | --- | --- |\n");
+foreach (var item in unresolvedEvidence)
+    coverageDoc.AppendLine($"| {item.Map} ({item.CanonicalMap}) | {item.Territory} | {item.Name.Replace("|", "/")} | "
+        + $"{(item.Arrivals.Length == 0 ? "не задан" : string.Join(", ", item.Arrivals.Select(a => $"{a.Warp} → {a.PopRange}")))} | {item.Reason} |");
+if (args.Length >= 3) File.WriteAllText(args[2], coverageDoc.ToString());
 // Check route materialization from EVERY source row, including physical-map
 // aliases, rather than only one starting city. A graph edge is not useful if
 // the first local action cannot be selected, or the next leg makes no progress.
@@ -312,6 +361,7 @@ File.WriteAllText(args[1], JsonSerializer.Serialize(new { Passed = allRoutesPass
     Entrances = allEntrances.Length, SourceMaps = checkedSources, MapsScanned = checkedMaps,
     FullScanMs = stopwatch.ElapsedMilliseconds, RecordedQuests = new[] { 65983, 65985, 66043, 65640, 65646 },
     Guard = guard, LotusGuard = lotusGuard, InnDoor = innDoor, AllEntrances = allEntrances,
+    LocalTransfers = allTransfers, RecordedAirportGate = airportGate, RecordedUldahUpperLift = uldahUpper,
     BorderVolumes = borderVolumes, TallBorderVolumes = tallBorders,
     RecordedLaNosceaBorder = laNosceaBorder, RecordedLaNosceaDestination = recordedBorder.Position,
     LoggedMeshEdgeSimulated = true, SharedBorderResolverChecked = true,
@@ -325,6 +375,7 @@ File.WriteAllText(args[1], JsonSerializer.Serialize(new { Passed = allRoutesPass
     AdditionalMapsViaVerifiedDutyEntrance = withDuty.Length,
     AdditionalMapsWithUniqueDutyFinder = withDutyFinder.Length, DutyFinderActuallyUnlockedChecked = false,
     UnmappedQuestActorMaps = stillUnmapped, TeleportsActuallyUnlockedChecked = false,
+    UnmappedEvidence = unresolvedEvidence,
     AllMapRouteSourceRows = mapRows.Length, AllMapReachableRoutePairs = routePairs, AllMapLocalActionFailures = routeFailures,
     AlternateMapExit = alternateMapExit, AllGameNavigationVerified = false,
     NativeFfxivChecked = false }, new JsonSerializerOptions { WriteIndented = true, IncludeFields = true }));

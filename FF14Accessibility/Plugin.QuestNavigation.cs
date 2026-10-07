@@ -13,6 +13,15 @@ public sealed partial class Plugin
     {
         _resolvedNavigationObject = null;
         _resolvedCanTrackObject = false;
+        _resolvedWalkingMap = 0;
+        if (!readout) { _navigation.SetLocalTransfer(null); _walkingTransfer = null; }
+        if (readout && _walkingTransfer != null && CurrentWalkingSelection && _walkingPoint is { } localStep)
+        {
+            position = _walkingObject is { } actor && SelectionObjectResolver.Exact(ObjectTable, actor) is { } liveActor
+                ? liveActor.Position : localStep.Position;
+            name = localStep.Name; stopRange = localStep.Stop; heightIsGuess = false; isZoneTransition = false;
+            return MarkerResolve.Resolved;
+        }
         if (_navigation.SelectedObjectDestination is { Kind: not Dalamud.Game.ClientState.Objects.Enums.ObjectKind.None } selected)
         {
             position = default; name = selected.Name; stopRange = AutoWalkService.StopRange;
@@ -56,7 +65,28 @@ public sealed partial class Plugin
         {
             position = default; name = place.Name; stopRange = _config.AutoWalkTransitionStopRange;
             heightIsGuess = true; isZoneTransition = false;
-            var border = ResolveWalkingBorder(place.TargetMapId, place.Position);
+            var hop = _places.FindFirstHopToMap(place.TargetMapId, out _);
+            if (hop == null)
+            {
+                _tolk.SpeakInterrupt(AccessibilityStrings.NavigationPathUnavailable(name));
+                return MarkerResolve.Failed;
+            }
+            name = hop.Name;
+            if (_places.FindLocalEntranceOnRoute(place.TargetMapId) is { } entrance)
+            {
+                _resolvedCanTrackObject = true;
+                _resolvedNavigationObject = _navigation.GetSelectedNavigationObject();
+                var entrancePoint = _resolvedNavigationObject?.Position ?? entrance.Position;
+                var floor = SelectionObjectResolver.Approach(entrancePoint, _autoWalk.ProbeReachable);
+                if (floor == null)
+                {
+                    _tolk.SpeakInterrupt(AccessibilityStrings.NoWalkablePointAt(name));
+                    return MarkerResolve.Failed;
+                }
+                position = floor.Value; stopRange = AutoWalkService.StopRange; heightIsGuess = false;
+                return MarkerResolve.Resolved;
+            }
+            var border = ResolveWalkingBorder(hop.TargetMapId, hop.Position);
             if (border.HasBorder)
             {
                 if (border.Position is not { } target)
@@ -64,9 +94,11 @@ public sealed partial class Plugin
                     _tolk.SpeakInterrupt(AccessibilityStrings.NoWalkablePointNear(name));
                     return MarkerResolve.Failed;
                 }
-                position = target; isZoneTransition = true;
+                position = target; isZoneTransition = true; _resolvedWalkingMap = hop.TargetMapId;
                 return MarkerResolve.Resolved;
             }
+            _tolk.SpeakInterrupt(AccessibilityStrings.NavigationPathUnavailable(name));
+            return MarkerResolve.Failed;
         }
         if (_navigation.SelectedQuestDestination is not { } selection
             || selection.QuestId == 0 && selection.NativeMarkerId == 0 && !QuestAreaPoint.IsSearchArea(selection))
@@ -127,6 +159,7 @@ public sealed partial class Plugin
                         return MarkerResolve.Failed;
                     }
                     position = target;
+                    _resolvedWalkingMap = plan.NextMapId;
                     return MarkerResolve.Resolved;
                 }
                 isZoneTransition = false;
@@ -218,6 +251,7 @@ public sealed partial class Plugin
             || current?.Position != previous.Position || current?.TargetBaseId != previous.TargetBaseId
             || current?.TargetLevelType != previous.TargetLevelType)
         {
+            CancelNavigationCheck();
             _autoWalk.StopQuiet();
             _navigation.StopWalkGuideQuiet();
             _transitions.Stop(silent: true);

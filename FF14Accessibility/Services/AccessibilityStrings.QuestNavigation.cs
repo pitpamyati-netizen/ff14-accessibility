@@ -2,6 +2,14 @@ namespace FF14Accessibility.Services;
 
 public static partial class AccessibilityStrings
 {
+    public static string NavigationPathUnavailable(string name) => L(
+        $"{name}: kein vollständiger Weg. Ein Durchgang oder Transport kann erforderlich sein. Prüfe den Zugang im Spiel.",
+        $"{name}: no complete path. A passage or transport may be required. Check access in game.",
+        $"К «{name}» нет полного пути. Возможно, требуется открыть проход или воспользоваться транспортом. Проверь доступ в игре.");
+    public static string LocalTransferRoute(string goal, string actor) => L(
+        $"Zu {goal} zuerst über {actor}. Numpad 0 öffnet den Dialog. Bestätige den Durchgang im Spiel, dann Numpad 3.",
+        $"To reach {goal}, first use {actor}. Numpad 0 opens the dialog. Confirm passage in game, then press Numpad 3.",
+        $"Чтобы добраться к «{goal}», сначала подойди к «{actor}». Num0 открывает разговор. Подтверди проход в игре, затем нажми Num3.");
     public static string WalkingTransitionConfirm(string name) => L(
         $"{name}: zu Fuß durch den Übergang. Numpad 3 führt weiter; hier gibt es keinen Dialog.",
         $"{name}: walk through the transition. Numpad 3 continues; there is no dialog here.",
