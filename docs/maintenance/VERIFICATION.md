@@ -44,7 +44,17 @@
   802D6AC281C8905B90163DC53F911B61E23F6E5BAFA66207E14BA67E5EBF6AEB;
   DLL SHA-256 8BB1009B4B06417605A27496D8BCE5CD3155DA2F4BA4DC9AA007F0D538082095.
   Все записи ZIP сверены с подготовленной папкой; исходников в нём нет.
-- Публикация пока не выполнена; её результат будет записан после проверки.
+- Коммит c0ced93ec553f77990cd672b6bcbee59013a3efe отправлен в
+  origin/feature/russian-accessibility-recovery. Publish-Release -CheckOnly
+  прошла, затем создан v6.08.114, ID405721167, Latest,
+  draft=false/prerelease=false. Текст, метка и назначение совпали.
+- Все четыре файла скачаны обратно: размеры, digest GitHub и SHA-256
+  совпали с подготовленными файлами, четыре строки SHA256SUMS сверены.
+  Все 141 запись игрового ZIP и 36 записей исходников установщика совпали
+  с текущими файлами проекта. EXE имеет версию 1.3.0.0. Настоящий
+  ReleaseClient.Latest выбрал 6.08.114 и соответствующий ZIP.
+  Отчёт: artifacts/publication/20261007-190932-756/round-trip/verification.json;
+  ActualReleaseClientVerified=true, InGameVerified=false.
 
 ## Поворот переходов и точное сопровождение объектов — 6.08.113, 7 октября 2026
 
