@@ -30,6 +30,7 @@ internal sealed class TravelLayoutData
     internal Dictionary<uint, Vector3> Arrivals { get; } = [];
     internal List<TravelMapRange> Maps { get; } = [];
     internal List<(uint Territory, Vector3 Position)> Exits { get; } = [];
+    internal List<TravelBorder> Borders { get; } = [];
 
     internal uint MapAt(Vector3 point)
     {
@@ -72,6 +73,7 @@ internal sealed class TravelLayout(IDataManager data, IPluginLog log)
             result.Maps.AddRange(parsed.Maps.Where(m => data.GetExcelSheet<Map>().GetRowOrDefault(m.MapId)?.TerritoryType.RowId == id)
                 .Select(m => m with { MapId = _mapIdentity.Canonical(m.MapId) }));
             result.Exits.AddRange(parsed.Exits);
+            result.Borders.AddRange(parsed.Borders);
             foreach (var pair in parsed.Arrivals) result.Arrivals.TryAdd(pair.Key, pair.Value);
         }
         return result;
@@ -111,7 +113,16 @@ internal sealed class TravelLayout(IDataManager data, IPluginLog log)
                     {
                         Bounds(obj, 1, 88);
                         if (bytes[obj + 54] != 0)
+                        {
                             result.Exits.Add((BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(obj + 66, 2)), pos));
+                            var rot = V(obj + 24);
+                            var scale = V(obj + 36);
+                            var target = BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(obj + 66, 2));
+                            if (I(obj + 48) == 1 && target != 0 && Finite(rot) && Finite(scale)
+                                && MathF.Abs(rot.X) < 0.0001f && MathF.Abs(rot.Z) < 0.0001f
+                                && scale.X > 0 && scale.Y > 0 && scale.Z > 0)
+                                result.Borders.Add(new(pos, scale, rot.Y, target));
+                        }
                     }
                     else if (type == 43)
                     {

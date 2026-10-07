@@ -1,4 +1,9 @@
 using System.Reflection;
+using System.Numerics;
+using System.Runtime.CompilerServices;
+using Dalamud.Game.ClientState.Objects.SubKinds;
+using Dalamud.Game.ClientState.Objects.Types;
+using Dalamud.Plugin.Ipc;
 using System.Text.Json;
 using Dalamud.Plugin.Services;
 using FF14Accessibility;
@@ -78,6 +83,63 @@ var landingRange = new TravelLayout(data, log).ForTerritory(128);
 Check(landingRange.MapAt(new(-12.6917f, 91.4999f, -7.60297f)) == 74,
     "Airship PopRange's old map11 must be corrected by the actual landing range.");
 Check(landingRange.Arrivals.ContainsKey(4158063), "Lift arrival missing from Level must be obtained from layout.");
+// Real tall ExitRange from the reported 2026-10-07 failure. Mesh replies below
+// are simulated from the logged edge, not a live vnavmesh query.
+var travelLayouts = new TravelLayout(data, log);
+var laNosceaBorder = travelLayouts.ForTerritory(134).Borders.Single(b => b.Destination == 135);
+var loggedEdge = new Vector3(207, 71.75f, 275);
+var loggedPlayer = new Vector3(207.14691f, 71.745f, 274.9847f);
+Vector3? LoggedMesh(Vector3 p, float xz, float y) => MathF.Abs(p.X - loggedEdge.X) <= xz
+    && MathF.Abs(p.Z - loggedEdge.Z) <= xz && MathF.Abs(p.Y - loggedEdge.Y) <= y ? loggedEdge : null;
+var recordedBorder = ZoneBorderService.Resolve([laNosceaBorder], loggedPlayer, LoggedMesh);
+Check(recordedBorder.Position is { } goal && laNosceaBorder.Contains(goal)
+    && MathF.Abs(goal.Y - loggedEdge.Y) < 0.01f && Vector3.Distance(goal, loggedEdge) <= 5.5f,
+    "Reported Middle -> Lower La Noscea border must retain road height and a bounded final approach.");
+state.Territory = 134;
+state.Map = data.GetExcelSheet<Map>().First(m => m.TerritoryType.RowId == 134).RowId;
+var lowerMap = data.GetExcelSheet<Map>().First(m => m.TerritoryType.RowId == 135).RowId;
+var selectedBorder = new PlaceDestination("Переход в Нижняя Ла-Носкея", "Переход", new(208, 0, 288), true, lowerMap);
+// Exercise the actual shared resolver used by both movement modes and preview.
+// Generic snapping returns the logged bad point: it must not be used.
+var plugin = (Plugin)RuntimeHelpers.GetUninitializedObject(typeof(Plugin));
+var navigation = (NavigationService)RuntimeHelpers.GetUninitializedObject(typeof(NavigationService));
+typeof(NavigationService).GetProperty("SelectedPlaceDestination")!.SetValue(navigation, selectedBorder);
+var nav = (NavmeshIpc)RuntimeHelpers.GetUninitializedObject(typeof(NavmeshIpc));
+var walk = (AutoWalkService)RuntimeHelpers.GetUninitializedObject(typeof(AutoWalkService));
+void Set(object instance, string field, object value) => instance.GetType().GetField(field, BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(instance, value);
+Set(nav, "_log", log);
+Set(nav, "_isReady", GateProxy.Of<ICallGateSubscriber<bool>>((_, _) => true));
+Set(nav, "_nearestPointReachable", GateProxy.Of<ICallGateSubscriber<Vector3, float, float, Vector3?>>((_, a) =>
+    (float)a![1]! <= 6 ? LoggedMesh((Vector3)a[0]!, (float)a[1]!, (float)a[2]!) : new Vector3(209.70435f, 91.5f, 278.70197f)));
+Set(walk, "_nav", nav); Set(walk, "_log", log);
+var player = GateProxy.Of<IPlayerCharacter>((m, _) => m.Name == "get_Position" ? loggedPlayer : throw new NotSupportedException(m.Name));
+typeof(Plugin).GetProperty("ObjectTable", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(plugin,
+    GateProxy.Of<IObjectTable>((m, _) => m.Name == "get_LocalPlayer" ? player : throw new NotSupportedException(m.Name)));
+Set(plugin, "_navigation", navigation); Set(plugin, "_autoWalk", walk);
+Set(plugin, "_zoneBorders", new ZoneBorderService(data, client, log));
+Set(plugin, "_config", new Configuration());
+var resolve = typeof(Plugin).GetMethod("TryResolveSelectedDestination", BindingFlags.Instance | BindingFlags.NonPublic)!;
+for (var attempt = 0; attempt < 3; attempt++)
+{
+    object?[] parameters = [default(Vector3), "", 0f, false, false, false];
+    Check(resolve.Invoke(plugin, parameters)!.ToString() == "Resolved", "Shared border resolver refused logged road.");
+    Check((Vector3)parameters[0]! == recordedBorder.Position && (bool)parameters[4]!,
+        "Border destination was broadly snapped outside the trigger after validation.");
+}
+var borderVolumes = 0;
+var tallBorders = 0;
+foreach (var territoryId in data.GetExcelSheet<Map>().Select(m => m.TerritoryType.RowId).Where(id => id != 0).Distinct())
+foreach (var border in travelLayouts.ForTerritory(territoryId).Borders)
+{
+    borderVolumes++;
+    if (border.HalfExtent.Y > 10) tallBorders++;
+    foreach (var height in new[] { -border.HalfExtent.Y + 0.1f, 0f, border.HalfExtent.Y - 0.1f })
+    {
+        var from = border.World(new(-border.HalfExtent.X - 10, height, 0));
+        Check(ZoneBorderService.Candidates(border, from).All(border.Contains), "Border candidates escaped their real volume.");
+    }
+}
+Console.WriteLine($"Border audit: {borderVolumes} box volumes ({tallBorders} tall); recorded goal {recordedBorder.Position}; shared movement resolver passed. Mesh simulation, no live movement.");
 Console.WriteLine($"Recorded travel: {airship?.Name} (NPC {airshipNpc?.BaseId}); {rogueHops} legs to guild; landing next: {lift?.Name}; guild NPC {guild?.BaseId}.");
 var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 var checkedMaps = 0;
@@ -150,6 +212,9 @@ File.WriteAllText(args[1], JsonSerializer.Serialize(new { Passed = true, Checks 
     Entrances = allEntrances.Length, SourceMaps = checkedSources, MapsScanned = checkedMaps,
     FullScanMs = stopwatch.ElapsedMilliseconds, RecordedQuests = new[] { 65983, 65985, 66043, 65640 },
     Guard = guard, LotusGuard = lotusGuard, InnDoor = innDoor, AllEntrances = allEntrances,
+    BorderVolumes = borderVolumes, TallBorderVolumes = tallBorders,
+    RecordedLaNosceaBorder = laNosceaBorder, RecordedLaNosceaDestination = recordedBorder.Position,
+    LoggedMeshEdgeSimulated = true, SharedBorderResolverChecked = true,
     QuestActorLevels = targetLevels.Length, QuestActorMaps = targetMaps.Length,
     ReachableQuestActorMapsFromGridania = targetMaps.Length - unreachable.Length,
     AdditionalMapsWithPossibleTeleport = withTeleport.Length,
@@ -170,4 +235,14 @@ public class ZoneState : DispatchProxy
     public ushort Territory;
     protected override object? Invoke(MethodInfo? method, object?[]? args) => method!.Name switch
     { "get_MapId" => Map, "get_TerritoryType" => Territory, _ => throw new NotSupportedException(method.Name) };
+}
+
+public class GateProxy : DispatchProxy
+{
+    private Func<MethodInfo, object?[]?, object?> _call = null!;
+    public static T Of<T>(Func<MethodInfo, object?[]?, object?> call) where T : class
+    {
+        var value = Create<T, GateProxy>(); ((GateProxy)(object)value)._call = call; return value;
+    }
+    protected override object? Invoke(MethodInfo? method, object?[]? args) => _call(method!, args);
 }

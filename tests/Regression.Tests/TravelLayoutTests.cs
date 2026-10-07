@@ -7,6 +7,44 @@ namespace Regression.Tests;
 public sealed class TravelLayoutTests
 {
     [Fact]
+    public void ExitRangeKeepsItsEntireVolumeAndDestination()
+    {
+        var bytes = ExitLayout();
+        var parsed = TravelLayout.Read(bytes);
+        var border = Assert.Single(parsed.Borders);
+        Assert.Equal(135u, border.Destination);
+        Assert.Equal(new Vector3(218.7f, 99.8f, 285.5f), border.Centre);
+        Assert.Equal(new Vector3(8.3f, 35.7f, 9f), border.HalfExtent);
+        Assert.True(border.Contains(new(211, 71.75f, 278)));
+        Assert.Single(parsed.Exits);
+    }
+
+    [Theory]
+    [InlineData(114, 0)] // disabled
+    [InlineData(108, 2)] // sphere is not a box
+    [InlineData(126, 0)] // missing destination
+    [InlineData(96, 0)] // zero X extent
+    [InlineData(84, 1065353216)] // tilted X rotation
+    public void UnsupportedExitVolumesCannotBecomeWalkingTargets(int offset, int value)
+    {
+        var bytes = ExitLayout(); Write(bytes, offset, value);
+        Assert.Empty(TravelLayout.Read(bytes).Borders);
+    }
+
+    [Fact]
+    public void CorruptExitFileDoesNotLeakAVolume()
+        => Assert.Empty(TravelLayout.Read(ExitLayout()[..140]).Borders);
+
+    private static byte[] ExitLayout()
+    {
+        var bytes = Layout(); Write(bytes, 60, 41); Write(bytes, 108, 1);
+        Float(bytes, 72, 218.7f); Float(bytes, 76, 99.8f); Float(bytes, 80, 285.5f);
+        Float(bytes, 96, 8.3f); Float(bytes, 100, 35.7f); Float(bytes, 104, 9f);
+        BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(126, 2), 135);
+        return bytes;
+    }
+
+    [Fact]
     public void MapRangeProvidesActualFloorInsteadOfOldArrivalMap()
     {
         var parsed = TravelLayout.Read(Layout());

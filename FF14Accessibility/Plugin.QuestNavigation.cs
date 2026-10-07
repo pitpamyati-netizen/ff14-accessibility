@@ -10,6 +10,23 @@ public sealed partial class Plugin
     private MarkerResolve TryResolveSelectedDestination(out Vector3 position, out string name,
         out float stopRange, out bool heightIsGuess, out bool isZoneTransition, bool readout = false)
     {
+        if (!readout && _navigation.SelectedQuestDestination == null
+            && _navigation.SelectedPlaceDestination is { IsZoneTransition: true } place)
+        {
+            position = default; name = place.Name; stopRange = _config.AutoWalkTransitionStopRange;
+            heightIsGuess = true; isZoneTransition = false;
+            var border = ResolveWalkingBorder(place.TargetMapId, place.Position);
+            if (border.HasBorder)
+            {
+                if (border.Position is not { } target)
+                {
+                    _tolk.SpeakInterrupt(AccessibilityStrings.NoWalkablePointNear(name));
+                    return MarkerResolve.Failed;
+                }
+                position = target; isZoneTransition = true;
+                return MarkerResolve.Resolved;
+            }
+        }
         if (_navigation.SelectedQuestDestination is not { } selection
             || selection.QuestId == 0 && selection.NativeMarkerId == 0)
             return readout
@@ -48,10 +65,18 @@ public sealed partial class Plugin
         {
             if (plan.IsBorder)
             {
-                var border = _zoneBorders.FindBorderPoint(plan.NextMapId, ObjectTable.LocalPlayer?.Position ?? point,
-                    _autoWalk.ProbeReachable);
-                isZoneTransition = border != null;
-                point = border ?? point;
+                var border = ResolveWalkingBorder(plan.NextMapId, point);
+                if (border.HasBorder)
+                {
+                    if (border.Position is not { } target)
+                    {
+                        _tolk.SpeakInterrupt(AccessibilityStrings.NoWalkablePointNear(name));
+                        return MarkerResolve.Failed;
+                    }
+                    position = target;
+                    return MarkerResolve.Resolved;
+                }
+                isZoneTransition = false;
             }
             var floor = _autoWalk.ResolveReachablePoint(point) ?? _autoWalk.ResolveFloorPoint(point);
             if (floor == null)
@@ -70,6 +95,13 @@ public sealed partial class Plugin
         }
         position = point;
         return MarkerResolve.Resolved;
+    }
+
+    private BorderResolution ResolveWalkingBorder(uint map, Vector3 fallback)
+    {
+        var from = ObjectTable.LocalPlayer?.Position ?? fallback;
+        return _zoneBorders.Resolve(map, from, _autoWalk.ProbeReachable, _autoWalk.ResolveFloorPoint,
+            goal => _bridges.FindCrossing(from, goal, out _, out _) != null);
     }
 
     private unsafe QuestTeleportChoice? FindQuestTeleport(QuestDestination quest)

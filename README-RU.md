@@ -1,5 +1,9 @@
 # FF14 Accessibility — сборка и разработка русской версии
 
+Версия 6.08.110 исправляет высоту и положение точки пешего перехода
+для ручного наведения и автоматического движения. Проверка в игре
+пока не выполнена; результаты описаны в [проверках](docs/maintenance/VERIFICATION.md).
+
 [Главная страница и установка](README.md) ·
 [Скачать релиз](https://github.com/pitpamyati-netizen/ff14-accessibility/releases/latest) ·
 [Порядок выпуска новых версий](docs/maintenance/RELEASES.md)
