@@ -215,7 +215,11 @@ public sealed class PlacesService
     private List<PlaceDestination> GetPlaces(bool includeFlag)
     {
         var result = new List<PlaceDestination>();
-        var mapId = _clientState.MapId;
+        // The route graph uses the canonical row of the physical map. Read
+        // its markers here as well: a native alternate row can omit the exit
+        // glyph, even though both rows describe the same floor and resource.
+        // The ordinary place browser continues to use the displayed map.
+        var mapId = includeFlag ? _clientState.MapId : CanonicalMap(_clientState.MapId);
         if (mapId == 0) return result;
 
         // The flag is a waypoint like any other, so it flows into the browser,

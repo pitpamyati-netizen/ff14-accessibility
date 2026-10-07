@@ -250,7 +250,48 @@ var withDutyFinder = unreachable.Except(withTeleport).Except(withDuty).Where(id 
     data.GetExcelSheet<InstanceContent>().Count(i => i.ContentFinderCondition.ValueNullable?.TerritoryType.RowId == places.GetTerritoryOfMap(id)) == 1).ToArray();
 var stillUnmapped = unreachable.Except(withTeleport).Except(withDuty).Except(withDutyFinder).Select(id => new { Map = id,
     Territory = places.GetTerritoryOfMap(id), Name = places.GetMapName(id) }).ToArray();
-File.WriteAllText(args[1], JsonSerializer.Serialize(new { Passed = true, Checks = checks,
+// Check route materialization from EVERY source row, including physical-map
+// aliases, rather than only one starting city. A graph edge is not useful if
+// the first local action cannot be selected, or the next leg makes no progress.
+var routePairs = 0;
+var routeFailures = new List<string>();
+void AuditRoute(bool ok, string label) { checks++; if (!ok) routeFailures.Add(label); }
+var mapRows = data.GetExcelSheet<Map>().Where(m => m.RowId != 0 && m.TerritoryType.RowId != 0).ToArray();
+foreach (var source in mapRows)
+{
+    state.Map = source.RowId; state.Territory = (ushort)source.TerritoryType.RowId;
+    var distances = places.GetHopDistances();
+    foreach (var destination in distances.Where(p => p.Value > 0))
+    {
+        routePairs++;
+        var hop = places.FindFirstHopToMap(destination.Key, out var count);
+        AuditRoute(hop != null && count == destination.Value && TravelLayout.Finite(hop.Position),
+            $"{source.RowId}->{destination.Key}: missing local action (canonical={places.CanonicalMap(source.RowId)}, source={places.GetMapName(source.RowId)}, range={source.MapMarkerRange}, distance={destination.Value}, count={count})");
+        if (hop == null) continue;
+        var remaining = places.GetHopDistancesTo(destination.Key);
+        AuditRoute(remaining.TryGetValue(places.CanonicalMap(hop.TargetMapId), out var rest) && rest == count - 1,
+            $"{source.RowId}->{destination.Key}: next map {hop.TargetMapId} does not reduce remaining distance");
+        var entrance = places.FindLocalEntranceOnRoute(destination.Key);
+        AuditRoute(entrance == null || entrance.SourceMapId == places.CanonicalMap(source.RowId)
+            && entrance.TargetMapId == places.CanonicalMap(hop.TargetMapId) && entrance.Position == hop.Position && !hop.IsZoneTransition,
+            $"{source.RowId}->{destination.Key}: interaction identity differs from first local action");
+        var auditGoal = new QuestDestination("route audit", "", Vector3.Zero, 1,
+            (ushort)places.GetTerritoryOfMap(destination.Key), destination.Key, false, QuestKind.Unknown, 0);
+        var plan = QuestNavigationPlan.Resolve(auditGoal, state.Territory, state.Map, _ => hop, _ => entrance, places.AreSameMap);
+        AuditRoute(plan != null && plan.Position == hop.Position && plan.NextMapId == hop.TargetMapId
+            && plan.Entrance == entrance && plan.IsBorder == hop.IsZoneTransition,
+            $"{source.RowId}->{destination.Key}: quest plan differs from the selected first action");
+    }
+}
+// Keep the real alternate-row failure named separately in the report.
+state.Map = 1231; state.Territory = (ushort)places.GetTerritoryOfMap(state.Map);
+var alternateMapExit = places.FindFirstHopToMap(784, out var alternateMapHops);
+Check(places.AreSameMap(1231, 786) && alternateMapExit != null && alternateMapHops == 1,
+    "Zero's Domain alternate row must materialize the exit found on the same physical map.");
+Console.WriteLine($"All-map route audit: {mapRows.Length} source rows, {routePairs} reachable pairs, {routeFailures.Count} local-action failures. No live pathfinding.");
+var allRoutesPassed = routeFailures.Count == 0;
+checks++;
+File.WriteAllText(args[1], JsonSerializer.Serialize(new { Passed = allRoutesPassed, Checks = checks,
     Entrances = allEntrances.Length, SourceMaps = checkedSources, MapsScanned = checkedMaps,
     FullScanMs = stopwatch.ElapsedMilliseconds, RecordedQuests = new[] { 65983, 65985, 66043, 65640, 65646 },
     Guard = guard, LotusGuard = lotusGuard, InnDoor = innDoor, AllEntrances = allEntrances,
@@ -265,7 +306,10 @@ File.WriteAllText(args[1], JsonSerializer.Serialize(new { Passed = true, Checks 
     AdditionalMapsViaVerifiedDutyEntrance = withDuty.Length,
     AdditionalMapsWithUniqueDutyFinder = withDutyFinder.Length, DutyFinderActuallyUnlockedChecked = false,
     UnmappedQuestActorMaps = stillUnmapped, TeleportsActuallyUnlockedChecked = false,
+    AllMapRouteSourceRows = mapRows.Length, AllMapReachableRoutePairs = routePairs, AllMapLocalActionFailures = routeFailures,
+    AlternateMapExit = alternateMapExit, AllGameNavigationVerified = false,
     NativeFfxivChecked = false }, new JsonSerializerOptions { WriteIndented = true, IncludeFields = true }));
+if (!allRoutesPassed) throw new Exception($"All-map route failures: {routeFailures.Count}; inspect {args[1]}.");
 Console.WriteLine($"PASS: {checks} assertions, {allEntrances.Length} verified entrances in {checkedSources} source maps, {checkedMaps} maps scanned ({stopwatch.ElapsedMilliseconds} ms); five recorded quests and ordinary exits. Live game not tested.");
 
 public class QuietLog : DispatchProxy
