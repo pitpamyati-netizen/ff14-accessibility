@@ -21,6 +21,7 @@ public sealed class TravelLayoutTests
 
     [Theory]
     [InlineData(114, 0)] // disabled
+    [InlineData(120, 2)] // invisible scripted exit, not a ZoneLine
     [InlineData(108, 2)] // sphere is not a box
     [InlineData(126, 0)] // missing destination
     [InlineData(96, 0)] // zero X extent
@@ -37,7 +38,7 @@ public sealed class TravelLayoutTests
 
     private static byte[] ExitLayout()
     {
-        var bytes = Layout(); Write(bytes, 60, 41); Write(bytes, 108, 1);
+        var bytes = Layout(); Write(bytes, 60, 41); Write(bytes, 108, 1); Write(bytes, 120, 1);
         Float(bytes, 72, 218.7f); Float(bytes, 76, 99.8f); Float(bytes, 80, 285.5f);
         Float(bytes, 96, 8.3f); Float(bytes, 100, 35.7f); Float(bytes, 104, 9f);
         BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(126, 2), 135);

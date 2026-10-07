@@ -2,6 +2,10 @@ namespace FF14Accessibility.Services;
 
 public static partial class AccessibilityStrings
 {
+    public static string WalkingTransitionConfirm(string name) => L(
+        $"{name}: zu Fuß durch den Übergang. Numpad 3 führt weiter; hier gibt es keinen Dialog.",
+        $"{name}: walk through the transition. Numpad 3 continues; there is no dialog here.",
+        $"{name}: нужно пройти через границу зоны. Num3 ведёт к проходу; разговор здесь не требуется.");
     public static string QuestDutyRoute(string quest, string duty) => L(
         $"{quest}: Eingang zu {duty}", $"{quest}: entrance to {duty}", $"{quest}: вход в «{duty}»");
     public static string QuestDutyFinderRoute(string quest, string duty) => L(

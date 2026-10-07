@@ -7,17 +7,10 @@ namespace FF14Accessibility.Services;
 internal sealed record TravelBorder(Vector3 Centre, Vector3 HalfExtent, float Yaw, uint Destination)
 {
     internal Vector3 Local(Vector3 world)
-    {
-        var delta = world - Centre;
-        var sin = MathF.Sin(-Yaw); var cos = MathF.Cos(-Yaw);
-        return new(delta.X * cos - delta.Z * sin, delta.Y, delta.X * sin + delta.Z * cos);
-    }
+        => Vector3.Transform(world - Centre, Matrix4x4.CreateRotationY(-Yaw));
 
     internal Vector3 World(Vector3 local)
-    {
-        var sin = MathF.Sin(Yaw); var cos = MathF.Cos(Yaw);
-        return Centre + new Vector3(local.X * cos - local.Z * sin, local.Y, local.X * sin + local.Z * cos);
-    }
+        => Centre + Vector3.Transform(local, Matrix4x4.CreateRotationY(Yaw));
 
     internal bool Contains(Vector3 point)
     {
@@ -60,8 +53,11 @@ public sealed class ZoneBorderService
     {
         if (destinationMapId == 0 || !_data.GetExcelSheet<Map>().TryGetRow(destinationMapId, out var map))
             return new(false, null);
-        var borders = _layout.ForTerritory(_clientState.TerritoryType).Borders
-            .Where(b => b.Destination == map.TerritoryType.RowId).ToArray();
+        var layout = _layout.ForTerritory(_clientState.TerritoryType);
+        var identity = new TravelMapIdentity(_data);
+        var currentMap = identity.Canonical(_clientState.MapId);
+        var borders = layout.Borders.Where(b => b.Destination == map.TerritoryType.RowId
+            && identity.Canonical(layout.ResolveMap(b.Centre, currentMap)) == currentMap).ToArray();
         var result = Resolve(borders, from, reachable, disconnectedFloor, hasMeasuredCrossing);
         _log.Info($"[Border] map={destinationMapId}, volumes={borders.Length}, from={from}, " +
             $"target={(result.Position is { } point ? point.ToString() : "unresolved")}");

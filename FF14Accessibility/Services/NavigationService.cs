@@ -102,10 +102,10 @@ internal enum NavCategory
 /// not depend on the game accepting it as a target.</summary>
 /// <param name="ObjectId">GameObjectId, to refresh the position before walking.</param>
 /// <param name="Name">Spoken name, for the "walking to X" announcement.</param>
-/// <param name="Position">World position at selection time (fallback once the
-/// object has left the object table, e.g. after a zone reload).</param>
+/// <param name="Position">Snapshot at selection time. A live object must be
+/// re-read by exact identity; the snapshot never authorizes stale movement.</param>
 public sealed record ObjectDestination(ulong ObjectId, string Name, Vector3 Position,
-    ObjectKind Kind = ObjectKind.None);
+    ObjectKind Kind = ObjectKind.None, uint BaseId = 0);
 
 public sealed class NavigationService
 {
@@ -1591,7 +1591,7 @@ public sealed class NavigationService
         }
 
         var count = objects.Count;
-        _cycleIndex = BrowserTargetSelection.NextIndex(_cycleIndex, direction, count);
+        _cycleIndex = SelectionObjectResolver.NextIndex(objects, SelectedObjectDestination?.ObjectId ?? 0, _cycleIndex, direction);
         var obj = objects[_cycleIndex];
 
         // Suppress the target-change announcer: we announce with position info here.
@@ -1610,7 +1610,7 @@ public sealed class NavigationService
             obj.ObjectKind == ObjectKind.GatheringPoint
                 ? DescribeGatheringPoint(obj)
                 : _objectNames.Describe(obj),
-            obj.Position, obj.ObjectKind);
+            obj.Position, obj.ObjectKind, obj.BaseId);
 
         // Audit probe: the game may REFUSE the change (SetHardTarget returns
         // bool, Dalamud discards it; rejections seen in log 2026-07-10 16:39
@@ -1795,7 +1795,7 @@ public sealed class NavigationService
         SelectedObjectDestination = new ObjectDestination(
             obj.GameObjectId,
             _objectNames.Describe(obj),
-            obj.Position, obj.ObjectKind);
+            obj.Position, obj.ObjectKind, obj.BaseId);
 
         var actualId = _targetManager.Target?.GameObjectId ?? 0;
         var rejected = actualId != obj.GameObjectId;
@@ -1831,6 +1831,8 @@ public sealed class NavigationService
         var dest = dests[_cycleIndex];
         SelectedQuestDestination = dest;
         _questObjectiveAvailable = true;
+        _linkedObjectKey = null;
+        _linkedObjectId = 0;
         dest = GetSelectedQuestTravelGoal() ?? dest;
 
         // Marker tooltip often carries the objective ("Mit X sprechen") -
@@ -2337,7 +2339,7 @@ public sealed class NavigationService
         _ownSelectionId = BrowserTargetSelection.Select(_targetManager, obj) ? obj.GameObjectId : 0;
 
         SelectedObjectDestination = new ObjectDestination(
-            obj.GameObjectId, _objectNames.Describe(obj), obj.Position, obj.ObjectKind);
+            obj.GameObjectId, _objectNames.Describe(obj), obj.Position, obj.ObjectKind, obj.BaseId);
 
         var actualId = _targetManager.Target?.GameObjectId ?? 0;
         var rejected = actualId != obj.GameObjectId;
@@ -3202,6 +3204,20 @@ public sealed class NavigationService
     /// area (<c>TargetBaseId</c> 0), a dungeon station that is nothing to
     /// interact with (waypoint, boss arena, jump).
     /// </summary>
+    public IGameObject? GetSelectedNavigationObject() => ResolveSelectionObject();
+
+    private (uint Map, uint Objective, uint Base, byte Type, Vector3 Position)? _linkedObjectKey;
+    private ulong _linkedObjectId;
+
+    private IGameObject? ResolveLinkedSelection(uint objective, uint baseId, byte type, Vector3 position)
+    {
+        var key = (_clientState.MapId, objective, baseId, type, position);
+        if (_linkedObjectKey != key) { _linkedObjectKey = key; _linkedObjectId = 0; }
+        var live = SelectionObjectResolver.Linked(_objectTable, baseId, type, position, _linkedObjectId);
+        if (live != null) _linkedObjectId = live.GameObjectId;
+        return live;
+    }
+
     private IGameObject? ResolveSelectionObject()
     {
         if (SelectedQuestDestination is { } questSelection && (questSelection.QuestId != 0 || questSelection.NativeMarkerId != 0)
@@ -3210,7 +3226,7 @@ public sealed class NavigationService
         // Retain the exact live browser pick; do not substitute a nearby enemy
         // or another nest with the same name.
         if (SelectedObjectDestination is { } selected)
-            return BrowserTargetSelection.FindExact(_objectTable, selected.ObjectId);
+            return SelectionObjectResolver.Exact(_objectTable, selected);
 
         // Sammelstelle: exakt ueber die Basis-Id des Knotens plus Naehe - eine
         // Basis-Id deckt einen kleinen Schwarm einzelner Knoten ab.
@@ -3250,21 +3266,14 @@ public sealed class NavigationService
         // here; retain the quest selection so a new press after entering uses it.
         if (questTravelGoal is { } away && (away.TerritoryTypeId != _clientState.TerritoryType || !_places.AreSameMap(away.MapId, _clientState.MapId))
             && _places.FindLocalEntranceOnRoute(away.MapId) is { } entrance)
-            return NearestObject(entrance.Position, MarkerObjectMatchRange,
-                obj => obj.BaseId == entrance.BaseId && obj.ObjectKind == ExpectedObjectKind(entrance.LevelType)
-                    && obj.IsTargetable && MathF.Abs(obj.Position.Y - entrance.Position.Y) < 5f);
+            return ResolveLinkedSelection(away.ObjectiveLevelId, entrance.BaseId, entrance.LevelType, entrance.Position);
 
         // Quest-Ziel: ueber den Spiel-Link Marker -> Level.Object (TargetBaseId),
         // eingegrenzt auf die Objektart, die Level.Type nennt.
         if (questTravelGoal is { TargetBaseId: > 0 } dest && dest.TerritoryTypeId == _clientState.TerritoryType
             && (dest.MapId == 0 || _places.AreSameMap(dest.MapId, _clientState.MapId)))
         {
-            var expected = ExpectedObjectKind(dest.TargetLevelType);
-            return NearestObject(dest.Position, MarkerObjectMatchRange,
-                obj => obj.BaseId == dest.TargetBaseId
-                       && (expected == null || obj.ObjectKind == expected.Value)
-                       && MathF.Abs(obj.Position.Y - dest.Position.Y) < 5f,
-                prefer: o => o.IsTargetable);
+            return ResolveLinkedSelection(dest.ObjectiveLevelId, dest.TargetBaseId, dest.TargetLevelType, dest.Position);
         }
 
         return null;
@@ -3304,7 +3313,7 @@ public sealed class NavigationService
             if (obj == null || !match(obj)) continue;
 
             var gap = Distance2D(obj.Position, position);
-            if (gap > bestGap) continue;
+            if (gap > range) continue;
 
             var preferred = prefer?.Invoke(obj) ?? false;
             if (best != null && (preferred != bestPreferred ? !preferred : gap >= bestGap))
@@ -3362,7 +3371,9 @@ public sealed class NavigationService
         if (IsInCombat() && _targetManager.Target is { } combatTarget
             && !BrowserTargetSelection.IsWorldObject(combatTarget)) return false;
         if (GetSelectedQuestTravelGoal() is { } quest && !IsInCombat()
-            && (quest.TargetLevelType is 8 or 45 || _places.FindLocalEntranceOnRoute(quest.MapId) != null)) return true;
+            && (quest.TerritoryTypeId != _clientState.TerritoryType || quest.MapId != 0 && !_places.AreSameMap(quest.MapId, _clientState.MapId)))
+            return true;
+        if (GetSelectedQuestTravelGoal() is { TargetLevelType: 8 or 45 } && !IsInCombat()) return true;
         var candidate = ResolveSelectionObject() ?? _targetManager.Target ?? _targetManager.SoftTarget;
         return BrowserTargetSelection.IsWorldObject(candidate)
             || !IsInCombat() && (SelectedQuestDestination is { TargetLevelType: 45 }
@@ -3376,10 +3387,20 @@ public sealed class NavigationService
             _tolk.SpeakInterrupt(AccessibilityStrings.QuestGoalUpdating);
             return;
         }
+        if (GetSelectedQuestTravelGoal() is { } away && (away.TerritoryTypeId != _clientState.TerritoryType
+            || away.MapId != 0 && !_places.AreSameMap(away.MapId, _clientState.MapId))
+            && _places.FindLocalEntranceOnRoute(away.MapId) == null)
+        {
+            var hop = _places.FindFirstHopToMap(away.MapId, out _);
+            _tolk.SpeakInterrupt(hop is { IsZoneTransition: true }
+                ? AccessibilityStrings.WalkingTransitionConfirm(hop.Name)
+                : AccessibilityStrings.QuestTravelUnavailable(away.QuestName, _places.GetMapName(away.MapId)));
+            return;
+        }
         var candidate = ResolveSelectionObject() ?? _targetManager.Target ?? _targetManager.SoftTarget;
         // Missing explicit selections cannot fall back to the game's target.
         if (SelectedObjectDestination is { } selected)
-            candidate = BrowserTargetSelection.FindExact(_objectTable, selected.ObjectId);
+            candidate = SelectionObjectResolver.Exact(_objectTable, selected);
         else if (SelectedQuestDestination != null || _selectedGatherSpot != null)
             candidate = ResolveSelectionObject();
         var system = FFXIVClientStructs.FFXIV.Client.Game.Control.TargetSystem.Instance();
@@ -3396,6 +3417,10 @@ public sealed class NavigationService
                   $"kind={candidate?.ObjectKind}, targetable={candidate?.IsTargetable}, distance={distance:F1}, " +
                   $"targetAccepted={request.TargetAccepted}, interactionRequested={request.Requested}, " +
                   $"nativeResult={request.NativeResult:X}, hardBefore={hardBefore:X}, hardAfter={hardAfter:X}");
+        if (candidate == null && GetSelectedQuestTravelGoal() is { } missing)
+            _log.Info($"[Nav] Missing quest object: quest={missing.QuestId}, level={missing.ObjectiveLevelId}, " +
+                $"base={missing.TargetBaseId}, type={missing.TargetLevelType}, targetMap={missing.MapId}, " +
+                $"currentMap={_clientState.MapId}, retained={_linkedObjectId:X}, player={_objectTable.LocalPlayer?.Position}");
         if (request.Requested)
         {
             if (hardAfter == candidate!.GameObjectId) _ownSelectionId = hardAfter;
@@ -4468,6 +4493,21 @@ public sealed class NavigationService
             ? BeaconKind.Transition
             : BeaconKindForSelection();
         StartWalkGuide(0, name, position, MathF.Max(ArrivalDistance, arrivalRange));
+    }
+
+    public void StartWalkGuideToObject(IGameObject obj, string name)
+    {
+        _walkBeaconKind = BeaconKindForObject(obj);
+        StartWalkGuide(obj.GameObjectId, name, obj.Position, ArrivalDistance);
+    }
+
+    public void RetargetWalkGuideToObject(IGameObject obj)
+    {
+        if (!_walkGuideActive) return;
+        _walkTargetId = obj.GameObjectId;
+        _walkDestPosition = obj.Position;
+        ClearRoute();
+        RequestRoute(_objectTable.LocalPlayer?.Position ?? obj.Position, isReroute: true);
     }
 
     /// <summary>Die Stimme der aktuellen Browser-Auswahl, ohne Zonen- oder Positionspruefung.</summary>

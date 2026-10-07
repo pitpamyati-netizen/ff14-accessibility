@@ -5,11 +5,36 @@ namespace FF14Accessibility;
 
 public sealed partial class Plugin
 {
+    private bool _resolvedCanTrackObject;
     // Quest routing sits above the preserved movement service. Every key press
     // reads the current objective and resolves only the next local leg.
     private MarkerResolve TryResolveSelectedDestination(out Vector3 position, out string name,
         out float stopRange, out bool heightIsGuess, out bool isZoneTransition, bool readout = false)
     {
+        _resolvedNavigationObject = null;
+        _resolvedCanTrackObject = false;
+        if (_navigation.SelectedObjectDestination is { Kind: not Dalamud.Game.ClientState.Objects.Enums.ObjectKind.None } selected)
+        {
+            position = default; name = selected.Name; stopRange = AutoWalkService.StopRange;
+            heightIsGuess = false; isZoneTransition = false;
+            var live = SelectionObjectResolver.Exact(ObjectTable, selected);
+            if (live == null)
+            {
+                _tolk.SpeakInterrupt(AccessibilityStrings.SelectedObjectMissing(name));
+                return MarkerResolve.Failed;
+            }
+            _resolvedNavigationObject = live;
+            _resolvedCanTrackObject = true;
+            if (readout) { position = live.Position; return MarkerResolve.Resolved; }
+            var approach = SelectionObjectResolver.Approach(live.Position, _autoWalk.ProbeReachable);
+            if (approach == null)
+            {
+                _tolk.SpeakInterrupt(QuestMeshUnavailableMessage() ?? AccessibilityStrings.NoWalkablePointAt(name));
+                return MarkerResolve.Failed;
+            }
+            position = approach.Value;
+            return MarkerResolve.Resolved;
+        }
         if (!readout && (_navigation.SelectedQuestDestination != null
             || _navigation.SelectedPlaceDestination is { IsZoneTransition: true })
             && QuestMeshUnavailableMessage() is { } unavailable)
@@ -18,6 +43,13 @@ public sealed partial class Plugin
             position = default; name = string.Empty; stopRange = 0;
             heightIsGuess = false; isZoneTransition = false;
             return MarkerResolve.Failed;
+        }
+        if (readout && _navigation.SelectedQuestDestination == null && _navigation.SelectedPlaceDestination != null && CurrentWalkingSelection
+            && (_autoWalk.IsActive || _navigation.IsWalkGuideActive || _transitions.IsActive) && _walkingPoint is { } active)
+        {
+            position = active.Position; name = active.Name; stopRange = active.Stop;
+            heightIsGuess = false; isZoneTransition = active.Transition;
+            return MarkerResolve.Resolved;
         }
         if (!readout && _navigation.SelectedQuestDestination == null
             && _navigation.SelectedPlaceDestination is { IsZoneTransition: true } place)
@@ -68,7 +100,18 @@ public sealed partial class Plugin
             : plan.Entrance != null ? _config.AutoWalkPlaceStopRange
             : quest.Role == QuestMarkerRole.QuestTrigger ? _config.AutoWalkPlaceStopRange
             : MathF.Max(_config.AutoWalkPlaceStopRange, MathF.Min(5f, quest.Radius));
-        var point = plan.Position;
+        _resolvedCanTrackObject = plan.Entrance != null || plan.NextMapId == 0 && quest.TargetLevelType is 8 or 9 or 45;
+        var liveObject = _resolvedCanTrackObject ? _navigation.GetSelectedNavigationObject() : null;
+        _resolvedNavigationObject = liveObject;
+        var point = liveObject?.Position ?? plan.Position;
+        if (readout && liveObject == null && CurrentWalkingSelection
+            && (_autoWalk.IsActive || _navigation.IsWalkGuideActive || _transitions.IsActive) && _walkingPoint is { } activeQuest)
+        {
+            position = activeQuest.Position; stopRange = activeQuest.Stop;
+            heightIsGuess = false; isZoneTransition = activeQuest.Transition;
+            return MarkerResolve.Resolved;
+        }
+        if (liveObject != null) { stopRange = AutoWalkService.StopRange; heightIsGuess = false; }
         if (plan.HeightIsGuess && plan.NextMapId != 0)
             point = point with { Y = ObjectTable.LocalPlayer?.Position.Y ?? point.Y };
         if (!readout)
@@ -88,7 +131,9 @@ public sealed partial class Plugin
                 }
                 isZoneTransition = false;
             }
-            var floor = ResolveQuestGroundPoint(quest, plan, point, ref stopRange);
+            var floor = liveObject != null || plan.Entrance != null || plan.NextMapId == 0 && quest.TargetLevelType is 8 or 9 or 45
+                ? SelectionObjectResolver.Approach(point, _autoWalk.ProbeReachable)
+                : ResolveQuestGroundPoint(quest, plan, point, ref stopRange);
             if (floor == null)
             {
                 _tolk.SpeakInterrupt(AccessibilityStrings.NoWalkablePointAt(name));
@@ -170,7 +215,8 @@ public sealed partial class Plugin
         var refreshed = _navigation.RefreshSelectedQuest();
         var current = _navigation.SelectedQuestDestination;
         if (!refreshed || current?.ObjectiveLevelId != previous.ObjectiveLevelId || current?.MapId != previous.MapId
-            || current?.Position != previous.Position)
+            || current?.Position != previous.Position || current?.TargetBaseId != previous.TargetBaseId
+            || current?.TargetLevelType != previous.TargetLevelType)
         {
             _autoWalk.StopQuiet();
             _navigation.StopWalkGuideQuiet();

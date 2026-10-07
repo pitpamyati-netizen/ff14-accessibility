@@ -5,6 +5,37 @@ namespace Regression.Tests;
 
 public sealed class ZoneBorderTests
 {
+    [Fact]
+    public void LoggedMiddleLaNosceaFalseArrivalIsOutsideTheGameRotatedVolume()
+    {
+        var border = new TravelBorder(new(-59.0843f, 83.72464f, 161.7435f),
+            new(7.356031f, 53.04695f, 7.364943f), -1.1519173f, 129);
+        var falseArrival = new Vector3(-62.839893f, 42.263397f, 154.52989f);
+        Assert.False(border.Contains(falseArrival));
+        Assert.All(ZoneBorderService.Candidates(border, falseArrival), p =>
+        {
+            var local = Vector3.Transform(p - border.Centre, Matrix4x4.CreateRotationY(-border.Yaw));
+            Assert.InRange(MathF.Abs(local.X), 0, border.HalfExtent.X);
+            Assert.InRange(MathF.Abs(local.Z), 0, border.HalfExtent.Z);
+        });
+        var target = ZoneBorderService.Resolve([border], falseArrival, (p, _, _) => p).Position!.Value;
+        Assert.True(new TravelMapRange(12, border.Centre, new(0, border.Yaw, 0), border.HalfExtent, 1, 1).Contains(target));
+    }
+
+    [Theory]
+    [InlineData(0.8845961f)]
+    [InlineData(-1.1519173f)]
+    [InlineData(1.5707963f)]
+    public void BorderAndMapRangeUseTheSameGameRotation(float yaw)
+    {
+        var border = new TravelBorder(new(10, 5, 30), new(3, 7, 12), yaw, 129);
+        var knownLocal = new Vector3(2, 0, 10);
+        var world = border.Centre + Vector3.Transform(knownLocal, Matrix4x4.CreateRotationY(yaw));
+        Assert.True(Vector3.Distance(knownLocal, border.Local(world)) < 0.00001f);
+        Assert.True(border.Contains(world));
+        Assert.True(Vector3.Distance(world, border.World(knownLocal)) < 0.00001f);
+    }
+
     // Recorded Middle -> Lower La Noscea ExitRange and the stalled mesh edge.
     private static TravelBorder LaNoscea => new(new(218.7f, 99.8f, 285.5f), new(8.3f, 35.7f, 9f), 0, 135);
     private static Vector3 Edge => new(207, 71.75f, 275);

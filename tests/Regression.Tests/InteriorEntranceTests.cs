@@ -122,12 +122,17 @@ public sealed class InteriorEntranceTests
     private static IGameObject? Resolve(NavigationService nav) => (IGameObject?)typeof(NavigationService)
         .GetMethod("ResolveSelectionObject", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(nav, null);
 
+    private static long _nextObjectId;
     private static IGameObject Obj(uint id, ObjectKind kind, Vector3 position, bool targetable = true)
-        => ChatPlayerTests.Proxy.Of<IGameObject>(m => m.Name switch
+    {
+        var instanceId = (ulong)Interlocked.Increment(ref _nextObjectId);
+        return ChatPlayerTests.Proxy.Of<IGameObject>(m => m.Name switch
         {
+            "get_GameObjectId" => instanceId,
             "get_BaseId" => id, "get_ObjectKind" => kind, "get_Position" => position,
             "get_IsTargetable" => targetable, _ => throw new NotSupportedException(m.Name),
         });
+    }
 
     private static NavigationService Harness(IGameObject[] objects, uint map = 2)
     {

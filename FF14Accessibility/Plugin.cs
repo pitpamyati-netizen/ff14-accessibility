@@ -217,7 +217,7 @@ public sealed partial class Plugin : IDalamudPlugin
     // 6.08.18 lokal: Chat-Absender Kontextmenü (Strg+Umschalt+BildAuf) + Numpad3-Ziel.
     // 6.08.19: Charakterauswahl — eine Ansage (Name, Job, Ort) statt Scan-Sturm.
     // 6.08.20: Mitstreiter-Taste (PR 27 Port) — Strg+Umschalt+C öffnet/vorliest.
-    private const string PluginVersion    = "6.08.112";
+    private const string PluginVersion    = "6.08.113";
     // Der Tag nennt, was diese Fassung MITBRINGT, nicht woher sie stammt: die
     // russische Schicht auf dem Stand des Autors 6.08.35 (Auftragstext im
     // Quest-Tracker des Autors, siehe package-Schritt).
@@ -2488,6 +2488,7 @@ public sealed partial class Plugin : IDalamudPlugin
         _autoWalk.Update();
         _transitions.Update();
         PollSelectedQuest();
+        PollWalkingObject();
         FacingService.Tick(ObjectTable.LocalPlayer);
         _armouryTransfer.Update(GameWindowFocus.IsActive && !_uiReader.IsTableReading
             && !_uiReader.IsShopQuantityEditing && !_uiReader.IsSystemVolumeEditing
@@ -2616,7 +2617,7 @@ public sealed partial class Plugin : IDalamudPlugin
                 // Marker destinations (quest objectives, map waypoints) work in
                 // the walk guide too since V4.63 - manual walking was
                 // game-target-only before.
-                case MarkerResolve.Resolved: _navigation.StartWalkGuideToPosition(pos, name, stop); break;
+                case MarkerResolve.Resolved: StartResolvedGuide(pos, name, stop); break;
                 case MarkerResolve.None:     _navigation.ToggleWalkGuide();                         break;
                 case MarkerResolve.Failed:   break; // reason already announced
             }
@@ -2625,7 +2626,13 @@ public sealed partial class Plugin : IDalamudPlugin
         {
             _navigation.StopWalkGuideQuiet();
             var bestiaryMonster = _uiReader.SelectedBestiaryMonster;
-            if (bestiaryMonster != null)
+            if (_autoWalk.IsActive)
+            {
+                _autoWalk.Toggle();
+                _walkingObject = null;
+                _awaitingQuestObject = false;
+            }
+            else if (bestiaryMonster != null)
             {
                 // Bestiary open with a monster row focused: track it - walk to
                 // the nearest live one, or tell the user where it lives.
@@ -2633,7 +2640,7 @@ public sealed partial class Plugin : IDalamudPlugin
             }
             else switch (TryResolveSelectedDestination(out var pos, out var name, out var stop, out _, out var isTransition))
             {
-                case MarkerResolve.Resolved: _autoWalk.ToggleToPosition(pos, name, stop, isTransition); break;
+                case MarkerResolve.Resolved: StartResolvedWalk(pos, name, stop, isTransition); break;
                 case MarkerResolve.None:     _autoWalk.Toggle();                          break;
                 case MarkerResolve.Failed:   break; // reason already announced
             }

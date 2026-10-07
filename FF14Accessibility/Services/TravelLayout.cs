@@ -112,7 +112,7 @@ internal sealed class TravelLayout(IDataManager data, IPluginLog log)
                     else if (type == 41)
                     {
                         Bounds(obj, 1, 88);
-                        if (bytes[obj + 54] != 0)
+                        if (bytes[obj + 54] != 0 && I(obj + 60) == 1) // ZoneLine, not an invisible scripted range.
                         {
                             result.Exits.Add((BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(obj + 66, 2)), pos));
                             var rot = V(obj + 24);

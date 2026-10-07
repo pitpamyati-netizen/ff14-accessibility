@@ -86,6 +86,15 @@ Check(landingRange.Arrivals.ContainsKey(4158063), "Lift arrival missing from Lev
 // Real tall ExitRange from the reported 2026-10-07 failure. Mesh replies below
 // are simulated from the logged edge, not a live vnavmesh query.
 var travelLayouts = new TravelLayout(data, log);
+// New 6.08.112 log: repeatedly "arrived" here without crossing. The old
+// mirrored rotation admitted this point, but the game's rotation rejects it.
+var middleLimsaBorder = travelLayouts.ForTerritory(134).Borders.Single(b => b.Destination == 129);
+var loggedFalseArrival = new Vector3(-62.839893f, 42.263397f, 154.52989f);
+Check(!middleLimsaBorder.Contains(loggedFalseArrival), "Recorded false arrival is outside the actual rotated exit.");
+var nativeFalseLocal = Vector3.Transform(loggedFalseArrival - middleLimsaBorder.Centre,
+    Matrix4x4.CreateRotationY(-middleLimsaBorder.Yaw));
+Check(MathF.Abs(nativeFalseLocal.X) > middleLimsaBorder.HalfExtent.X,
+    "Recorded false arrival no longer reproduces the independent game-space check.");
 var laNosceaBorder = travelLayouts.ForTerritory(134).Borders.Single(b => b.Destination == 135);
 var loggedEdge = new Vector3(207, 71.75f, 275);
 var loggedPlayer = new Vector3(207.14691f, 71.745f, 274.9847f);
@@ -137,6 +146,14 @@ foreach (var border in travelLayouts.ForTerritory(territoryId).Borders)
     {
         var from = border.World(new(-border.HalfExtent.X - 10, height, 0));
         Check(ZoneBorderService.Candidates(border, from).All(border.Contains), "Border candidates escaped their real volume.");
+        foreach (var point in ZoneBorderService.Candidates(border, from))
+        {
+            var nativeLocal = Vector3.Transform(point - border.Centre, Matrix4x4.CreateRotationY(-border.Yaw));
+            Check(MathF.Abs(nativeLocal.X) <= border.HalfExtent.X + 0.0001f
+                && MathF.Abs(nativeLocal.Y) <= border.HalfExtent.Y + 0.0001f
+                && MathF.Abs(nativeLocal.Z) <= border.HalfExtent.Z + 0.0001f,
+                "Border candidate failed independent game transform.");
+        }
     }
 }
 Console.WriteLine($"Border audit: {borderVolumes} box volumes ({tallBorders} tall); recorded goal {recordedBorder.Position}; shared movement resolver passed. Mesh simulation, no live movement.");
@@ -298,6 +315,8 @@ File.WriteAllText(args[1], JsonSerializer.Serialize(new { Passed = allRoutesPass
     BorderVolumes = borderVolumes, TallBorderVolumes = tallBorders,
     RecordedLaNosceaBorder = laNosceaBorder, RecordedLaNosceaDestination = recordedBorder.Position,
     LoggedMeshEdgeSimulated = true, SharedBorderResolverChecked = true,
+    RecordedFalseArrival = loggedFalseArrival, RecordedFalseArrivalLocal = nativeFalseLocal,
+    MirroredBorderRotationRejected = true,
     SearchCircleLevelRows = areaRows.Length, SearchCircleAuditRadiusSimulated = 35, RecordedSearchCircle = recordedArea,
     RecordedSearchCircleFloor = sharedAreaFloor, SharedAreaResolverChecked = true, LoggedAreaMeshSimulated = true,
     QuestActorLevels = targetLevels.Length, QuestActorMaps = targetMaps.Length,
