@@ -2378,6 +2378,7 @@ public sealed partial class UIReaderService : IDisposable
 
     // Active category tab last announced, so switching speaks it once.
     private string _lastGcCategory = string.Empty;
+    private readonly GcRankReadState _gcRankReadState = new();
 
     // Rank names behind the textless tier buttons of the seal shop.
     private readonly GrandCompanyRankText _gcRanks;
@@ -2399,6 +2400,7 @@ public sealed partial class UIReaderService : IDisposable
         if (addon == null || !addon->IsVisible)
         {
             _lastGcCategory = string.Empty;
+            _gcRankReadState.Reset();
             return;
         }
 
@@ -2704,13 +2706,17 @@ public sealed partial class UIReaderService : IDisposable
         var first    = string.Empty;
         var last     = string.Empty;
         if (tiers.Count == expected) (first, last) = _gcRanks.TierRange(index + 1);
-        else _log.Warning($"[GC] Stufenknoepfe: {tiers.Count} sichtbar, Rangtabelle kennt {expected} Stufen "
+        if (_gcRankReadState.ShouldWarn((nint)addon, tiers.Count, expected))
+            _log.Warning($"[GC] Stufenknoepfe: {tiers.Count} sichtbar, Rangtabelle kennt {expected} Stufen "
                           + "- Zuordnung unsicher, es wird nur die Position angesagt.");
 
         var text = AccessibilityStrings.GcRankTier(index + 1, tiers.Count, first, last);
         if (((AtkComponentButton*)comp)->IsChecked) text += AccessibilityStrings.SelectedSuffix;
-        _log.Info($"[GC] Rangstufe {index + 1}/{tiers.Count} (Knoten {button->NodeId}): '{text}'");
-        _gcRanks.LogSource();
+        if (_gcRankReadState.ShouldLog((nint)addon, button->NodeId, text))
+        {
+            _log.Info($"[GC] Rangstufe {index + 1}/{tiers.Count} (Knoten {button->NodeId}): '{text}'");
+            _gcRanks.LogSource();
+        }
         return text;
     }
 

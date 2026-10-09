@@ -34,7 +34,12 @@ internal sealed class ArmouryListModel
         Items = fresh;
         var same = previous == null ? -1 : Array.FindIndex(fresh, i => SameAddress(i, previous));
         Cursor = same >= 0 ? same : Math.Clamp(Cursor, 0, Math.Max(0, fresh.Length - 1));
-        return previous != Selected;
+        // Spiritbond and other instance bytes may update while a long manual
+        // description is being spoken. They still invalidate native actions,
+        // but must not interrupt speech when the announced facts did not change.
+        return previous == null ? Selected != null : Selected == null
+            || !SameAddress(previous, Selected) || previous.Label != Selected.Label
+            || previous.Detail != Selected.Detail;
     }
 
     internal void Move(int direction)

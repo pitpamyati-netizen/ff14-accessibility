@@ -73,10 +73,10 @@ internal sealed unsafe class ArmouryListAccess(IGameGui gui, InventoryService in
         if (id == 0 || item->Quantity <= 0) return null;
         var hq = (item->Flags & InventoryItem.ItemFlags.HighQuality) != 0;
         var baseId = ItemSlotService.GetBaseItemId(id);
-        var label = inventory.ResolveItemLabel(baseId) + (hq ? AccessibilityStrings.HighQuality : string.Empty);
-        if (item->Quantity > 1) label = AccessibilityStrings.ItemQuantity(item->Quantity.ToString(), label);
-        var brief = gear.DescribeGear(baseId, briefWhenWearable: true);
-        if (brief.Length > 0) label += ", " + brief;
+        var hasMateria = false;
+        foreach (var materia in item->Materia) hasMateria |= materia != 0;
+        var label = DescribeLabel(id, (uint)item->Quantity, hq, hasMateria,
+            inventory.ResolveItemLabel, gear.DescribeGear);
         var sets = RaptureGearsetModule.Instance();
         var registered = sets != null && sets->NumGearsets > 0 && sets->IsItemRegisteredToGearset(item);
         if (registered) label += AccessibilityStrings.InGearsetShort;
@@ -91,6 +91,23 @@ internal sealed unsafe class ArmouryListAccess(IGameGui gui, InventoryService in
         // ID in the same slot cannot pass the native action's instance check.
         var instance = Convert.ToHexString(new ReadOnlySpan<byte>(item, sizeof(InventoryItem)));
         return new(type, slot, id, (uint)item->Quantity, hq, instance, label, detail.Trim());
+    }
+
+    // The short mode belongs to the overview of worn gear, not to browsing
+    // individual items. Keep the same full values for every Armoury category.
+    internal static string DescribeLabel(uint rawId, uint quantity, bool highQuality, bool hasMateria,
+        Func<uint, string> itemLabel, Func<uint, bool, string> describeGear)
+    {
+        var baseId = ItemSlotService.GetBaseItemId(rawId);
+        var label = itemLabel(baseId) + (highQuality ? AccessibilityStrings.HighQuality : string.Empty);
+        if (quantity > 1) label = AccessibilityStrings.ItemQuantity(quantity.ToString(), label);
+        var gear = describeGear(baseId, false);
+        if (!string.IsNullOrWhiteSpace(gear))
+        {
+            if (highQuality || hasMateria) label += ", " + AccessibilityStrings.ArmouryListBaseStats;
+            label += ", " + gear;
+        }
+        return label;
     }
 
     private bool ItemMatches(ArmouryListItem expected)

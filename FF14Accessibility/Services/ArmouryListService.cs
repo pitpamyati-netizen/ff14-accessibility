@@ -35,7 +35,7 @@ public sealed class ArmouryListService
         InventoryService inventory, GearInfoService gear, TolkService tolk, IPluginLog log)
         : this(new ArmouryListAccess(gui, inventory, gear), keys, log, () => client.IsLoggedIn,
             () => client.TerritoryType, id => string.Join(". ", new[] { gear.DescribeItemBasics(id),
-                gear.DescribeGear(id), gear.DescribeOwnClasses(id), inventory.ResolveItemDescription(id) }
+                gear.DescribeOwnClasses(id), inventory.ResolveItemDescription(id) }
                 .Where(text => !string.IsNullOrWhiteSpace(text))),
             text => tolk.SpeakInterrupt(text), () => DateTime.UtcNow) { }
 
@@ -149,6 +149,7 @@ public sealed class ArmouryListService
             var detail = _description(item.BaseItemId);
             if (!string.IsNullOrWhiteSpace(detail)) text += ". " + detail;
             if (!string.IsNullOrWhiteSpace(item.Detail)) text += ". " + item.Detail;
+            _log.Info($"[ArmouryList] Description: {item.Container}/{item.Slot}, item={item.ItemId}, base={item.BaseItemId}, HQ={item.HighQuality}; {text}");
         }
         _speak(text);
     }

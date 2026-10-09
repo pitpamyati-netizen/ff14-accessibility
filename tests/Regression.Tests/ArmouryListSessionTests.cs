@@ -301,6 +301,37 @@ public sealed class ArmouryListSessionTests : IDisposable
         Assert.Equal(1001908u, f.Access.Requested.ItemId);
     }
 
+    [Theory]
+    [InlineData(0x65)] [InlineData(0x0C)]
+    public void ManualParametersAreNotInterruptedByUnspokenInstanceUpdates(int key)
+    {
+        var f = new Fixture();
+        f.Access.Items[0] = f.Access.Items[0] with { Label = "Лук, Физический урон 17, Ловкость плюс 2" };
+        f.Tick(); f.Press(key); f.Release();
+        Assert.Contains("Физический урон 17", f.Speech.Last());
+        Assert.Contains("description 100", f.Speech.Last());
+        var spoken = f.Speech.Count;
+        f.Access.Items[0] = f.Access.Items[0] with { Instance = "spiritbond updated" };
+        f.Now += TimeSpan.FromSeconds(1); f.Tick();
+        Assert.Equal(spoken, f.Speech.Count);
+        // Speech stability must not weaken the native instance check.
+        f.Access.Items[0] = f.Access.Items[0] with { Instance = "replaced again" };
+        f.Press(0x60);
+        Assert.Equal(0, f.Access.OpenCount);
+        Assert.Equal(AccessibilityStrings.ArmouryListItemChanged, f.Speech.Last());
+    }
+
+    [Fact]
+    public void ChangedSpokenParametersStillAnnounceTheCurrentItem()
+    {
+        var f = new Fixture(); f.Tick();
+        f.Access.Items[0] = f.Access.Items[0] with { Label = "Лук, Физический урон 17" };
+        f.Now += TimeSpan.FromSeconds(1); f.Tick();
+        Assert.Contains("Физический урон 17", f.Speech.Last());
+        f.Press(0x66); f.Release(); f.Service.ReadSelected(true);
+        Assert.DoesNotContain("Физический урон 17", f.Speech.Last());
+    }
+
     private sealed class Fixture
     {
         internal readonly Access Access = new();

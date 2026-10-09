@@ -2,6 +2,10 @@ namespace FF14Accessibility.Services;
 
 public static partial class AccessibilityStrings
 {
+    public static string ArmouryListBaseStats => L(
+        "Grundwerte ohne HQ- und Materia-Boni",
+        "Base values without high-quality or materia bonuses",
+        "Базовые параметры без бонусов высокого качества и материи");
     public static string ArmouryListTitle(int count) => L(
         $"Arsenaltruhe, alle Gegenstände: {count}", $"Armoury Chest, all items: {count}",
         $"Арсенал, все предметы: {count}");

@@ -22,6 +22,41 @@ void Equal(string key, string expected, string actual)
     cases[key] = actual;
 }
 Loc.Mode = LanguageMode.Russian;
+// Real rows underlying the logged three visible shop buttons. Future rank
+// tiers in GrandCompanyRank must not disable names of today's shop tiers.
+var shopTiers = game.Excel.GetSheet<GCScripShopCategory>().Where(x => x.RowId > 0)
+    .Select(x => x.Tier).Where(x => x > 0).Distinct().Order().ToArray();
+var rankType = typeof(GearInfoService).Assembly.GetType("FF14Accessibility.Services.GrandCompanyRankText")!;
+var rankReader = Activator.CreateInstance(rankType, data, log)!;
+Equal("shop tiers from real reader", shopTiers.Max().ToString(),
+    rankType.GetMethod("TierCount")!.Invoke(rankReader, null)!.ToString()!);
+Equal("shop buttons in player log", "1,2,3", string.Join(',', shopTiers));
+var futureRankTier = game.Excel.GetSheet<GrandCompanyRank>().Max(x => x.Tier);
+if (futureRankTier <= shopTiers.Max()) throw new Exception("Expected unused future rank tiers in current game data");
+
+// The same formatter used by Armoury collection, with real gear stat rows.
+// Only player wearability is left out: no live character exists in this check.
+var statsMethod = typeof(GearInfoService).GetMethod("DescribeStats", BindingFlags.NonPublic | BindingFlags.Instance)!;
+var labelMethod = typeof(GearInfoService).Assembly.GetType("FF14Accessibility.Services.ArmouryListAccess")!
+    .GetMethod("DescribeLabel", BindingFlags.Static | BindingFlags.NonPublic)!;
+foreach (var rawId in new uint[] { 1891, 1893, 1895, 1001895, 2662, 3017, 3539, 3771, 4198, 4305, 4093, 4422 })
+{
+    var baseId = Dalamud.Utility.ItemUtil.GetBaseId(rawId).ItemId;
+    var row = game.Excel.GetSheet<Item>().GetRow(baseId);
+    var stats = (string)statsMethod.Invoke(gear, [row])!;
+    if (stats.Length == 0) throw new Exception($"Missing gear stats for {rawId}");
+    var hq = rawId >= 1_000_000;
+    Func<uint, string> name = id => inventoryLabel(id);
+    Func<uint, bool, string> describe = (id, brief) =>
+    {
+        if (id != baseId || brief) throw new Exception($"Armoury requested shortened/wrong gear for {rawId}");
+        return stats;
+    };
+    var label = (string)labelMethod.Invoke(null, [rawId, 1u, hq, false, name, describe])!;
+    if (!label.Contains(stats)) throw new Exception($"Stats lost for {rawId}");
+    cases[$"armoury real stats {rawId}"] = label;
+}
+string inventoryLabel(uint id) => EquipmentSpeech.Name(data, game.Excel.GetSheet<Item>().GetRow(id));
 var categories = game.Excel.GetSheet<ClassJobCategory>(Language.English).Where(x => !x.Name.IsEmpty).ToList();
 foreach (var category in categories)
 {
