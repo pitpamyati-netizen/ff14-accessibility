@@ -38,31 +38,21 @@ public sealed partial class Plugin
 
     private void StartResolvedWalk(Vector3 position, string name, float stop, bool transition)
     {
-        if (!_autoWalk.IsActive && QueueNavigationCheck(position, name, stop, transition, guide: false)) return;
-        ApplyResolvedWalk(position, name, stop, transition);
-    }
-
-    private void ApplyResolvedWalk(Vector3 position, string name, float stop, bool transition)
-    {
         var stopping = _autoWalk.IsActive;
-        _autoWalk.ToggleToPosition(position, name, stop, transition);
+        // Bind the live instance in the first native request. Restarting that
+        // request on the next frame discarded the author's selected bridge.
+        _autoWalk.ToggleToPosition(position, name, stop, transition,
+            _resolvedNavigationObject?.GameObjectId ?? 0);
         if (!stopping && _autoWalk.IsActive) RememberWalkingPoint(position, name, stop, transition);
         if (!stopping && _autoWalk.IsActive && _resolvedNavigationObject is { } live)
         {
             // Use the author's existing object tracking, including its route
             // updates, even when the native hard-target filter rejected this pick.
             RememberWalkingObject(live, name);
-            _needsObjectTracking = true;
         }
     }
 
     private void StartResolvedGuide(Vector3 position, string name, float stop)
-    {
-        if (QueueNavigationCheck(position, name, stop, _resolvedWalkingMap != 0, guide: true)) return;
-        ApplyResolvedGuide(position, name, stop);
-    }
-
-    private void ApplyResolvedGuide(Vector3 position, string name, float stop)
     {
         RememberWalkingPoint(position, name, stop, false);
         if (_resolvedNavigationObject is { } live)
@@ -105,7 +95,8 @@ public sealed partial class Plugin
         {
             // Do not submit another SimpleMove query while the first one is
             // pending: Stop does not establish that its async search is over.
-            if (_needsObjectTracking && _autoWalk.IsActive && _autoWalk.Navmesh.IsRunning
+            if ((_needsObjectTracking || !_autoWalk.IsTrackingObject) && _autoWalk.CanRetargetObject
+                && _autoWalk.IsActive && _autoWalk.Navmesh.IsRunning
                 && !_autoWalk.Navmesh.PathfindInProgress)
             {
                 _autoWalk.RetargetToObject(live, selected.Name);

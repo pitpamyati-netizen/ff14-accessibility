@@ -13,15 +13,6 @@ public sealed partial class Plugin
     {
         _resolvedNavigationObject = null;
         _resolvedCanTrackObject = false;
-        _resolvedWalkingMap = 0;
-        if (!readout) { _navigation.SetLocalTransfer(null); _walkingTransfer = null; }
-        if (readout && _walkingTransfer != null && CurrentWalkingSelection && _walkingPoint is { } localStep)
-        {
-            position = _walkingObject is { } actor && SelectionObjectResolver.Exact(ObjectTable, actor) is { } liveActor
-                ? liveActor.Position : localStep.Position;
-            name = localStep.Name; stopRange = localStep.Stop; heightIsGuess = false; isZoneTransition = false;
-            return MarkerResolve.Resolved;
-        }
         if (_navigation.SelectedObjectDestination is { Kind: not Dalamud.Game.ClientState.Objects.Enums.ObjectKind.None } selected)
         {
             position = default; name = selected.Name; stopRange = AutoWalkService.StopRange;
@@ -34,14 +25,24 @@ public sealed partial class Plugin
             }
             _resolvedNavigationObject = live;
             _resolvedCanTrackObject = true;
-            if (readout) { position = live.Position; return MarkerResolve.Resolved; }
-            var approach = SelectionObjectResolver.Approach(live.Position, _autoWalk.ProbeReachable);
-            if (approach == null)
-            {
-                _tolk.SpeakInterrupt(QuestMeshUnavailableMessage() ?? AccessibilityStrings.NoWalkablePointAt(name));
-                return MarkerResolve.Failed;
-            }
-            position = approach.Value;
+            // Native movement and the author's ceiling/bridge handling need the
+            // actor's real position, just as Num5 does, rather than a projection.
+            position = live.Position;
+            return MarkerResolve.Resolved;
+        }
+        if (_navigation.SelectedQuestDestination == null
+            && _navigation.SelectedPlaceDestination is { IsZoneTransition: false, TypeLabel: "Ätheryt" or "Aethernet" })
+            _resolvedCanTrackObject = true;
+        if (_navigation.SelectedQuestDestination == null
+            && _navigation.SelectedPlaceDestination is { IsZoneTransition: false, TypeLabel: "Ätheryt" or "Aethernet" }
+            && _navigation.GetSelectedNavigationObject() is { } crystal)
+        {
+            _resolvedNavigationObject = crystal;
+            _resolvedCanTrackObject = true;
+            position = crystal.Position;
+            name = _navigation.SelectedPlaceDestination.Name;
+            stopRange = AutoWalkService.StopRange;
+            heightIsGuess = false; isZoneTransition = false;
             return MarkerResolve.Resolved;
         }
         if (!readout && (_navigation.SelectedQuestDestination != null
@@ -94,7 +95,7 @@ public sealed partial class Plugin
                     _tolk.SpeakInterrupt(AccessibilityStrings.NoWalkablePointNear(name));
                     return MarkerResolve.Failed;
                 }
-                position = target; isZoneTransition = true; _resolvedWalkingMap = hop.TargetMapId;
+                position = target; isZoneTransition = true;
                 return MarkerResolve.Resolved;
             }
             _tolk.SpeakInterrupt(AccessibilityStrings.NavigationPathUnavailable(name));
@@ -144,6 +145,7 @@ public sealed partial class Plugin
             return MarkerResolve.Resolved;
         }
         if (liveObject != null) { stopRange = AutoWalkService.StopRange; heightIsGuess = false; }
+        if (liveObject != null) { position = point; return MarkerResolve.Resolved; }
         if (plan.HeightIsGuess && plan.NextMapId != 0)
             point = point with { Y = ObjectTable.LocalPlayer?.Position.Y ?? point.Y };
         if (!readout)
@@ -159,7 +161,6 @@ public sealed partial class Plugin
                         return MarkerResolve.Failed;
                     }
                     position = target;
-                    _resolvedWalkingMap = plan.NextMapId;
                     return MarkerResolve.Resolved;
                 }
                 isZoneTransition = false;
@@ -251,7 +252,6 @@ public sealed partial class Plugin
             || current?.Position != previous.Position || current?.TargetBaseId != previous.TargetBaseId
             || current?.TargetLevelType != previous.TargetLevelType)
         {
-            CancelNavigationCheck();
             _autoWalk.StopQuiet();
             _navigation.StopWalkGuideQuiet();
             _transitions.Stop(silent: true);

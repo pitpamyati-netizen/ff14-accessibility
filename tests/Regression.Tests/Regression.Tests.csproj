@@ -9,6 +9,7 @@
     <DALAMUD_HOME Condition="'$(DALAMUD_HOME)' == ''">$(APPDATA)/XIVLauncher/addon/Hooks/dev</DALAMUD_HOME>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="../../tools/nav-route-check/NavigationPathCheck.cs" Link="OfflineNavigationPathCheck.cs" />
     <EmbeddedResource Include="Fixtures/character-status-layout.json" />
     <EmbeddedResource Include="Fixtures/system-volume-layout.json" />
     <EmbeddedResource Include="Fixtures/author-text-sources.json" />

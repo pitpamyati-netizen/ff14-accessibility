@@ -2,8 +2,8 @@ using System.Numerics;
 
 namespace FF14Accessibility.Services;
 
-// A nearest polygon and an appended destination are not evidence of a path.
-// Queries are read-only, bounded and polled; they never start native movement.
+// Offline mesh survey only. This code is not compiled into the game plugin:
+// partial native paths can require the author's measured crossing stages.
 internal sealed class NavigationPathCheck
 {
     internal sealed record Choice(Vector3 Position, LocalTransfer? Transfer = null);

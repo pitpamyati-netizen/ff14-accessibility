@@ -23,6 +23,17 @@ internal static class SelectionObjectResolver
             && (selected.Kind == ObjectKind.None || o.ObjectKind == selected.Kind)
             && (selected.BaseId == 0 || o.BaseId == selected.BaseId) && TravelLayout.Finite(o.Position));
 
+    internal static IGameObject? AetheryteMarker(IEnumerable<IGameObject> objects, Vector3 marker, ulong retainedId = 0)
+    {
+        if (!TravelLayout.Finite(marker)) return null;
+        var candidates = objects.Where(o => o.ObjectKind == ObjectKind.Aetheryte && TravelLayout.Finite(o.Position)
+            && Vector2.Distance(new(o.Position.X, o.Position.Z), new(marker.X, marker.Z)) <= 15f).ToArray();
+        if (retainedId != 0) return candidates.FirstOrDefault(o => o.GameObjectId == retainedId);
+        // A 2D map marker cannot distinguish stacked crystals. Do not guess a
+        // floor or substitute a nearer crystal when the selected one unloads.
+        return candidates.Length == 1 ? candidates[0] : null;
+    }
+
     internal static IGameObject? Linked(IEnumerable<IGameObject> objects, uint baseId, byte levelType,
         Vector3 origin, ulong retainedId = 0)
     {

@@ -15,6 +15,111 @@ namespace Navigation.Tests;
 public sealed class AuthorNavigationTests
 {
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void PluginStartsRecordedMiounneDestinationWithoutSeparatePreflight(bool live)
+    {
+        var h = new Harness { TargetPosition = new(23.7793f, -8.042542f, 115.92273f), NativeSearching = true };
+        var plugin = h.Plugin();
+        var actor = live ? h.Target : null;
+        SetField(plugin, "_resolvedNavigationObject", actor);
+        SetField(plugin, "_resolvedCanTrackObject", true);
+        InvokePlugin(plugin, "StartResolvedWalk", [h.TargetPosition, "Матушка Миунна", 2.5f, false]);
+        Assert.Equal([(h.TargetPosition, false, 2.5f)], h.Requests);
+        Assert.Equal(live ? 44UL : 0UL, h.Get("_targetId"));
+        Assert.True(h.Walk.IsActive);
+        if (live)
+        {
+            h.NativeSearching = false;
+            InvokePlugin(plugin, "PollWalkingObject");
+            Assert.Single(h.Requests);
+            Assert.Equal(1, h.Stops);
+        }
+    }
+
+    [Fact]
+    public void PluginSecondResolvedPressStopsWithoutAnotherSearch()
+    {
+        var h = new Harness();
+        var plugin = h.Plugin();
+        InvokePlugin(plugin, "StartResolvedWalk", [h.TargetPosition, "Цель", 2.5f, false]);
+        InvokePlugin(plugin, "StartResolvedWalk", [h.TargetPosition, "Цель", 2.5f, false]);
+        Assert.Single(h.Requests);
+        Assert.False(h.Walk.IsActive);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ManualGuideStartsWhileNativeRouteIsPendingOrPartial(bool completed)
+    {
+        var h = new Harness { TargetPosition = new(23.7793f, -8.042542f, 115.92273f) };
+        var plugin = h.Plugin();
+        var navigation = (NavigationService)typeof(Plugin).GetField("_navigation", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(plugin)!;
+        var routes = (RouteService)RuntimeHelpers.GetUninitializedObject(typeof(RouteService));
+        var queries = 0;
+        var result = new TaskCompletionSource<List<Vector3>>();
+        if (completed) result.SetResult([Vector3.Zero, new(25, 2, 30), h.TargetPosition]);
+        SetField(routes, "_navIsReady", Proxy.Of<ICallGateSubscriber<bool>>((_, _) => true));
+        SetField(routes, "_navPathfindTolerance", Proxy.Of<ICallGateSubscriber<Vector3, Vector3, bool, float, Task<List<Vector3>>>>((_, _) =>
+        { queries++; return result.Task; }));
+        var beacon = (BeaconService)RuntimeHelpers.GetUninitializedObject(typeof(BeaconService));
+        SetField(beacon, "_config", new Configuration { TargetBeaconEnabled = false });
+        SetField(navigation, "_beacon", beacon);
+        SetField(navigation, "_routes", routes);
+        SetField(navigation, "_objectTable", h.Get("_objectTable"));
+        SetField(navigation, "_clientState", h.Get("_clientState"));
+        SetField(navigation, "_config", new Configuration { WalkGuideRouteMode = true });
+        SetField(navigation, "_log", h.Get("_log"));
+        SetField(navigation, "_tolk", h.Get("_tolk"));
+        SetField(plugin, "_resolvedCanTrackObject", true);
+        InvokePlugin(plugin, "StartResolvedGuide", [h.TargetPosition, "Матушка Миунна", 2.5f]);
+        Assert.True(navigation.IsWalkGuideActive);
+        Assert.Equal(1, queries);
+        Assert.Equal(h.TargetPosition, typeof(NavigationService).GetField("_walkDestPosition", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(navigation));
+        Assert.Empty(h.Requests);
+    }
+
+    [Fact]
+    public void AutomaticRouteDiagnosticsDoNotCalculateOrSpeakTheLongerPathLength()
+    {
+        var h = new Harness();
+        // No RouteService is attached: any attempt to describe/sum this path
+        // fails. The automatic walk only retains its diagnostic waypoints.
+        h.Invoke("SpeakRoutePreviewOnce", [Vector3.Zero, new List<Vector3> { new(0, 0, 100), new(20, 0, 100), h.TargetPosition }]);
+        Assert.Equal(true, h.Get("_routeSpoken"));
+    }
+
+    [Fact]
+    public void LiveObjectBindingKeepsTheAuthorsMeasuredCrossingUntilItsFinalStage()
+    {
+        var h = new Harness { Territory = 132, TargetPosition = new(160, -12.75f, 166), Reachable = _ => null };
+        h.Set("_bridges", new MeshBridgeService((IClientState)h.Get("_clientState")!, (IPluginLog)h.Get("_log")!));
+        var plugin = h.Plugin();
+        SetField(plugin, "_resolvedNavigationObject", h.Target);
+        InvokePlugin(plugin, "StartResolvedWalk", [h.TargetPosition, "NPC", 2.5f, false]);
+        Assert.Equal(new Vector3(153.75f, -12.75f, 160.25f), Assert.Single(h.Requests).Position);
+        Assert.NotNull(h.Get("_pendingCrossing"));
+        h.Set("_phase", Enum.Parse(typeof(AutoWalkService).GetNestedType("Phase", BindingFlags.NonPublic)!, "Walking"));
+        InvokePlugin(plugin, "PollWalkingObject");
+        Assert.Single(h.Requests);
+        Assert.NotNull(h.Get("_pendingCrossing"));
+        // The bridge has been completed by the author's service. Only now may
+        // the plugin bind the exact live actor for the final path.
+        SetField(h.Walk, "_pendingCrossing", null);
+        h.Reachable = p => p;
+        InvokePlugin(plugin, "PollWalkingObject");
+        Assert.Equal(2, h.Requests.Count);
+        Assert.Equal(h.TargetPosition, h.Requests[1].Position);
+        Assert.True(h.Walk.IsTrackingObject);
+    }
+
+    private static object? InvokePlugin(Plugin plugin, string method, object?[]? args = null)
+        => typeof(Plugin).GetMethod(method, BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(plugin, args);
+    private static void SetField(object value, string name, object? field)
+        => value.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(value, field);
+
+    [Theory]
     [InlineData(0f)] [InlineData(15f)] [InlineData(-5f)]
     public void GroundWalkUsesNativeSearchAndMoveImmediately(float height)
     {
@@ -203,7 +308,9 @@ public sealed class AuthorNavigationTests
         internal List<Vector3> Waypoints = [];
         internal readonly List<(Vector3 Position, bool Fly, float Range)> Requests = [];
         internal Func<bool, bool> AcceptMove = _ => true;
+        internal Func<Vector3, Vector3?> Reachable = p => p;
         internal int Stops;
+        internal IGameObject Target = null!;
         internal string Phase => Get("_phase")!.ToString()!;
 
         internal Harness(string phase = "Idle")
@@ -213,7 +320,9 @@ public sealed class AuthorNavigationTests
                 _ => throw new NotSupportedException(m.Name) });
             var target = Proxy.Of<IGameObject>((m, _) => m.Name switch
             { "get_Position" => TargetPosition, "get_GameObjectId" => 44UL,
+                "get_ObjectKind" => Dalamud.Game.ClientState.Objects.Enums.ObjectKind.EventNpc, "get_BaseId" => 100u,
                 _ => throw new NotSupportedException(m.Name) });
+            Target = target;
             Set("_objectTable", Proxy.Of<IObjectTable>((m, _) => m.Name switch
             { "get_LocalPlayer" => player,
                 "GetEnumerator" => (TargetPresent ? new List<IGameObject> { target } : []).GetEnumerator(),
@@ -233,7 +342,7 @@ public sealed class AuthorNavigationTests
             Gate("_numWaypoints", Proxy.Of<ICallGateSubscriber<int>>((_, _) => Waypoints.Count));
             Gate("_listWaypoints", Proxy.Of<ICallGateSubscriber<List<Vector3>>>((_, _) => new List<Vector3>(Waypoints)));
             Gate("_nearestPoint", Proxy.Of<ICallGateSubscriber<Vector3, float, float, Vector3?>>((_, a) => (Vector3)a![0]!));
-            Gate("_nearestPointReachable", Proxy.Of<ICallGateSubscriber<Vector3, float, float, Vector3?>>((_, a) => (Vector3)a![0]!));
+            Gate("_nearestPointReachable", Proxy.Of<ICallGateSubscriber<Vector3, float, float, Vector3?>>((_, a) => Reachable((Vector3)a![0]!)));
             Gate("_moveCloseTo", Proxy.Of<ICallGateSubscriber<Vector3, bool, float, bool>>((_, a) =>
             {
                 var request = ((Vector3)a![0]!, (bool)a[1]!, (float)a[2]!);
@@ -254,6 +363,17 @@ public sealed class AuthorNavigationTests
         {
             Set("_following", true); Set("_followTargetId", 44UL);
             Set("_followStartTerritory", (ushort)133); Set("_followName", "Цель");
+        }
+        internal Plugin Plugin()
+        {
+            var plugin = (Plugin)RuntimeHelpers.GetUninitializedObject(typeof(Plugin));
+            SetField(plugin, "_autoWalk", Walk);
+            SetField(plugin, "_navigation", RuntimeHelpers.GetUninitializedObject(typeof(NavigationService)));
+            typeof(Plugin).GetProperty("ClientState", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(plugin,
+                Proxy.Of<IClientState>((m, _) => m.Name switch
+                { "get_MapId" => 2u, "get_TerritoryType" => Territory, _ => throw new NotSupportedException(m.Name) }));
+            typeof(Plugin).GetProperty("ObjectTable", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(plugin, Get("_objectTable"));
+            return plugin;
         }
         internal object? Invoke(string method, object?[]? args = null) => typeof(AutoWalkService)
             .GetMethod(method, BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(Walk, args);

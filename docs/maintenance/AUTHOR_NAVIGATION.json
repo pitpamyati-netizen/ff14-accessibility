@@ -85,11 +85,20 @@
     "tools/height-path-check/HeightPathCheck.csproj",
     "tools/height-path-check/Program.cs",
     "tools/navigation-mesh-check/NavigationMeshCheck.csproj",
-    "tools/navigation-mesh-check/Program.cs"
+    "tools/navigation-mesh-check/Program.cs",
+    "FF14Accessibility/Plugin.NavigationPathCheck.cs",
+    "FF14Accessibility/Services/NavigationPathCheck.cs"
   ],
   "HuntSearch": {
     "Path": "FF14Accessibility/Services/NavigationService.cs",
     "Signature": "    private void BuildHuntSearch(",
     "Sha256": "dd4084cde78432ed4620f4da8da6930cf8fd739398e8da76afe186f95e5be9a2"
-  }
+  },
+  "LocalOverrides": [
+    {
+      "Path": "FF14Accessibility/Services/AutoWalkService.cs",
+      "Sha256": "b4e627a2070e24ed6d04847f05c016a7b47cc81909357e37c6f669daa49048fc",
+      "Reason": "6.08.116: по запросу пользователя цель передана в первый запуск; подхват NPC сохраняет этап перехода автора; автоматическое перечисление длины пути убрано. Алгоритмы движения сохранены."
+    }
+  ]
 }

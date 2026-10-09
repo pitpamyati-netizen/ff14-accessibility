@@ -3111,17 +3111,12 @@ public sealed class NavigationService
     {
         if (!IsAetherytePlace(place)) return false;
 
-        var match = _objectTable
-            .Where(o => o.ObjectKind == ObjectKind.Aetheryte)
-            .Select(o => (Obj: o, Gap: Distance2D(o.Position, place.Position)))
-            .Where(x => x.Gap <= MarkerObjectMatchRange)
-            .OrderBy(x => x.Gap)
-            .FirstOrDefault();
-        if (match.Obj == null) return false;
+        var actor = ResolveAetheryteMarker(place);
+        if (actor == null) return false;
 
-        var accepted = TargetFromBrowser(match.Obj);
-        _log.Info($"[Orte] Objekt zum Marker '{place.Name}': id={match.Obj.GameObjectId:X}, " +
-                  $"{match.Gap:F1} m vom Marker, anvisiert={accepted}");
+        var accepted = TargetFromBrowser(actor);
+        _log.Info($"[Orte] Objekt zum Marker '{place.Name}': id={actor.GameObjectId:X}, " +
+                  $"{Distance2D(actor.Position, place.Position):F1} m vom Marker, anvisiert={accepted}");
         return accepted;
     }
 
@@ -3207,6 +3202,17 @@ public sealed class NavigationService
     public IGameObject? GetSelectedNavigationObject() => ResolveSelectionObject();
 
     private (uint Map, uint Objective, uint Base, byte Type, Vector3 Position)? _linkedObjectKey;
+    private (uint Map, PlaceDestination Place)? _placeObjectKey;
+    private ulong _placeObjectId;
+
+    private IGameObject? ResolveAetheryteMarker(PlaceDestination place)
+    {
+        var key = (_clientState.MapId, place);
+        if (_placeObjectKey != key) { _placeObjectKey = key; _placeObjectId = 0; }
+        var live = SelectionObjectResolver.AetheryteMarker(_objectTable, place.Position, _placeObjectId);
+        if (live != null) _placeObjectId = live.GameObjectId;
+        return live;
+    }
     private ulong _linkedObjectId;
     private LocalTransfer? _localTransfer;
     private QuestDestination? _transferQuest;
@@ -3248,6 +3254,9 @@ public sealed class NavigationService
         // or another nest with the same name.
         if (SelectedObjectDestination is { } selected)
             return SelectionObjectResolver.Exact(_objectTable, selected);
+
+        if (SelectedPlaceDestination is { IsZoneTransition: false } marker && IsAetherytePlace(marker))
+            return ResolveAetheryteMarker(marker);
 
         if (SelectedPlaceDestination is { IsZoneTransition: true } place
             && _places.FindLocalEntranceOnRoute(place.TargetMapId) is { } placeEntrance)
@@ -4778,8 +4787,9 @@ public sealed class NavigationService
             // CheckMeshEnd tells the truth as soon as the player actually walks.
             if (RouteIsOnlyAppendedDestination(Vector3.Distance(player.Position, _walkDestPosition)))
                 _log.Info("[Nav] Gehhilfe: Route besteht nur aus dem angehängten Ziel - keine Routen-Vorschau.");
-            else
-                _tolk.Speak(_routes.DescribeRoute(_walkTargetName, waypoints));
+            // A route description is available on the explicit preview key.
+            // Starting guidance must not announce its summed length as though
+            // it were Num5's distance to the destination.
         }
         else if (_route != null && _routeCursor < _route.Count)
         {

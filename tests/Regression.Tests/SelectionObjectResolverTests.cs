@@ -14,6 +14,40 @@ namespace Regression.Tests;
 
 public sealed class SelectionObjectResolverTests
 {
+    [Theory]
+    [InlineData("Ätheryt")]
+    [InlineData("Aethernet")]
+    public void LoadedMapCrystalUsesTheSameActualPositionForReadoutAndBothMovementModes(string type)
+    {
+        var crystal = Object(11, new(-144.2f, -1.8f, -168.5f), 9, ObjectKind.Aetheryte);
+        var (plugin, nav) = PluginWithObjects([crystal]);
+        typeof(NavigationService).GetProperty("SelectedPlaceDestination")!.SetValue(nav,
+            new PlaceDestination("Ульда: Ступени Нальда", type, new(-144, 0, -168), false, 0));
+        Field(nav, "_objectTable", typeof(Plugin).GetProperty("ObjectTable", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(plugin)!);
+        Field(nav, "_clientState", QuestAreaPointTests.Proxy.Of<IClientState>((m, _) => m.Name switch
+        { "get_MapId" => 13u, _ => throw new NotSupportedException(m.Name) }));
+        foreach (var readout in new[] { false, true })
+        {
+            var (result, point) = Resolve(plugin, readout);
+            Assert.Equal("Resolved", result);
+            Assert.Equal(crystal.Position, point);
+            Assert.Same(crystal, nav.GetSelectedNavigationObject());
+        }
+    }
+
+    [Fact]
+    public void AetheryteMarkersDoNotGuessBetweenFloorsOrReplaceARetainedInstance()
+    {
+        var marker = new Vector3(-144, 0, -168);
+        var lower = Object(11, marker with { Y = -2 }, 9, ObjectKind.Aetheryte);
+        var upper = Object(12, marker with { Y = 19 }, 10, ObjectKind.Aetheryte);
+        Assert.Null(SelectionObjectResolver.AetheryteMarker([lower, upper], marker));
+        Assert.Same(lower, SelectionObjectResolver.AetheryteMarker([lower, upper], marker, 11));
+        Assert.Null(SelectionObjectResolver.AetheryteMarker([upper], marker, 11));
+        Assert.Null(SelectionObjectResolver.AetheryteMarker([Object(13, marker)], marker));
+        Assert.Null(SelectionObjectResolver.AetheryteMarker([lower], marker + new Vector3(30, 0, 0)));
+    }
+
     [Fact]
     public void IntermediateTransferSelectsItsExactActorAndExpiresWhenTheSelectionChanges()
     {
@@ -202,7 +236,7 @@ public sealed class SelectionObjectResolverTests
     }
 
     [Fact]
-    public void ObjectReadoutDuringLocalTransferUsesItsAttendantRatherThanTheFinalNpc()
+    public void ObjectReadoutAndMovementKeepTheSelectedNpcRatherThanASuggestedAttendant()
     {
         var attendant = Object(22, new(10, 40, 20));
         var (plugin, nav) = PluginWithObjects([Object(11, new(30, 40, 20)), attendant]);
@@ -211,14 +245,16 @@ public sealed class SelectionObjectResolverTests
         Field(plugin, "_walkingBrowserSelection", goal);
         Field(plugin, "_walkingObjectMap", 11u); Field(plugin, "_walkingObjectTerritory", 128u);
         Field(plugin, "_walkingPoint", (new Vector3(10, 40, 20), "Attendant", 2.5f, false));
-        Field(plugin, "_walkingTransfer", new LocalTransfer(11, 100, 8, new(10, 40, 20), new(20, 40, 20), 131128));
         Field(plugin, "_walkingObject", new ObjectDestination(22, "Attendant", new(10, 40, 20), ObjectKind.EventNpc, 100));
         var client = QuestAreaPointTests.Proxy.Of<IClientState>((m, _) => m.Name switch
         { "get_MapId" => 11u, "get_TerritoryType" => 128u, _ => throw new NotSupportedException(m.Name) });
         typeof(Plugin).GetProperty("ClientState", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(plugin, client);
-        object?[] args = [Vector3.Zero, "", 0f, false, false, true];
-        typeof(Plugin).GetMethod("TryResolveSelectedDestination", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(plugin, args);
-        Assert.Equal(attendant.Position, (Vector3)args[0]!); Assert.Equal("Attendant", args[1]);
+        foreach (var readout in new[] { true, false })
+        {
+            object?[] args = [Vector3.Zero, "", 0f, false, false, readout];
+            typeof(Plugin).GetMethod("TryResolveSelectedDestination", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(plugin, args);
+            Assert.Equal(goal.Position, (Vector3)args[0]!); Assert.Equal("Final NPC", args[1]);
+        }
     }
 
     internal static (Plugin Plugin, NavigationService Navigation) PluginWithObjects(IGameObject[] objects)

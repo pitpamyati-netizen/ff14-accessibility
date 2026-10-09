@@ -41,7 +41,8 @@ function Get-LocalVerificationFingerprint([string]$Root) {
             ForEach-Object { $_.FullName }
     })
     # The pinned author hashes are verification input, not ordinary prose.
-    $files = [string[]]@($files + (Join-Path $Root 'docs\maintenance\AUTHOR_NAVIGATION.json'))
+    $files = [string[]]@($files + (Join-Path $Root 'docs\maintenance\AUTHOR_NAVIGATION.json') +
+        (Join-Path $Root 'tools\nav-route-check\NavigationPathCheck.cs'))
     [Array]::Sort($files, [StringComparer]::Ordinal)
     foreach ($file in $files) {
         $lines += $file.Substring($Root.Length + 1).Replace('\', '/') + ':' +

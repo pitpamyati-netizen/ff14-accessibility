@@ -3,10 +3,10 @@ param()
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'Local-Common.ps1')
 $fixture = Join-Path (Get-LocalRoot) ('artifacts\verification-gate\' + [Guid]::NewGuid().ToString('N'))
-foreach ($dir in @('FF14Accessibility', 'tests', 'scripts', 'Installer\Russian', 'artifacts', 'docs\maintenance')) {
+foreach ($dir in @('FF14Accessibility', 'tests', 'scripts', 'Installer\Russian', 'artifacts', 'docs\maintenance', 'tools\nav-route-check')) {
     New-Item -ItemType Directory -Force -Path (Join-Path $fixture $dir) | Out-Null
 }
-foreach ($name in @('LICENSE', 'THIRD-PARTY-NOTICES.md', 'FF14Accessibility\sample.cs', 'tests\sample.cs', 'scripts\sample.ps1', 'Installer\Russian\sample.cs', 'docs\maintenance\AUTHOR_NAVIGATION.json')) {
+foreach ($name in @('LICENSE', 'THIRD-PARTY-NOTICES.md', 'FF14Accessibility\sample.cs', 'tests\sample.cs', 'scripts\sample.ps1', 'Installer\Russian\sample.cs', 'docs\maintenance\AUTHOR_NAVIGATION.json', 'tools\nav-route-check\NavigationPathCheck.cs')) {
     Set-Content -LiteralPath (Join-Path $fixture $name) -Value 'original' -Encoding UTF8
 }
 function Expect-Rejection([scriptblock]$Action, [string]$Scenario) {
@@ -29,7 +29,7 @@ foreach ($field in @('Passed', 'Total', 'Skipped')) {
     $report[$field] = $previous
 }
 Save-Report
-foreach ($file in @('FF14Accessibility\sample.cs', 'tests\sample.cs', 'scripts\sample.ps1', 'Installer\Russian\sample.cs', 'docs\maintenance\AUTHOR_NAVIGATION.json')) {
+foreach ($file in @('FF14Accessibility\sample.cs', 'tests\sample.cs', 'scripts\sample.ps1', 'Installer\Russian\sample.cs', 'docs\maintenance\AUTHOR_NAVIGATION.json', 'tools\nav-route-check\NavigationPathCheck.cs')) {
     Set-Content -LiteralPath (Join-Path $fixture $file) -Value 'modified' -Encoding UTF8
     Expect-Rejection { Assert-LocalVerification $fixture } "changed $file"; $checks++
     Set-Content -LiteralPath (Join-Path $fixture $file) -Value 'original' -Encoding UTF8
