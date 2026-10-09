@@ -27,7 +27,15 @@ Verify-Local прошла: Release без ошибок и предупрежде
 ZIP содержит 141 файл без исходников; все записи сверены по SHA-256.
 DLL SHA-256 5102A6E466FB6C99B28068F231A5DDEAB5BB2A4E4C5BE21BC49B186F1F5BEF40.
 Игровая установка не изменялась; InGameVerified=false.
-Публикация пока не выполнена; результат будет добавлен после её проверки.
+Коммит 7bba1f056b45d520387d1c6eea8de9e3038b2953 отправлен в
+origin/feature/russian-accessibility-recovery. Publish-Release -CheckOnly
+прошла; v6.08.115 опубликован как Latest, ID407694804,
+draft=false/prerelease=false. Текст, метка и назначение совпали.
+Все четыре файла скачаны обратно: размеры, digest GitHub, SHA-256,
+четыре строки сумм и все 141/36 записей обоих ZIP совпали.
+Настоящий ReleaseClient.Latest выбрал 6.08.115 и нужный ZIP.
+Отчёт: artifacts/publication/20261009-151333-584/round-trip/verification.json.
+InGameVerified=false.
 
 ## Проверка полного пути и внутренних проходов — 6.08.114
 
