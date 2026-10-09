@@ -10,6 +10,12 @@
 [VERIFICATION.md](VERIFICATION.md). Описание выпуска —
 [6.08.116.md](../releases/6.08.116.md). Живая FFXIV/NVDA/Tolk не проверена.
 
+Релиз [v6.08.116](https://github.com/pitpamyati-netizen/ff14-accessibility/releases/tag/v6.08.116)
+опубликован из 616ef59 после отправки ветки и успешной CheckOnly.
+Он обычный и последний; все четыре файла скачаны обратно, их размеры,
+GitHub digest и SHA256SUMS совпали. Все 141 записи игрового ZIP проверены,
+исходников внутри нет. Настоящий ReleaseClient.Latest выбирает 6.08.116.
+
 Файлы публикуются в [релизах этого репозитория](https://github.com/pitpamyati-netizen/ff14-accessibility/releases).
 Публикация выполняется по запросу владельца; обычное изменение исходников
 само по себе не выпускает новую версию.
